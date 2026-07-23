@@ -49,6 +49,44 @@ describe("pi-tickets dispatch", () => {
     const client = fakeClient(() => ({}));
     await expect(dispatch(client, { action: "delete_everything" })).rejects.toThrow(/unknown action/);
   });
+
+  it("focus_set requires ref and routes to focus.set", async () => {
+    const client = fakeClient((op, input) => {
+      expect(op).toBe("focus.set");
+      expect(input).toEqual({ ref: "github:#7" });
+      return { focus: { ref: "github:#7", url: "https://github.com/acme/widgets/issues/7" } };
+    });
+    const result = (await dispatch(client, { action: "focus_set", ref: "github:#7" })) as { focus: { url: string } };
+    expect(result.focus.url).toBe("https://github.com/acme/widgets/issues/7");
+    await expect(dispatch(client, { action: "focus_set" })).rejects.toThrow(/requires ref/);
+  });
+
+  it("focus_get routes to focus.get with no input", async () => {
+    const client = fakeClient((op, input) => {
+      expect(op).toBe("focus.get");
+      expect(input).toEqual({});
+      return { focus: null };
+    });
+    await dispatch(client, { action: "focus_get" });
+  });
+
+  it("focus_pause forwards an optional reason", async () => {
+    const client = fakeClient((op, input) => {
+      expect(op).toBe("focus.pause");
+      expect(input).toEqual({ reason: "waiting on review" });
+      return { focus: { status: "paused" } };
+    });
+    await dispatch(client, { action: "focus_pause", reason: "waiting on review" });
+  });
+
+  it("focus_unpause and focus_clear route with no input", async () => {
+    const client = fakeClient((op) => {
+      expect(["focus.unpause", "focus.clear"]).toContain(op);
+      return op === "focus.clear" ? { cleared: true } : { focus: { status: "active" } };
+    });
+    await dispatch(client, { action: "focus_unpause" });
+    await dispatch(client, { action: "focus_clear" });
+  });
 });
 
 describe("extension registration", () => {

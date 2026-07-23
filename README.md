@@ -51,6 +51,15 @@ bun run src/cli/index.ts create -b github "Fix the thing" --label bug
 bun run src/cli/index.ts comment add jira:PROJ-42 "Looks good, shipping"
 bun run src/cli/index.ts ledger search "login bug"
 bun run src/cli/index.ts ledger stats
+
+# Track the single ticket you're currently working on, with its full URL —
+# survives daemon restarts, resolves the ref via the ledger first (no live
+# call if it's already cached) and falls back to the backend otherwise.
+bun run src/cli/index.ts focus set jira:PROJ-42
+bun run src/cli/index.ts focus get
+bun run src/cli/index.ts focus pause "waiting on review"
+bun run src/cli/index.ts focus unpause
+bun run src/cli/index.ts focus clear
 ```
 
 Once installed as a package, the same commands are available as `tickets`
@@ -139,7 +148,8 @@ up the new credential — `buildRepositories()` runs once at daemon startup.
 `extensions/pi-tickets/` registers a single `tickets` tool for
 [pi](https://github.com/badlogic/pi) with one action per CLI command (`list`,
 `get`, `create`, `update`, `search`, `children`, `comments`, `comment_add`,
-`backends`, `ledger_search`, `ledger_stats`). It talks to the same daemon
+`backends`, `ledger_search`, `ledger_stats`, `focus_set`, `focus_get`,
+`focus_pause`, `focus_unpause`, `focus_clear`). It talks to the same daemon
 through the same authenticated RPC client the CLI uses — never a direct
 backend call or a direct SQLite open. OAuth login is deliberately **not** a
 tool action: approving access requires a human in a browser, which belongs

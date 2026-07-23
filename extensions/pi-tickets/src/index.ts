@@ -30,6 +30,11 @@ const ACTIONS = [
   "backends",
   "ledger_search",
   "ledger_stats",
+  "focus_set",
+  "focus_get",
+  "focus_pause",
+  "focus_unpause",
+  "focus_clear",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 export { ACTIONS };
@@ -47,6 +52,11 @@ const parameters = Type.Object({
     Type.Literal("backends"),
     Type.Literal("ledger_search"),
     Type.Literal("ledger_stats"),
+    Type.Literal("focus_set"),
+    Type.Literal("focus_get"),
+    Type.Literal("focus_pause"),
+    Type.Literal("focus_unpause"),
+    Type.Literal("focus_clear"),
   ]),
   ref: Type.Optional(Type.String({ description: 'Issue ref "backend:key", e.g. "jira:PROJ-42" or "github:#7". Required for get/update/children/comments/comment_add.' })),
   backend: Type.Optional(Type.String({ description: "Backend name, e.g. github/gitlab/jira or a configured multi-instance name. Required for list/create/search." })),
@@ -60,6 +70,7 @@ const parameters = Type.Object({
   query: Type.Optional(Type.String({ description: "Search text. Required for search/ledger_search." })),
   body: Type.Optional(Type.String({ description: "Comment body. Required for comment_add." })),
   limit: Type.Optional(Type.Number()),
+  reason: Type.Optional(Type.String({ description: "Optional reason for focus_pause, e.g. \"waiting on review\"." })),
 });
 
 export async function dispatch(client: TicketsRpcClient, params: Record<string, unknown>): Promise<unknown> {
@@ -125,6 +136,17 @@ export async function dispatch(client: TicketsRpcClient, params: Record<string, 
       return client.call("ledger.search", { query: params.query as string, limit: params.limit as number | undefined });
     case "ledger_stats":
       return client.call("ledger.stats", {});
+    case "focus_set":
+      if (!ref) throw new Error('action "focus_set" requires ref');
+      return client.call("focus.set", { ref });
+    case "focus_get":
+      return client.call("focus.get", {});
+    case "focus_pause":
+      return client.call("focus.pause", { reason: params.reason as string | undefined });
+    case "focus_unpause":
+      return client.call("focus.unpause", {});
+    case "focus_clear":
+      return client.call("focus.clear", {});
     default:
       throw new Error(`unknown action: ${String(action)}`);
   }

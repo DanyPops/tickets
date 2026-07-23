@@ -33,7 +33,7 @@ describe("tickets daemon walking skeleton", () => {
     const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
 
     const github = new FakeRepository("github", [
-      { ref: "github:#1", id: "1", key: "#1", title: "Skeleton issue", status: "todo", priority: "none" },
+      { ref: "github:#1", id: "1", key: "#1", title: "Skeleton issue", status: "todo", priority: "none", url: "https://github.com/acme/widgets/issues/1" },
     ]);
 
     const { options, ledger, db } = bootstrap({
@@ -76,6 +76,13 @@ describe("tickets daemon walking skeleton", () => {
     const ledgerHit = await client.call("ledger.search", { query: "Skeleton" });
     expect(ledgerHit.issues[0]?.title).toBe("Skeleton issue");
     expect(ledger.stats()).toEqual([{ backend: "github", count: 1 }]);
+
+    // Focus survives as its own real op against the real daemon+SQLite stack,
+    // carrying the issue's full web URL, not just its ref.
+    const focused = await client.call("focus.set", { ref: "github:#1" });
+    expect(focused.focus.url).toBe("https://github.com/acme/widgets/issues/1");
+    const readBack = await client.call("focus.get", {});
+    expect(readBack.focus?.ref).toBe("github:#1");
 
     db.close();
   });

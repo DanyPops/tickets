@@ -8,12 +8,15 @@ import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBear
 import type { Logger } from "@danypops/daemon-kit/logging";
 import { AuthRequiredError, IssueNotFoundError } from "../adapters/errors.js";
 import { NotSupportedError, type TicketService, UnknownBackendError } from "../application/service.js";
+import { parseRef } from "../domain/issue.js";
+import { FocusError, type FocusStore } from "./focus.js";
 import type { Ledger } from "./ledger.js";
 import { TICKET_OPERATIONS, type TicketOpInputs, type TicketOperation, type TicketOpOutputs } from "./ops.js";
 
 export interface TicketsAppDeps {
   service: TicketService;
   ledger: Ledger;
+  focusStore: FocusStore;
   token: string;
   version: string;
   logger?: Logger;
@@ -44,6 +47,22 @@ const handlers: { [Op in TicketOperation]: Handler<Op> } = {
   "issue.comment_add": async (deps, input) => ({ comment: await deps.service.addComment(input.ref, input.body) }),
   "ledger.search": async (deps, input) => ({ issues: deps.ledger.search(input.query, input.limit) }),
   "ledger.stats": async (deps) => ({ backends: deps.ledger.stats() }),
+  "focus.set": async (deps, input) => {
+    // Ledger-first: focusing a ticket already pooled locally needs no live
+    // backend call. Otherwise fall back to a live get (also validates the
+    // ref actually exists) and opportunistically warm the ledger with it,
+    // since a ticket you're about to focus on is exactly the kind of issue
+    // worth having cached locally.
+    const cached = deps.ledger.get(input.ref);
+    const issue = cached ?? (await deps.service.get(input.ref));
+    if (!cached) deps.ledger.upsert(parseRef(input.ref).backend, issue);
+    if (!issue.url) throw new FocusError(`issue "${input.ref}" has no URL from its backend; cannot focus without a full link`);
+    return { focus: deps.focusStore.set(input.ref, issue.title, issue.url) };
+  },
+  "focus.get": async (deps) => ({ focus: deps.focusStore.get() ?? null }),
+  "focus.pause": async (deps, input) => ({ focus: deps.focusStore.pause(input.reason) }),
+  "focus.unpause": async (deps) => ({ focus: deps.focusStore.unpause() }),
+  "focus.clear": async (deps) => ({ cleared: deps.focusStore.clear() }),
   "daemon.shutdown": async (deps) => {
     // Deferred so this handler's own response has already been handed back
     // to Bun.serve before the process starts tearing down.
@@ -58,7 +77,7 @@ function isTicketOperation(value: unknown): value is TicketOperation {
 
 function statusFor(error: unknown): number {
   if (error instanceof IssueNotFoundError) return 404;
-  if (error instanceof UnknownBackendError || error instanceof NotSupportedError) return 400;
+  if (error instanceof UnknownBackendError || error instanceof NotSupportedError || error instanceof FocusError) return 400;
   if (error instanceof AuthRequiredError) return 422;
   return 500;
 }

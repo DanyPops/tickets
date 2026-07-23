@@ -13,6 +13,7 @@ import type { StartDaemonOptions } from "@danypops/daemon-kit/daemon";
 import { TicketService } from "../application/service.js";
 import { buildRepositories, type Config, loadConfig } from "../config/config.js";
 import type { IssueRepository } from "../ports/repository.js";
+import { FOCUS_MIGRATIONS, FocusStore } from "./focus.js";
 import { Ledger, LEDGER_MIGRATIONS } from "./ledger.js";
 import { TICKETS_DAEMON_NAMES } from "./ops.js";
 import { buildApp } from "./server.js";
@@ -39,6 +40,7 @@ export interface BootstrapOptions {
 export interface BootstrappedDaemon {
   db: Database;
   ledger: Ledger;
+  focusStore: FocusStore;
   service: TicketService;
   options: StartDaemonOptions;
 }
@@ -49,8 +51,9 @@ const DEFAULT_CHECKPOINT_INTERVAL_MS = 10 * 60_000;
 export function bootstrap(opts: BootstrapOptions = {}): BootstrappedDaemon {
   const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, opts.pathEnv);
   const token = ensureAuthToken(paths.token, "Tickets");
-  const db = openSqliteWithPragmas(paths.database, { migrations: LEDGER_MIGRATIONS });
+  const db = openSqliteWithPragmas(paths.database, { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS] });
   const ledger = new Ledger(db);
+  const focusStore = new FocusStore(db);
   const logger = opts.logger ?? createLogger("tickets-daemon", { levelEnvVar: "TICKETS_LOG_LEVEL" });
   const repos = opts.repos ?? buildRepositories(opts.config ?? loadConfig());
   const service = new TicketService(repos);
@@ -72,6 +75,7 @@ export function bootstrap(opts: BootstrapOptions = {}): BootstrappedDaemon {
       buildApp({
         service,
         ledger,
+        focusStore,
         token,
         version,
         logger,
@@ -82,5 +86,5 @@ export function bootstrap(opts: BootstrapOptions = {}): BootstrappedDaemon {
     },
   };
 
-  return { db, ledger, service, options };
+  return { db, ledger, focusStore, service, options };
 }

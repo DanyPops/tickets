@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
 import { TicketService } from "../../src/application/service.js";
 import { buildApp } from "../../src/daemon/server.js";
+import { FOCUS_MIGRATIONS, FocusStore } from "../../src/daemon/focus.js";
 import { Ledger, LEDGER_MIGRATIONS } from "../../src/daemon/ledger.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
@@ -15,14 +16,15 @@ afterEach(() => {
 });
 
 function makeApp() {
-  db = openSqliteWithPragmas(":memory:", { migrations: LEDGER_MIGRATIONS });
+  db = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS] });
   const ledger = new Ledger(db);
+  const focusStore = new FocusStore(db);
   const github = new FakeRepository("github", [
-    { ref: "github:#1", id: "1", key: "#1", title: "First", status: "todo", priority: "none" },
+    { ref: "github:#1", id: "1", key: "#1", title: "First", status: "todo", priority: "none", url: "https://github.com/acme/widgets/issues/1" },
   ]);
   const service = new TicketService({ github });
-  const app = buildApp({ service, ledger, token: TOKEN, version: "0.0.0-test" });
-  return { app, ledger, service };
+  const app = buildApp({ service, ledger, focusStore, token: TOKEN, version: "0.0.0-test" });
+  return { app, ledger, focusStore, service };
 }
 
 function req(path: string, init: RequestInit = {}, token = TOKEN): Request {
@@ -91,14 +93,92 @@ describe("daemon HTTP surface", () => {
     expect(body.result.issues[0]?.title).toBe("Cached only");
   });
 
+  it("focus.set resolves the ref's real url from the live backend and focus.get returns it back", async () => {
+    const { app } = makeApp();
+    const setRes = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1" } }) }),
+    );
+    expect(setRes.status).toBe(200);
+    const setBody = (await setRes.json()) as { result: { focus: { ref: string; title: string; url: string; status: string; updatedAt: string } } };
+    expect(setBody.result.focus).toEqual({
+      ref: "github:#1",
+      title: "First",
+      url: "https://github.com/acme/widgets/issues/1",
+      status: "active",
+      updatedAt: setBody.result.focus.updatedAt,
+    });
+
+    const getRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.get", input: {} }) }));
+    const getBody = (await getRes.json()) as { result: { focus: { ref: string } | null } };
+    expect(getBody.result.focus?.ref).toBe("github:#1");
+  });
+
+  it("focus.set warms the ledger with the resolved issue when it wasn't already cached", async () => {
+    const { app, ledger } = makeApp();
+    expect(ledger.get("github:#1")).toBeUndefined();
+    await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1" } }) }));
+    expect(ledger.get("github:#1")?.title).toBe("First");
+  });
+
+  it("focus.set prefers an already-cached ledger entry over a live call", async () => {
+    const { app, ledger, service } = makeApp();
+    ledger.upsert("github", { ref: "github:#1", id: "1", key: "#1", title: "Ledger version", status: "todo", priority: "none", url: "https://github.com/acme/widgets/issues/1" });
+    const spy = service.get.bind(service);
+    let liveCalls = 0;
+    service.get = async (ref: string) => {
+      liveCalls++;
+      return spy(ref);
+    };
+    const res = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1" } }) }));
+    const body = (await res.json()) as { result: { focus: { title: string } } };
+    expect(body.result.focus.title).toBe("Ledger version");
+    expect(liveCalls).toBe(0);
+  });
+
+  it("focus.set on an unknown ref maps to 404, same as issue.get", async () => {
+    const { app } = makeApp();
+    const res = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.set", input: { ref: "github:#999" } }) }));
+    expect(res.status).toBe(404);
+  });
+
+  it("focus.pause / focus.unpause / focus.clear round-trip through real state transitions, invalid ones map to 400", async () => {
+    const { app } = makeApp();
+    await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1" } }) }));
+
+    const badUnpause = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.unpause", input: {} }) }));
+    expect(badUnpause.status).toBe(400); // already active
+
+    const pauseRes = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.pause", input: { reason: "waiting on review" } }) }),
+    );
+    expect(pauseRes.status).toBe(200);
+    const pauseBody = (await pauseRes.json()) as { result: { focus: { status: string; pauseReason?: string } } };
+    expect(pauseBody.result.focus.status).toBe("paused");
+    expect(pauseBody.result.focus.pauseReason).toBe("waiting on review");
+
+    const unpauseRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.unpause", input: {} }) }));
+    const unpauseBody = (await unpauseRes.json()) as { result: { focus: { status: string } } };
+    expect(unpauseBody.result.focus.status).toBe("active");
+
+    const clearRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.clear", input: {} }) }));
+    const clearBody = (await clearRes.json()) as { result: { cleared: boolean } };
+    expect(clearBody.result.cleared).toBe(true);
+
+    const getAfterClear = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.get", input: {} }) }));
+    const getAfterClearBody = (await getAfterClear.json()) as { result: { focus: unknown } };
+    expect(getAfterClearBody.result.focus).toBeNull();
+  });
+
   it("daemon.shutdown responds before invoking onShutdownRequested, never calls it synchronously", async () => {
-    db = openSqliteWithPragmas(":memory:", { migrations: LEDGER_MIGRATIONS });
+    db = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS] });
     const ledger = new Ledger(db);
+    const focusStore = new FocusStore(db);
     const service = new TicketService({});
     let calls = 0;
     const app = buildApp({
       service,
       ledger,
+      focusStore,
       token: TOKEN,
       version: "0.0.0-test",
       onShutdownRequested: () => {

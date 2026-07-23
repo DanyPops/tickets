@@ -156,6 +156,43 @@ program
     await withClient((client) => client.call("backends.list", {}));
   });
 
+const focus = program.command("focus").description("track the single ticket you're currently working on, with its full URL");
+
+focus
+  .command("set <ref>")
+  .description('focus a ticket, e.g. "jira:PROJ-42" or "github:#7" (resolves and stores its real web URL)')
+  .action(async (ref: string) => {
+    await withClient((client) => client.call("focus.set", { ref }));
+  });
+
+focus
+  .command("get")
+  .description("show the currently focused ticket, if any")
+  .action(async () => {
+    await withClient((client) => client.call("focus.get", {}));
+  });
+
+focus
+  .command("pause [reason]")
+  .description("pause the current focus without losing it (e.g. stepping away to do something else)")
+  .action(async (reason: string | undefined) => {
+    await withClient((client) => client.call("focus.pause", { reason }));
+  });
+
+focus
+  .command("unpause")
+  .description("resume a paused focus")
+  .action(async () => {
+    await withClient((client) => client.call("focus.unpause", {}));
+  });
+
+focus
+  .command("clear")
+  .description("clear the current focus")
+  .action(async () => {
+    await withClient((client) => client.call("focus.clear", {}));
+  });
+
 const daemon = program.command("daemon").description("manage the tickets daemon process");
 
 daemon

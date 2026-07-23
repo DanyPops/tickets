@@ -5,6 +5,7 @@
  * import from either side without pulling in bun:sqlite or Bun.serve.
  */
 import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../domain/issue.js";
+import type { TicketFocusState } from "./focus.js";
 
 export type TicketOperation =
   | "backends.list"
@@ -18,6 +19,11 @@ export type TicketOperation =
   | "issue.comment_add"
   | "ledger.search"
   | "ledger.stats"
+  | "focus.set"
+  | "focus.get"
+  | "focus.pause"
+  | "focus.unpause"
+  | "focus.clear"
   | "daemon.shutdown";
 
 export interface TicketOpInputs extends Record<TicketOperation, unknown> {
@@ -32,6 +38,11 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "issue.comment_add": { ref: string; body: string };
   "ledger.search": { query: string; limit?: number };
   "ledger.stats": Record<string, never>;
+  "focus.set": { ref: string };
+  "focus.get": Record<string, never>;
+  "focus.pause": { reason?: string };
+  "focus.unpause": Record<string, never>;
+  "focus.clear": Record<string, never>;
   "daemon.shutdown": Record<string, never>;
 }
 
@@ -47,6 +58,11 @@ export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
   "issue.comment_add": { comment: Comment };
   "ledger.search": { issues: Issue[] };
   "ledger.stats": { backends: { backend: string; count: number }[] };
+  "focus.set": { focus: TicketFocusState };
+  "focus.get": { focus: TicketFocusState | null };
+  "focus.pause": { focus: TicketFocusState };
+  "focus.unpause": { focus: TicketFocusState };
+  "focus.clear": { cleared: boolean };
   "daemon.shutdown": { stopping: true };
 }
 
@@ -62,6 +78,11 @@ export const TICKET_OPERATIONS: TicketOperation[] = [
   "issue.comment_add",
   "ledger.search",
   "ledger.stats",
+  "focus.set",
+  "focus.get",
+  "focus.pause",
+  "focus.unpause",
+  "focus.clear",
   "daemon.shutdown",
 ];
 
