@@ -27,7 +27,10 @@
   },
   "dependencies": {
     "@danypops/daemon-kit": "^0.2.1",
+    "@gitbeaker/rest": "^43.8.0",
     "commander": "^12.1.0",
+    "jira.js": "^5.4.0",
+    "octokit": "^5.0.5",
     "yaml": "^2.6.0"
   },
   "devDependencies": {

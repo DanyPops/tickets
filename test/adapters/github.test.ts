@@ -2,6 +2,13 @@ import { describe, expect, it } from "bun:test";
 import { GitHubRepository } from "../../src/adapters/github.js";
 import { AuthRequiredError } from "../../src/adapters/errors.js";
 
+// octokit inspects the response's content-type header to decide whether to JSON-parse the
+// body (unlike the old hand-rolled HttpClient, which parsed blindly) -- real GitHub API
+// responses always send this, so the mock must too, or `.data` comes back as a raw string.
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
 function mockFetch(handler: (url: string, init?: RequestInit) => Response): typeof fetch {
   return (async (input: string | URL | Request, init?: RequestInit) => handler(String(input), init)) as typeof fetch;
 }
@@ -23,7 +30,7 @@ describe("GitHubRepository", () => {
   it("get() fetches /repos/{owner}/{repo}/issues/{number} and maps fields", async () => {
     const fetchImpl = mockFetch((url) => {
       expect(url).toBe("https://api.github.com/repos/acme/widgets/issues/7");
-      return new Response(JSON.stringify(RAW_ISSUE(7, "Fix the thing")), { status: 200 });
+      return jsonResponse(RAW_ISSUE(7, "Fix the thing"));
     });
     const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", token: "t", fetchImpl });
     const issue = await repo.get("#7");
@@ -36,7 +43,7 @@ describe("GitHubRepository", () => {
   it("two different explicit issue numbers return two different issues", async () => {
     const fetchImpl = mockFetch((url) => {
       const number = Number(url.split("/").pop());
-      return new Response(JSON.stringify(RAW_ISSUE(number, `Issue #${number}`)), { status: 200 });
+      return jsonResponse(RAW_ISSUE(number, `Issue #${number}`));
     });
     const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", token: "t", fetchImpl });
     const a = await repo.get("#1");
@@ -48,10 +55,7 @@ describe("GitHubRepository", () => {
 
   it("filters out pull requests from list()", async () => {
     const fetchImpl = mockFetch(() =>
-      new Response(
-        JSON.stringify([RAW_ISSUE(1, "Real issue"), { ...RAW_ISSUE(2, "A PR"), pull_request: {} }]),
-        { status: 200 },
-      ),
+      jsonResponse([RAW_ISSUE(1, "Real issue"), { ...RAW_ISSUE(2, "A PR"), pull_request: {} }]),
     );
     const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl });
     const issues = await repo.list({});
@@ -60,7 +64,7 @@ describe("GitHubRepository", () => {
   });
 
   it("refuses to create/update without a token (read-only mode)", async () => {
-    const fetchImpl = mockFetch(() => new Response("{}", { status: 200 }));
+    const fetchImpl = mockFetch(() => jsonResponse({}));
     const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl });
     await expect(repo.create({ title: "x" })).rejects.toThrow(AuthRequiredError);
   });
@@ -69,5 +73,32 @@ describe("GitHubRepository", () => {
     const fetchImpl = mockFetch(() => new Response("not found", { status: 404 }));
     const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl });
     await expect(repo.get("#999")).rejects.toThrow(/not found/);
+  });
+
+  it("update() with an assignee sends assignees: [login] -- GitHub's real write contract, confirmed via octokit's generated types", async () => {
+    let sentBody: Record<string, unknown> | undefined;
+    const fetchImpl = mockFetch((url, init) => {
+      if (init?.method === "PATCH") {
+        sentBody = JSON.parse(String(init.body));
+        return jsonResponse(RAW_ISSUE(7, "Fix the thing"));
+      }
+      return jsonResponse(RAW_ISSUE(7, "Fix the thing"));
+    });
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", token: "t", fetchImpl });
+    await repo.update("#7", { assignee: "carol" });
+    expect(sentBody?.assignees).toEqual(["carol"]);
+  });
+
+  it("update() with assignee: '' unassigns (empty assignees array), not a no-op", async () => {
+    let sentBody: Record<string, unknown> | undefined;
+    const fetchImpl = mockFetch((url, init) => {
+      if (init?.method === "PATCH") {
+        sentBody = JSON.parse(String(init.body));
+      }
+      return jsonResponse(RAW_ISSUE(7, "Fix the thing"));
+    });
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", token: "t", fetchImpl });
+    await repo.update("#7", { assignee: "" });
+    expect(sentBody?.assignees).toEqual([]);
   });
 });

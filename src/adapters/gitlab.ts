@@ -1,14 +1,21 @@
 /**
  * GitLab adapter — driven implementation of IssueRepository/CommentCapable against
- * the GitLab REST API v4 (docs: https://docs.gitlab.com/api/issues/).
- * Self-hosted base URLs are validated to reject SSRF-prone targets (private/loopback
- * IPs, non-HTTPS non-localhost) before any request is made.
+ * the GitLab REST API v4, via @gitbeaker/rest (github.com/jdalrymple/gitbeaker)
+ * rather than a hand-rolled HTTP client: a mature, actively-maintained,
+ * TypeScript-native GitLab SDK supporting both gitlab.com and self-managed
+ * instances. Its typed `assignee_ids: number[]` (not a username) matches GitLab's
+ * real write contract exactly — a class of bug this adapter used to have (see
+ * RESEARCH.md): assignee was silently dropped in update() because a hand-rolled
+ * body never resolved a username to the numeric ID GitLab's API actually requires.
+ * Self-hosted base URLs are still validated to reject SSRF-prone targets before
+ * any request is made.
  */
+import { Gitlab } from "@gitbeaker/rest";
+import { GitbeakerRequestError, type RequesterType, type ResourceOptions } from "@gitbeaker/requester-utils";
 import { isIP } from "node:net";
 import type { Comment, CreateInput, Issue, ListFilter, Status, UpdateInput } from "../domain/issue.js";
 import { parsePriority } from "../domain/issue.js";
-import { AuthRequiredError, InvalidUrlError } from "./errors.js";
-import { type FetchLike, HttpClient } from "./http.js";
+import { ApiError, AuthRequiredError, InvalidUrlError, IssueNotFoundError } from "./errors.js";
 
 export interface GitLabOptions {
   projectId: string;
@@ -20,10 +27,13 @@ export interface GitLabOptions {
    */
   tokenType?: "private" | "oauth";
   baseUrl?: string;
-  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+  /** Injected in tests instead of a real network call — see @gitbeaker/requester-utils' requesterFn. */
+  requesterFn?: (resourceOptions: ResourceOptions) => RequesterType;
 }
 
 interface GlUser {
+  id: number;
   username: string;
   name: string;
 }
@@ -49,10 +59,11 @@ interface GlNote {
 }
 
 const DEFAULT_URL = "https://gitlab.com";
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export class GitLabRepository {
   readonly name: string;
-  private readonly http: HttpClient;
+  private readonly client: InstanceType<typeof Gitlab>;
   private readonly projectId: string;
   private readonly readOnly: boolean;
 
@@ -61,17 +72,20 @@ export class GitLabRepository {
     const baseUrl = opts.baseUrl?.trim() || DEFAULT_URL;
     validateUrl(baseUrl);
     this.name = name;
-    this.projectId = encodeURIComponent(opts.projectId);
+    this.projectId = opts.projectId;
     this.readOnly = !opts.token;
-    this.http = new HttpClient({
-      baseUrl,
-      backend: "gitlab",
-      fetchImpl: opts.fetchImpl,
-      headers: opts.token
+    this.client = new Gitlab({
+      host: baseUrl,
+      // gitbeaker generates a fresh AbortSignal.timeout() per request internally when this
+      // is set (confirmed by reading its source), so a stalled call fails predictably
+      // instead of hanging -- same class of gap the octokit adapter needed a manual fix for.
+      queryTimeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      ...(opts.token
         ? opts.tokenType === "oauth"
-          ? { Authorization: `Bearer ${opts.token}` }
-          : { "PRIVATE-TOKEN": opts.token }
-        : {},
+          ? { oauthToken: opts.token }
+          : { token: opts.token }
+        : {}),
+      ...(opts.requesterFn ? { requesterFn: opts.requesterFn } : {}),
     });
   }
 
@@ -81,47 +95,56 @@ export class GitLabRepository {
 
   async list(filter: ListFilter): Promise<Issue[]> {
     const limit = filter.limit && filter.limit > 0 ? filter.limit : 50;
-    const params = new URLSearchParams({ per_page: String(limit) });
-    if (filter.status) params.set("state", mapStatusToGitLab(filter.status));
-    if (filter.assignee) params.set("assignee_username", filter.assignee);
-    if (filter.labels?.length) params.set("labels", filter.labels.join(","));
-
-    const raw = (await this.http.get<GlIssue[]>(`/api/v4/projects/${this.projectId}/issues?${params}`)) ?? [];
+    const raw = await this.call<GlIssue[]>(() =>
+      this.client.Issues.all({
+        projectId: this.projectId,
+        perPage: limit,
+        state: filter.status ? mapStatusToGitLab(filter.status) : undefined,
+        assigneeUsername: filter.assignee ? [filter.assignee] : undefined,
+        labels: filter.labels?.length ? filter.labels.join(",") : undefined,
+      }),
+    );
     return raw.map(toDomain);
   }
 
   async get(key: string): Promise<Issue> {
     const iid = parseIid(key);
-    const raw = await this.http.get<GlIssue>(`/api/v4/projects/${this.projectId}/issues/${iid}`);
-    if (!raw) throw new Error(`gitlab: empty response for #${iid}`);
+    const raw = await this.call<GlIssue>(() => this.client.Issues.show(iid, { projectId: this.projectId }));
     return toDomain(raw);
   }
 
   async create(input: CreateInput): Promise<Issue> {
     this.requireAuth();
-    const body: Record<string, unknown> = { title: input.title, description: input.description ?? "" };
-    if (input.labels?.length) body.labels = input.labels.join(",");
-    const raw = await this.http.post<GlIssue>(`/api/v4/projects/${this.projectId}/issues`, body);
-    if (!raw) throw new Error("gitlab: create returned no body");
+    const assigneeIds = input.assignee ? [await this.resolveUserId(input.assignee)] : undefined;
+    const raw = await this.call<GlIssue>(() =>
+      this.client.Issues.create(this.projectId, input.title, {
+        description: input.description ?? "",
+        labels: input.labels?.length ? input.labels.join(",") : undefined,
+        assigneeIds,
+      }),
+    );
     return toDomain(raw);
   }
 
   async update(key: string, input: UpdateInput): Promise<Issue> {
     this.requireAuth();
     const iid = parseIid(key);
-    const body: Record<string, unknown> = {};
-    if (input.title !== undefined) body.title = input.title;
-    if (input.description !== undefined) body.description = input.description;
-    if (input.status !== undefined) body.state_event = mapStatusEventToGitLab(input.status);
-    if (input.labels !== undefined) body.labels = input.labels.join(",");
-    const raw = await this.http.put<GlIssue>(`/api/v4/projects/${this.projectId}/issues/${iid}`, body);
-    if (!raw) throw new Error("gitlab: update returned no body");
+    const options: Record<string, unknown> = {};
+    if (input.title !== undefined) options.title = input.title;
+    if (input.description !== undefined) options.description = input.description;
+    if (input.status !== undefined) options.stateEvent = mapStatusEventToGitLab(input.status);
+    if (input.labels !== undefined) options.labels = input.labels.join(",");
+    if (input.assignee !== undefined) {
+      options.assigneeIds = input.assignee ? [await this.resolveUserId(input.assignee)] : [];
+    }
+    const raw = await this.call<GlIssue>(() => this.client.Issues.edit(this.projectId, iid, options));
     return toDomain(raw);
   }
 
   async search(query: string, limit = 50): Promise<Issue[]> {
-    const params = new URLSearchParams({ search: query, per_page: String(limit) });
-    const raw = (await this.http.get<GlIssue[]>(`/api/v4/projects/${this.projectId}/issues?${params}`)) ?? [];
+    const raw = await this.call<GlIssue[]>(() =>
+      this.client.Issues.all({ projectId: this.projectId, search: query, perPage: limit }),
+    );
     return raw.map(toDomain);
   }
 
@@ -132,21 +155,54 @@ export class GitLabRepository {
 
   async listComments(key: string): Promise<Comment[]> {
     const iid = parseIid(key);
-    const raw = (await this.http.get<GlNote[]>(`/api/v4/projects/${this.projectId}/issues/${iid}/notes`)) ?? [];
+    const raw = await this.call<GlNote[]>(() => this.client.IssueNotes.all(this.projectId, iid));
     return raw.map(noteToDomain);
   }
 
   async addComment(key: string, body: string): Promise<Comment> {
     this.requireAuth();
     const iid = parseIid(key);
-    const raw = await this.http.post<GlNote>(`/api/v4/projects/${this.projectId}/issues/${iid}/notes`, { body });
-    if (!raw) throw new Error("gitlab: add comment returned no body");
+    const raw = await this.call<GlNote>(() => this.client.IssueNotes.create(this.projectId, iid, body));
     return noteToDomain(raw);
+  }
+
+  /**
+   * GitLab's assignee write contract takes a numeric user ID, not a username
+   * (`assignee_ids: number[]`, confirmed against @gitbeaker/rest's generated
+   * types) — the exact gap the old hand-rolled adapter had (never resolved
+   * this, never even attempted to set assignee at all). GitLab's own username
+   * filter is an exact match, but we still confirm the returned user's
+   * username matches exactly before trusting its id.
+   */
+  private async resolveUserId(username: string): Promise<number> {
+    const users = await this.call<GlUser[]>(() => this.client.Users.all({ username }));
+    const match = users.find((u) => u.username === username);
+    if (!match) throw new Error(`gitlab: no user found with username "${username}"`);
+    return match.id;
+  }
+
+  /** Runs a gitbeaker call and maps GitbeakerRequestError onto this project's shared error taxonomy. */
+  private async call<T>(fn: () => Promise<unknown>): Promise<T> {
+    try {
+      return (await fn()) as T;
+    } catch (err) {
+      if (err instanceof GitbeakerRequestError) {
+        const status = err.cause?.response?.status ?? 500;
+        const url = err.cause?.request?.url ?? "";
+        if (status === 404) throw new IssueNotFoundError("gitlab", url);
+        throw new ApiError("gitlab", err.cause?.request?.method ?? "?", url, status, redact(err.message));
+      }
+      throw err;
+    }
   }
 }
 
-function parseIid(key: string): string {
-  return key.replace(/^#/, "");
+function redact(text: string): string {
+  return text.replace(/"(token|password|secret|api_key|authorization)"\s*:\s*"[^"]*"/gi, '"$1":"[redacted]"').slice(0, 2000);
+}
+
+function parseIid(key: string): number {
+  return Number(key.replace(/^#/, ""));
 }
 
 function mapStatusToGitLab(status: Status): "opened" | "closed" {

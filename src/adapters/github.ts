@@ -1,19 +1,39 @@
 /**
  * GitHub adapter — driven implementation of IssueRepository/CommentCapable against
- * the GitHub REST API v3 (docs: https://docs.github.com/en/rest/issues/issues).
- * Token is optional: public repos allow unauthenticated reads at a lower rate limit.
+ * the GitHub REST API v3, via octokit (github.com/octokit) rather than a hand-rolled
+ * HTTP client: it's GitHub's own official SDK, generated from GitHub's OpenAPI spec,
+ * and its typed `assignees: string[]` matches the real write contract exactly (see
+ * RESEARCH.md). Token is optional: public repos allow unauthenticated reads at a
+ * lower rate limit.
+ *
+ * IMPORTANT: the `octokit` meta-package bundles @octokit/plugin-retry and
+ * @octokit/plugin-throttling ON by default, with default onRateLimit/
+ * onSecondaryRateLimit handlers that silently SLEEP for GitHub's advertised
+ * Retry-After window (which for an exhausted hourly quota can be tens of
+ * minutes) before even attempting a retry -- confirmed for real: a live smoke
+ * test against an already-rate-limited endpoint hung with zero output rather
+ * than failing fast. That's the opposite of this project's own design (the
+ * daemon's ledger exists so live calls can fail fast and the caller decides
+ * what to do next, not so octokit can unilaterally decide to block for an
+ * indeterminate duration). Both plugins are explicitly disabled below, and
+ * every call carries a hard timeout matching the old hand-rolled HttpClient's.
  */
+import { Octokit } from "octokit";
+import { RequestError } from "@octokit/request-error";
 import type { Comment, CreateInput, Issue, ListFilter, Status, UpdateInput } from "../domain/issue.js";
 import { parsePriority } from "../domain/issue.js";
-import { AuthRequiredError } from "./errors.js";
-import { type FetchLike, HttpClient } from "./http.js";
+import { ApiError, AuthRequiredError, IssueNotFoundError } from "./errors.js";
+
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface GitHubOptions {
   owner: string;
   repo?: string;
   token?: string;
   baseUrl?: string;
-  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+  /** Injected in tests instead of hitting a real network — see @octokit/types' RequestRequestOptions.fetch. */
+  fetchImpl?: typeof fetch;
 }
 
 interface GhUser {
@@ -31,14 +51,14 @@ interface GhIssue {
   html_url: string;
   user: GhUser | null;
   assignee: GhUser | null;
-  labels: GhLabel[];
+  labels: (GhLabel | string)[];
   created_at: string;
   updated_at: string;
   pull_request?: unknown;
 }
 interface GhComment {
   id: number;
-  body: string;
+  body?: string;
   created_at: string;
   updated_at: string;
   user: GhUser | null;
@@ -46,10 +66,12 @@ interface GhComment {
 
 export class GitHubRepository {
   readonly name: string;
-  private readonly http: HttpClient;
+  private readonly client: Octokit;
   private readonly owner: string;
   private repo?: string;
   private readonly readOnly: boolean;
+
+  private readonly timeoutMs: number;
 
   constructor(name: string, opts: GitHubOptions) {
     if (!opts.owner) throw new Error("github: owner is required");
@@ -57,20 +79,19 @@ export class GitHubRepository {
     this.owner = opts.owner;
     this.repo = opts.repo;
     this.readOnly = !opts.token;
-    this.http = new HttpClient({
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.client = new Octokit({
+      auth: opts.token,
       baseUrl: opts.baseUrl ?? "https://api.github.com",
-      backend: "github",
-      fetchImpl: opts.fetchImpl,
-      headers: {
-        Accept: "application/vnd.github.v3+json",
-        ...(opts.token ? { Authorization: `token ${opts.token}` } : {}),
-      },
+      retry: { enabled: false },
+      throttle: { onRateLimit: () => false, onSecondaryRateLimit: () => false },
+      ...(opts.fetchImpl ? { request: { fetch: opts.fetchImpl } } : {}),
     });
   }
 
-  private repoPath(): string {
+  private repoName(): string {
     if (!this.repo) throw new Error("github: repo not set — pass repo, or scope via config");
-    return `/repos/${this.owner}/${this.repo}`;
+    return this.repo;
   }
 
   private requireAuth(): void {
@@ -79,52 +100,70 @@ export class GitHubRepository {
 
   async list(filter: ListFilter): Promise<Issue[]> {
     const limit = filter.limit && filter.limit > 0 ? filter.limit : 50;
-    const params = new URLSearchParams({ per_page: String(limit), state: "all" });
-    if (filter.status) params.set("state", mapStatusToGitHub(filter.status));
-    if (filter.assignee) params.set("assignee", filter.assignee);
-    if (filter.labels?.length) params.set("labels", filter.labels.join(","));
-
-    const raw = (await this.http.get<GhIssue[]>(`${this.repoPath()}/issues?${params}`)) ?? [];
-    return raw.filter((i) => !i.pull_request).map(toDomain);
+    const raw = await this.call((signal) =>
+      this.client.rest.issues.listForRepo({
+        owner: this.owner,
+        repo: this.repoName(),
+        per_page: limit,
+        state: filter.status ? mapStatusToGitHub(filter.status) : "all",
+        assignee: filter.assignee,
+        labels: filter.labels?.length ? filter.labels.join(",") : undefined,
+        request: { signal },
+      }),
+    );
+    return (raw as GhIssue[]).filter((i) => !i.pull_request).map(toDomain);
   }
 
   async get(key: string): Promise<Issue> {
-    const number = parseIssueNumber(key);
-    const raw = await this.http.get<GhIssue>(`${this.repoPath()}/issues/${number}`);
-    if (!raw) throw new Error(`github: empty response for #${number}`);
-    if (raw.pull_request) throw new Error(`github: #${number} is a pull request, not an issue`);
+    const issue_number = parseIssueNumber(key);
+    const raw = (await this.call((signal) =>
+      this.client.rest.issues.get({ owner: this.owner, repo: this.repoName(), issue_number, request: { signal } }),
+    )) as GhIssue;
+    if (raw.pull_request) throw new Error(`github: #${issue_number} is a pull request, not an issue`);
     return toDomain(raw);
   }
 
   async create(input: CreateInput): Promise<Issue> {
     this.requireAuth();
-    const body: Record<string, unknown> = { title: input.title, body: input.description ?? "" };
-    if (input.labels?.length) body.labels = input.labels;
-    if (input.assignee) body.assignees = [input.assignee];
-    const raw = await this.http.post<GhIssue>(`${this.repoPath()}/issues`, body);
-    if (!raw) throw new Error("github: create returned no body");
+    const raw = (await this.call((signal) =>
+      this.client.rest.issues.create({
+        owner: this.owner,
+        repo: this.repoName(),
+        title: input.title,
+        body: input.description ?? "",
+        labels: input.labels?.length ? input.labels : undefined,
+        assignees: input.assignee ? [input.assignee] : undefined,
+        request: { signal },
+      }),
+    )) as GhIssue;
     return toDomain(raw);
   }
 
   async update(key: string, input: UpdateInput): Promise<Issue> {
     this.requireAuth();
-    const number = parseIssueNumber(key);
-    const body: Record<string, unknown> = {};
-    if (input.title !== undefined) body.title = input.title;
-    if (input.description !== undefined) body.body = input.description;
-    if (input.status !== undefined) body.state = mapStatusToGitHub(input.status);
-    if (input.labels !== undefined) body.labels = input.labels;
-    if (input.assignee !== undefined) body.assignees = input.assignee ? [input.assignee] : [];
-    const raw = await this.http.patch<GhIssue>(`${this.repoPath()}/issues/${number}`, body);
-    if (!raw) throw new Error("github: update returned no body");
+    const issue_number = parseIssueNumber(key);
+    const raw = (await this.call((signal) =>
+      this.client.rest.issues.update({
+        owner: this.owner,
+        repo: this.repoName(),
+        issue_number,
+        title: input.title,
+        body: input.description,
+        state: input.status !== undefined ? mapStatusToGitHub(input.status) : undefined,
+        labels: input.labels,
+        assignees: input.assignee !== undefined ? (input.assignee ? [input.assignee] : []) : undefined,
+        request: { signal },
+      }),
+    )) as GhIssue;
     return toDomain(raw);
   }
 
   async search(query: string, limit = 50): Promise<Issue[]> {
     const scope = this.repo ? `repo:${this.owner}/${this.repo}` : `org:${this.owner}`;
-    const q = encodeURIComponent(`${scope} ${query}`);
-    const result = await this.http.get<{ items: GhIssue[] }>(`/search/issues?q=${q}&per_page=${limit}`);
-    return (result?.items ?? []).filter((i) => !i.pull_request).map(toDomain);
+    const result = (await this.call((signal) =>
+      this.client.rest.search.issuesAndPullRequests({ q: `${scope} ${query}`, per_page: limit, request: { signal } }),
+    )) as { items: GhIssue[] };
+    return result.items.filter((i) => !i.pull_request).map(toDomain);
   }
 
   // GitHub has no native sub-issue relationship exposed via REST v3.
@@ -133,24 +172,60 @@ export class GitHubRepository {
   }
 
   async listComments(key: string): Promise<Comment[]> {
-    const number = parseIssueNumber(key);
-    const raw = (await this.http.get<GhComment[]>(`${this.repoPath()}/issues/${number}/comments`)) ?? [];
+    const issue_number = parseIssueNumber(key);
+    const raw = (await this.call((signal) =>
+      this.client.rest.issues.listComments({ owner: this.owner, repo: this.repoName(), issue_number, request: { signal } }),
+    )) as GhComment[];
     return raw.map(commentToDomain);
   }
 
   async addComment(key: string, body: string): Promise<Comment> {
     this.requireAuth();
-    const number = parseIssueNumber(key);
-    const raw = await this.http.post<GhComment>(`${this.repoPath()}/issues/${number}/comments`, { body });
-    if (!raw) throw new Error("github: add comment returned no body");
+    const issue_number = parseIssueNumber(key);
+    const raw = (await this.call((signal) =>
+      this.client.rest.issues.createComment({ owner: this.owner, repo: this.repoName(), issue_number, body, request: { signal } }),
+    )) as GhComment;
     return commentToDomain(raw);
+  }
+
+  /**
+   * Runs an octokit call, unwraps `.data`, and maps RequestError onto this
+   * project's shared error taxonomy. Uses a plain AbortController + setTimeout
+   * (not AbortSignal.timeout()) specifically so the timer can be cleared the
+   * moment the call settles, matching the old hand-rolled HttpClient's
+   * finally-block discipline -- AbortSignal.timeout() has no way to cancel
+   * early once created, and confirmed for real that letting it linger shows
+   * up as measurable delay (each call leaves a live timer sitting in the
+   * event loop until it eventually fires). With retry/throttling disabled
+   * above, a stalled connection or rate-limit response now fails predictably
+   * within `timeoutMs` instead of hanging.
+   */
+  private async call<T>(fn: (signal: AbortSignal) => Promise<{ data: T }>): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const res = await fn(controller.signal);
+      return res.data;
+    } catch (err) {
+      if (err instanceof RequestError) {
+        if (err.status === 404) throw new IssueNotFoundError("github", err.request.url);
+        throw new ApiError("github", err.request.method, err.request.url, err.status, redact(err.message));
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
 
-function parseIssueNumber(key: string): string {
+function redact(text: string): string {
+  return text.replace(/"(token|password|secret|api_key|authorization)"\s*:\s*"[^"]*"/gi, '"$1":"[redacted]"').slice(0, 2000);
+}
+
+function parseIssueNumber(key: string): number {
   const stripped = key.replace(/^#/, "");
   const idx = stripped.lastIndexOf("#");
-  return idx >= 0 ? stripped.slice(idx + 1) : stripped;
+  return Number(idx >= 0 ? stripped.slice(idx + 1) : stripped);
 }
 
 function mapStatusToGitHub(status: Status): "open" | "closed" {
@@ -161,9 +236,13 @@ function mapStatusFromGitHub(state: string): Status {
   return state.toLowerCase() === "closed" ? "done" : "todo";
 }
 
-function priorityFromLabels(labels: GhLabel[]): ReturnType<typeof parsePriority> {
+function labelName(label: GhLabel | string): string {
+  return typeof label === "string" ? label : label.name;
+}
+
+function priorityFromLabels(labels: (GhLabel | string)[]): ReturnType<typeof parsePriority> {
   for (const l of labels) {
-    const lower = l.name.toLowerCase();
+    const lower = labelName(l).toLowerCase();
     if (lower.includes("urgent") || lower.includes("critical")) return "urgent";
     if (lower.includes("high")) return "high";
     if (lower.includes("medium")) return "medium";
@@ -182,7 +261,7 @@ function toDomain(gh: GhIssue): Issue {
     status: mapStatusFromGitHub(gh.state),
     rawStatus: gh.state,
     priority: priorityFromLabels(gh.labels ?? []),
-    labels: gh.labels?.length ? gh.labels.map((l) => l.name) : undefined,
+    labels: gh.labels?.length ? gh.labels.map(labelName) : undefined,
     assignee: gh.assignee?.login,
     url: gh.html_url,
     createdAt: gh.created_at,
@@ -193,7 +272,7 @@ function toDomain(gh: GhIssue): Issue {
 function commentToDomain(c: GhComment): Comment {
   return {
     id: String(c.id),
-    body: c.body,
+    body: c.body ?? "",
     author: c.user?.login,
     createdAt: c.created_at,
     updatedAt: c.updated_at,

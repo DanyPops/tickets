@@ -1,36 +1,52 @@
 /**
- * Jira adapter — driven implementation of IssueRepository/CommentCapable against the
- * Jira Cloud/Server REST API v2 (docs: https://developer.atlassian.com/cloud/jira/platform/rest/v2/).
+ * Jira adapter — driven implementation of IssueRepository/CommentCapable against
+ * the Jira Cloud REST API v2, via jira.js's Version2Client (github.com/MrRefactoring/jira.js)
+ * rather than a hand-rolled HTTP client: a mature, actively-maintained,
+ * TypeScript-native client generated directly from Atlassian's own OpenAPI spec.
  * Status changes go through Jira's workflow transitions, not a direct field PUT —
  * Jira statuses are workflow-owned, so we resolve the transition whose name matches
  * the mapped target status and post to it.
+ *
+ * NOTE: assignee is deliberately NOT handled in create()/update() here — out of
+ * scope for this migration per explicit user direction, even though the mature
+ * client's `UserDetails.accountId` typing would make the fix straightforward
+ * (see RESEARCH.md for the full analysis of the bug this leaves unfixed).
  */
+import { Version2Client } from "jira.js";
+import type { HttpException } from "jira.js";
+import type { AxiosAdapter } from "axios";
 import type { Comment, CreateInput, Issue, ListFilter, Status, UpdateInput } from "../domain/issue.js";
 import { parsePriority } from "../domain/issue.js";
-import { type FetchLike, HttpClient } from "./http.js";
+import { ApiError, IssueNotFoundError } from "./errors.js";
 
 /**
  * Basic-auth mode (email + API token) hits the tenant's own *.atlassian.net
  * domain directly. OAuth 2.0 (3LO) mode (accessToken + cloudId, see
  * auth/jira-oauth.ts) instead goes through api.atlassian.com/ex/jira/{cloudId}
  * with a Bearer token — Atlassian does not accept 3LO tokens against the
- * tenant domain directly. Exactly one of the two auth modes must be given.
+ * tenant domain directly; jira.js resolves that gateway routing itself when
+ * given `authentication.oauth2`. Exactly one of the two auth modes must be given.
  */
 export type JiraOptions = JiraBasicAuthOptions | JiraOAuthOptions;
+
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface JiraBasicAuthOptions {
   baseUrl: string;
   email: string;
   token: string;
   project?: string;
-  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+  /** Injected in tests instead of a real network call — see axios's AxiosRequestConfig.adapter. */
+  axiosAdapter?: AxiosAdapter;
 }
 
 export interface JiraOAuthOptions {
   accessToken: string;
   cloudId: string;
   project?: string;
-  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+  axiosAdapter?: AxiosAdapter;
 }
 
 function isOAuthOptions(opts: JiraOptions): opts is JiraOAuthOptions {
@@ -58,22 +74,26 @@ interface JiraIssue {
   self: string;
   fields: JiraIssueFields;
 }
-interface JiraTransition {
-  id: string;
-  name: string;
-}
 interface JiraComment {
-  id: string;
-  body: string;
-  created: string;
-  updated: string;
-  author?: { displayName: string };
+  id?: string;
+  comment?: string;
+  created?: string;
+  updated?: string;
+  author?: { displayName?: string };
+}
+interface JiraFieldDetails {
+  id?: string;
+  name?: string;
+  custom?: boolean;
+  schema?: { type: string; items?: string };
 }
 
 export class JiraRepository {
   readonly name: string;
-  private readonly http: HttpClient;
+  private readonly client: Version2Client;
   private readonly project?: string;
+  /** display name (lowercased) -> { fieldId, schema type/items }, populated lazily from client.issueFields.getFields(). */
+  private customFieldCache?: Map<string, { id: string; type: string; items?: string }>;
 
   constructor(name: string, opts: JiraOptions) {
     this.name = name;
@@ -81,23 +101,23 @@ export class JiraRepository {
 
     if (isOAuthOptions(opts)) {
       if (!opts.accessToken || !opts.cloudId) throw new Error("jira: accessToken and cloudId are required for OAuth mode");
-      this.http = new HttpClient({
-        baseUrl: `https://api.atlassian.com/ex/jira/${opts.cloudId}`,
-        backend: "jira",
-        fetchImpl: opts.fetchImpl,
-        headers: { Authorization: `Bearer ${opts.accessToken}` },
+      this.client = new Version2Client({
+        authentication: { oauth2: { accessToken: opts.accessToken, cloudId: opts.cloudId } },
+        // axios's own native, tested timeout handling -- a stalled call fails predictably
+        // instead of hanging (see RESEARCH.md for the octokit throttling-plugin hang this
+        // migration found and fixed; jira.js/axios has no equivalent auto-retry-and-wait
+        // behavior by default, but had no explicit timeout either until now).
+        baseRequestConfig: { timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, ...(opts.axiosAdapter ? { adapter: opts.axiosAdapter } : {}) },
       });
       return;
     }
 
     if (!opts.baseUrl) throw new Error("jira: baseUrl is required");
     if (!opts.email || !opts.token) throw new Error("jira: email and token are required");
-    const basic = Buffer.from(`${opts.email}:${opts.token}`).toString("base64");
-    this.http = new HttpClient({
-      baseUrl: opts.baseUrl,
-      backend: "jira",
-      fetchImpl: opts.fetchImpl,
-      headers: { Authorization: `Basic ${basic}` },
+    this.client = new Version2Client({
+      host: opts.baseUrl,
+      authentication: { basic: { email: opts.email, apiToken: opts.token } },
+      baseRequestConfig: { timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, ...(opts.axiosAdapter ? { adapter: opts.axiosAdapter } : {}) },
     });
   }
 
@@ -113,9 +133,23 @@ export class JiraRepository {
   }
 
   async get(key: string): Promise<Issue> {
-    const raw = await this.http.get<JiraIssue>(`/rest/api/2/issue/${key}`);
-    if (!raw) throw new Error(`jira: empty response for ${key}`);
+    const raw = await this.call<JiraIssue>(() => this.client.issues.getIssue({ issueIdOrKey: key }), key);
     return toDomain(raw);
+  }
+
+  /** Runs a jira.js call and maps its HttpException onto this project's shared error taxonomy. */
+  private async call<T>(fn: () => Promise<unknown>, key?: string): Promise<T> {
+    try {
+      return (await fn()) as T;
+    } catch (err) {
+      const status = (err as Partial<HttpException>)?.status;
+      if (typeof status === "number") {
+        if (status === 404) throw new IssueNotFoundError("jira", key ?? "?");
+        const message = err instanceof Error ? err.message : String(err);
+        throw new ApiError("jira", "?", key ?? "?", status, redact(message));
+      }
+      throw err;
+    }
   }
 
   async create(input: CreateInput): Promise<Issue> {
@@ -132,8 +166,8 @@ export class JiraRepository {
     if (input.priority && input.priority !== "none") {
       fields.priority = { name: mapPriorityToJira(input.priority) };
     }
-    const result = await this.http.post<{ key: string }>("/rest/api/2/issue", { fields });
-    if (!result) throw new Error("jira: create returned no body");
+    if (input.customFields) await this.applyCustomFields(fields, input.customFields);
+    const result = await this.call<{ key: string }>(() => this.client.issues.createIssue({ fields } as never));
     return this.get(result.key);
   }
 
@@ -143,8 +177,10 @@ export class JiraRepository {
     if (input.description !== undefined) fields.description = input.description;
     if (input.priority !== undefined) fields.priority = { name: mapPriorityToJira(input.priority) };
     if (input.labels !== undefined) fields.labels = input.labels;
+    if (input.customFields) await this.applyCustomFields(fields, input.customFields);
+    // assignee intentionally not handled here — see file header.
     if (Object.keys(fields).length > 0) {
-      await this.http.put(`/rest/api/2/issue/${key}`, { fields });
+      await this.call(() => this.client.issues.editIssue({ issueIdOrKey: key, fields }), key);
     }
     if (input.status !== undefined) {
       await this.transitionTo(key, input.status, input.resolution);
@@ -163,28 +199,33 @@ export class JiraRepository {
   }
 
   async listComments(key: string): Promise<Comment[]> {
-    const result = await this.http.get<{ comments: JiraComment[] }>(`/rest/api/2/issue/${key}/comment`);
+    const result = await this.call<{ comments?: JiraComment[] }>(
+      () => this.client.issueComments.getComments({ issueIdOrKey: key }),
+      key,
+    );
     return (result?.comments ?? []).map(commentToDomain);
   }
 
   async addComment(key: string, body: string): Promise<Comment> {
-    const raw = await this.http.post<JiraComment>(`/rest/api/2/issue/${key}/comment`, { body });
-    if (!raw) throw new Error("jira: add comment returned no body");
+    const raw = await this.call<JiraComment>(
+      () => this.client.issueComments.addComment({ issueIdOrKey: key, comment: body }),
+      key,
+    );
     return commentToDomain(raw);
   }
 
   private async searchJql(jql: string, limit: number): Promise<Issue[]> {
-    const result = await this.http.post<{ issues: JiraIssue[] }>("/rest/api/2/search", {
-      jql,
-      maxResults: limit,
-    });
+    const result = await this.call<{ issues?: JiraIssue[] }>(() =>
+      this.client.issueSearch.searchForIssuesUsingJqlPost({ jql, maxResults: limit }),
+    );
     return (result?.issues ?? []).map(toDomain);
   }
 
   private async transitionTo(key: string, status: Status, resolution?: string): Promise<void> {
     const target = mapStatusToJira(status);
-    const result = await this.http.get<{ transitions: JiraTransition[] }>(
-      `/rest/api/2/issue/${key}/transitions`,
+    const result = await this.call<{ transitions?: { id: string; name: string }[] }>(
+      () => this.client.issues.getTransitions({ issueIdOrKey: key }),
+      key,
     );
     const transitions = result?.transitions ?? [];
     const match = transitions.find((t) => t.name.toLowerCase() === target.toLowerCase());
@@ -192,10 +233,51 @@ export class JiraRepository {
       const available = transitions.map((t) => t.name).join(", ");
       throw new Error(`jira: no transition matching "${target}" (available: ${available})`);
     }
-    const body: Record<string, unknown> = { transition: { id: match.id } };
-    if (resolution) body.fields = { resolution: { name: resolution } };
-    await this.http.post(`/rest/api/2/issue/${key}/transitions`, body);
+    const fields = resolution ? { resolution: { name: resolution } } : undefined;
+    await this.call(() => this.client.issues.doTransition({ issueIdOrKey: key, transition: { id: match.id }, fields }), key);
   }
+
+  /**
+   * Resolves each custom field's display name to its `customfield_XXXXX` ID via
+   * client.issueFields.getFields() (GET /rest/api/2/field) -- not a hand-maintained
+   * map -- and coerces the given string value to the shape that field's own Jira
+   * schema type expects (a plain "option"/select field wants `{value}`, an array
+   * field splits on commas, everything else passes through as a raw string).
+   */
+  private async applyCustomFields(fields: Record<string, unknown>, customFields: Record<string, string>): Promise<void> {
+    for (const [displayName, rawValue] of Object.entries(customFields)) {
+      const field = await this.resolveCustomField(displayName);
+      fields[field.id] = coerceCustomFieldValue(field, rawValue);
+    }
+  }
+
+  private async resolveCustomField(displayName: string): Promise<{ id: string; type: string; items?: string }> {
+    if (!this.customFieldCache) {
+      const all = await this.call<JiraFieldDetails[]>(() => this.client.issueFields.getFields());
+      this.customFieldCache = new Map(
+        all
+          .filter((f) => f.custom && f.id && f.name)
+          .map((f) => [f.name!.toLowerCase(), { id: f.id!, type: f.schema?.type ?? "string", items: f.schema?.items }]),
+      );
+    }
+    const field = this.customFieldCache.get(displayName.toLowerCase());
+    if (!field) throw new Error(`jira: unknown custom field "${displayName}"`);
+    return field;
+  }
+}
+
+function coerceCustomFieldValue(field: { type: string; items?: string }, rawValue: string): unknown {
+  if (field.type === "array") {
+    const parts = rawValue.split(",").map((v) => v.trim()).filter(Boolean);
+    return field.items === "option" ? parts.map((v) => ({ value: v })) : parts;
+  }
+  if (field.type === "option") return { value: rawValue };
+  if (field.type === "number") return Number(rawValue);
+  return rawValue;
+}
+
+function redact(text: string): string {
+  return text.replace(/"(token|password|secret|api_key|authorization)"\s*:\s*"[^"]*"/gi, '"$1":"[redacted]"').slice(0, 2000);
 }
 
 function jqlQuote(value: string): string {
@@ -302,8 +384,8 @@ function toDomain(j: JiraIssue): Issue {
 
 function commentToDomain(c: JiraComment): Comment {
   return {
-    id: c.id,
-    body: c.body,
+    id: c.id ?? "",
+    body: c.comment ?? "",
     author: c.author?.displayName,
     createdAt: c.created,
     updatedAt: c.updated,

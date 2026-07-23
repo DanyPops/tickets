@@ -79,6 +79,8 @@ export interface CreateInput {
   project?: string;
   issueType?: string;
   parentKey?: string;
+  /** Backend-specific custom fields keyed by display name (e.g. Jira's "QE Priority"), resolved to the backend's own field ID by the adapter. Not every backend supports this (only Jira does today). */
+  customFields?: Record<string, string>;
 }
 
 export interface UpdateInput {
@@ -89,6 +91,8 @@ export interface UpdateInput {
   labels?: string[];
   assignee?: string;
   resolution?: string;
+  /** Backend-specific custom fields keyed by display name (e.g. Jira's "QE Priority"), resolved to the backend's own field ID by the adapter. Not every backend supports this (only Jira does today). */
+  customFields?: Record<string, string>;
 }
 
 export interface ListFilter {
