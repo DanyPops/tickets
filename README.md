@@ -62,6 +62,26 @@ bun run src/cli/index.ts focus unpause
 bun run src/cli/index.ts focus clear
 ```
 
+### Running the daemon persistently (systemd --user)
+
+`daemon start` spawns the daemon on demand and it lives only as long as
+something keeps it alive. For a daemon that survives logout/reboot, install
+it as a systemd `--user` service instead (Linux only):
+
+```bash
+bun run src/cli/index.ts service install   # writes + enables + (re)starts the unit
+bun run src/cli/index.ts service status
+bun run src/cli/index.ts service stop
+bun run src/cli/index.ts service restart
+bun run src/cli/index.ts service path      # where the unit file lives
+```
+
+`service install` points `ExecStart` at the exact `bun` binary and package
+checkout currently running the CLI, so re-running it after an upgrade (a new
+`npm`/`bun` global install, or a fresh checkout) picks up the new path
+immediately via `daemon-reload` + `enable` + `restart` — no manual `stop`
+needed first.
+
 Once installed as a package, the same commands are available as `tickets`
 and `tickets-daemon` (see `bin` in `package.json`).
 

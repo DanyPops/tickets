@@ -14,6 +14,7 @@ import { loginWithGitHubDeviceFlow } from "../auth/github-oauth.js";
 import { gitlabDeviceEndpoints, loginWithGitLabDeviceFlow } from "../auth/gitlab-oauth.js";
 import { loginWithJiraAuthorizationCode } from "../auth/jira-oauth.js";
 import { deleteToken, isTokenFresh, listStoredBackends, loadToken, saveToken } from "../auth/token-store.js";
+import { installTicketsService, systemctlTickets, systemdUnitPath } from "./systemd-service.js";
 
 function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -31,7 +32,7 @@ async function withClient<T>(fn: (client: TicketsRpcClient) => Promise<T>): Prom
 }
 
 const program = new Command();
-program.name("tickets").description("Unified issue tracking CLI (GitHub, GitLab, Jira)").version("0.1.0");
+program.name("tickets").description("Unified issue tracking CLI (GitHub, GitLab, Jira)").version("0.2.0");
 
 program
   .command("list")
@@ -253,6 +254,44 @@ daemon
       process.stderr.write(`error: ${message}\n`);
       process.exitCode = 1;
     }
+  });
+
+const service = program
+  .command("service")
+  .description("deploy the tickets daemon as a persistent systemd --user service (Linux; survives logout/reboot, unlike `daemon start`'s on-demand spawn)");
+
+service
+  .command("install")
+  .description("write, enable, and (re)start a tickets-daemon.service systemd --user unit pointed at this install")
+  .action(() => {
+    try {
+      const { unitPath } = installTicketsService();
+      printJson({ status: "installed", unitPath });
+    } catch (err) {
+      process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.exitCode = 1;
+    }
+  });
+
+for (const action of ["start", "stop", "restart", "status"] as const) {
+  service
+    .command(action)
+    .description(`systemctl --user ${action} tickets-daemon.service`)
+    .action(() => {
+      try {
+        systemctlTickets(action);
+      } catch (err) {
+        process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
+        process.exitCode = 1;
+      }
+    });
+}
+
+service
+  .command("path")
+  .description("print where the systemd unit file would be written")
+  .action(() => {
+    printJson({ unitPath: systemdUnitPath() });
   });
 
 const auth = program.command("auth").description("delegated OAuth login (device flow for GitHub/GitLab, authorization code for Jira)");

@@ -29,10 +29,14 @@ async function isAlive(handle: DaemonHandle, token: string): Promise<boolean> {
   }
 }
 
-function spawnDaemon(): void {
+/** Absolute path to the daemon's real entry point, resolved from this package's own root. Used both to spawn it on demand and to point a systemd unit's ExecStart at it (see cli/systemd-service.ts). */
+export function resolveDaemonEntryPath(): string {
   const root = packageRoot(dirname(fileURLToPath(import.meta.url)));
-  const entry = join(root, "src", "daemon", "main.ts");
-  const child = spawn("bun", ["run", entry], { detached: true, stdio: "ignore" });
+  return join(root, "src", "daemon", "main.ts");
+}
+
+function spawnDaemon(): void {
+  const child = spawn("bun", ["run", resolveDaemonEntryPath()], { detached: true, stdio: "ignore" });
   child.unref();
 }
 
