@@ -104,6 +104,6 @@ The daemon itself (XDG paths, auth-token bootstrap, SQLite pragmas/migration
 runner, structured logging, Bearer-token HTTP RPC, process lifecycle) is
 built on [`@danypops/daemon-kit`](https://www.npmjs.com/package/@danypops/daemon-kit)
 (published to npm; this project depends on `^0.2.1`), a shared substrate
-used by several sibling daemons (Papyrus, web-spider-daemon, and others).
+used by several other supervised Bun daemons in the same ecosystem.
 See that package's own README for the substrate's design rationale; this
 project only documents how it's *used* here.

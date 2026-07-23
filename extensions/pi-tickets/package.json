@@ -31,5 +31,14 @@
     "extensions": [
       "./src/index.ts"
     ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DanyPops/tickets.git",
+    "directory": "extensions/pi-tickets"
+  },
+  "homepage": "https://github.com/DanyPops/tickets/tree/master/extensions/pi-tickets#readme",
+  "bugs": {
+    "url": "https://github.com/DanyPops/tickets/issues"
   }
 }

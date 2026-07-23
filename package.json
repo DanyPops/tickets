@@ -42,5 +42,13 @@
     "gitlab",
     "cli",
     "daemon"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DanyPops/tickets.git"
+  },
+  "homepage": "https://github.com/DanyPops/tickets#readme",
+  "bugs": {
+    "url": "https://github.com/DanyPops/tickets/issues"
+  }
 }
