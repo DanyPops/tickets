@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@danypops/daemon-kit": "file:../../Projects/daemon-kit",
+    "@danypops/daemon-kit": "^0.2.1",
     "commander": "^12.1.0",
     "yaml": "^2.6.0"
   },

@@ -21,10 +21,8 @@ GitHub/GitLab/Jira or opens the SQLite ledger directly. See
   `Bun.serve` (via `@danypops/daemon-kit`); the CLI, library, and pi-tickets
   extension are plain TypeScript but currently ship as source, run through
   Bun rather than a compiled Node build.
-- A local checkout of `@danypops/daemon-kit` (referenced here via a `file:`
-  dependency — it is not yet published to a registry). Adjust the path in
-  `package.json` if your checkout isn't at `../../Projects/daemon-kit`
-  relative to this repo.
+- `@danypops/daemon-kit` comes from the public npm registry (`^0.2.1`) —
+  no local checkout or `file:` path needed, `bun install` fetches it directly.
 
 ## Install
 
