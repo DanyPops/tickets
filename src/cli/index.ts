@@ -156,13 +156,61 @@ program
     await withClient((client) => client.call("backends.list", {}));
   });
 
-program
-  .command("daemon-status")
-  .description("check whether the tickets daemon is reachable")
+const daemon = program.command("daemon").description("manage the tickets daemon process");
+
+daemon
+  .command("status")
+  .description("check whether the tickets daemon is reachable (never auto-starts it)")
   .action(async () => {
     try {
       const client = await createTicketsClient({ autoStart: false });
-      printJson(await client.health());
+      printJson({ reachable: true, ...(await client.health()) });
+    } catch (err) {
+      printJson({ reachable: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+daemon
+  .command("start")
+  .description("start the daemon if it isn't already running")
+  .action(async () => {
+    try {
+      const client = await createTicketsClient({ autoStart: true });
+      printJson({ status: "running", ...(await client.health()) });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`error: ${message}\n`);
+      process.exitCode = 1;
+    }
+  });
+
+daemon
+  .command("stop")
+  .description("ask the running daemon to shut down gracefully")
+  .action(async () => {
+    try {
+      const client = await createTicketsClient({ autoStart: false });
+      await client.call("daemon.shutdown", {});
+      printJson({ status: "stopping" });
+    } catch (err) {
+      printJson({ status: "not_running", detail: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+daemon
+  .command("restart")
+  .description("stop the daemon (if running) and start a fresh one")
+  .action(async () => {
+    try {
+      const client = await createTicketsClient({ autoStart: false });
+      await client.call("daemon.shutdown", {});
+    } catch {
+      // not running — nothing to stop, proceed straight to starting a fresh one.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+      const client = await createTicketsClient({ autoStart: true });
+      printJson({ status: "restarted", ...(await client.health()) });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       process.stderr.write(`error: ${message}\n`);

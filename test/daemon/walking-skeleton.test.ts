@@ -93,4 +93,34 @@ describe("tickets daemon walking skeleton", () => {
     );
     await expect(badClient.health()).rejects.toThrow();
   });
+
+  it("daemon.shutdown is wired through bootstrap's injectable onShutdownRequested, never the test process's own signal handling", async () => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "tickets-daemon-skeleton-shutdown-"));
+    const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
+    let requested = 0;
+    const { options } = bootstrap({
+      pathEnv,
+      repos: {},
+      version: "0.0.0-skeleton",
+      onShutdownRequested: () => {
+        requested++;
+      },
+    });
+    daemon = startDaemon(options);
+
+    const { ensureAuthToken, resolveDaemonPaths } = await import("@danypops/daemon-kit/paths");
+    const { TICKETS_DAEMON_NAMES } = await import("../../src/daemon/ops.js");
+    const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, pathEnv);
+    const token = ensureAuthToken(paths.token, "Tickets");
+    const client = new AuthenticatedRpcClient<TicketOperation, TicketOpInputs, TicketOpOutputs>(
+      `http://${daemon.host}:${daemon.port}`,
+      token,
+      { label: "Tickets" },
+    );
+
+    const result = await client.call("daemon.shutdown", {});
+    expect(result.stopping).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(requested).toBe(1);
+  });
 });

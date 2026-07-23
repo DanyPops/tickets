@@ -27,6 +27,13 @@ export interface BootstrapOptions {
   logger?: Logger;
   syncIntervalMs?: number;
   checkpointIntervalMs?: number;
+  /**
+   * Overrides the daemon.shutdown op's effect. Defaults to sending this
+   * process SIGTERM, which daemon-kit's runDaemonProcess already handles
+   * with a tested graceful stop (see main.ts). Tests override this instead
+   * of self-signaling the test runner's own process.
+   */
+  onShutdownRequested?: () => void;
 }
 
 export interface BootstrappedDaemon {
@@ -61,7 +68,15 @@ export function bootstrap(opts: BootstrapOptions = {}): BootstrappedDaemon {
         run: () => checkpoint(db),
       },
     ],
-    buildApp: () => buildApp({ service, ledger, token, version, logger }),
+    buildApp: () =>
+      buildApp({
+        service,
+        ledger,
+        token,
+        version,
+        logger,
+        onShutdownRequested: opts.onShutdownRequested ?? (() => process.kill(process.pid, "SIGTERM")),
+      }),
     onShutdown: () => {
       db.close();
     },

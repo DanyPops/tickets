@@ -90,4 +90,30 @@ describe("daemon HTTP surface", () => {
     const body = (await res.json()) as { result: { issues: { title: string }[] } };
     expect(body.result.issues[0]?.title).toBe("Cached only");
   });
+
+  it("daemon.shutdown responds before invoking onShutdownRequested, never calls it synchronously", async () => {
+    db = openSqliteWithPragmas(":memory:", { migrations: LEDGER_MIGRATIONS });
+    const ledger = new Ledger(db);
+    const service = new TicketService({});
+    let calls = 0;
+    const app = buildApp({
+      service,
+      ledger,
+      token: TOKEN,
+      version: "0.0.0-test",
+      onShutdownRequested: () => {
+        calls++;
+      },
+    });
+
+    const res = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "daemon.shutdown", input: {} }) }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: { stopping: boolean } };
+    expect(body.result.stopping).toBe(true);
+    // Not called yet — the handler defers it so this very response can flush first.
+    expect(calls).toBe(0);
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(calls).toBe(1);
+  });
 });

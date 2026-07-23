@@ -17,7 +17,8 @@ export type TicketOperation =
   | "issue.comments"
   | "issue.comment_add"
   | "ledger.search"
-  | "ledger.stats";
+  | "ledger.stats"
+  | "daemon.shutdown";
 
 export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "backends.list": Record<string, never>;
@@ -31,6 +32,7 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "issue.comment_add": { ref: string; body: string };
   "ledger.search": { query: string; limit?: number };
   "ledger.stats": Record<string, never>;
+  "daemon.shutdown": Record<string, never>;
 }
 
 export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
@@ -45,6 +47,7 @@ export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
   "issue.comment_add": { comment: Comment };
   "ledger.search": { issues: Issue[] };
   "ledger.stats": { backends: { backend: string; count: number }[] };
+  "daemon.shutdown": { stopping: true };
 }
 
 export const TICKET_OPERATIONS: TicketOperation[] = [
@@ -59,6 +62,7 @@ export const TICKET_OPERATIONS: TicketOperation[] = [
   "issue.comment_add",
   "ledger.search",
   "ledger.stats",
+  "daemon.shutdown",
 ];
 
 /** Daemon path/state directory identity — the one place this name is spelled out. */

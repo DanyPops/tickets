@@ -6,9 +6,12 @@
  * directly — every action goes through the same authenticated RPC client the
  * CLI uses, spawning the (Bun-only) daemon on first use if needed.
  *
- * OAuth login (`tickets auth login`) is deliberately NOT exposed as a tool
- * action: it requires a human to open a browser link and approve access,
- * which belongs in an interactive terminal, not an LLM tool call.
+ * OAuth login (`tickets auth login`) and daemon lifecycle control (`tickets
+ * daemon stop/restart`) are deliberately NOT exposed as tool actions: login
+ * requires a human to open a browser link and approve access, and stopping
+ * the daemon out from under other callers is an operational decision that
+ * belongs to a human at a terminal, not something an agent should be able to
+ * trigger mid-conversation.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";

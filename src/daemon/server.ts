@@ -17,6 +17,14 @@ export interface TicketsAppDeps {
   token: string;
   version: string;
   logger?: Logger;
+  /**
+   * Invoked by the `daemon.shutdown` op, after the HTTP response is already
+   * queued to flush. Defaults set by bootstrap.ts self-signal the process so
+   * the same tested SIGINT/SIGTERM path (daemon-kit's runDaemonProcess) does
+   * the actual graceful stop — this hook only ever *requests* shutdown, it
+   * never calls process.exit directly.
+   */
+  onShutdownRequested?: () => void;
 }
 
 type Handler<Op extends TicketOperation> = (
@@ -36,6 +44,12 @@ const handlers: { [Op in TicketOperation]: Handler<Op> } = {
   "issue.comment_add": async (deps, input) => ({ comment: await deps.service.addComment(input.ref, input.body) }),
   "ledger.search": async (deps, input) => ({ issues: deps.ledger.search(input.query, input.limit) }),
   "ledger.stats": async (deps) => ({ backends: deps.ledger.stats() }),
+  "daemon.shutdown": async (deps) => {
+    // Deferred so this handler's own response has already been handed back
+    // to Bun.serve before the process starts tearing down.
+    setTimeout(() => deps.onShutdownRequested?.(), 50);
+    return { stopping: true };
+  },
 };
 
 function isTicketOperation(value: unknown): value is TicketOperation {

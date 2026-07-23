@@ -39,7 +39,13 @@ bun install
 # auth token under $XDG_RUNTIME_DIR/tickets and $XDG_STATE_HOME/tickets).
 bun run daemon
 
-# In another shell — the CLI auto-starts the daemon if it isn't already running.
+# Or let the CLI manage it — every issue/ledger command below auto-starts the
+# daemon on first use if it isn't already running.
+bun run src/cli/index.ts daemon status    # never auto-starts; just checks
+bun run src/cli/index.ts daemon start
+bun run src/cli/index.ts daemon stop      # asks it to shut down gracefully
+bun run src/cli/index.ts daemon restart
+
 bun run src/cli/index.ts backends
 bun run src/cli/index.ts list -b github --status todo
 bun run src/cli/index.ts get jira:PROJ-42
