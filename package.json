@@ -20,7 +20,9 @@
   ],
   "scripts": {
     "daemon": "bun run src/daemon/main.ts",
-    "test": "bun test",
+    "test": "bun test --path-ignore-patterns 'extensions/**'",
+    "test:extension": "cd extensions/pi-tickets && bun install && bun test",
+    "test:all": "npm run test && npm run test:extension",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
