@@ -1,0 +1,192 @@
+# tickets
+
+A unified CLI, daemon, and TypeScript library for issue tracking across
+**GitHub**, **GitLab**, and **Jira** — plus a `pi-tickets` extension so a
+coding agent can query and mutate issues the same way the CLI does.
+
+## Why a daemon
+
+Every backend adapter pools issues into a local SQLite ledger on its own
+schedule, independent of whether anything is currently asking for data —
+`tickets ledger search`/`ledger stats` and the ledger ops still answer from
+the last successful sync even if a backend is slow, rate-limited, or
+temporarily unreachable. The CLI and the pi-tickets extension are both thin,
+interchangeable clients of one authenticated RPC daemon; neither talks to
+GitHub/GitLab/Jira or opens the SQLite ledger directly. See
+[RESEARCH.md](RESEARCH.md) for the sources this was built against.
+
+## Requirements
+
+- **[Bun](https://bun.sh) 1.1+.** The daemon uses `bun:sqlite` and
+  `Bun.serve` (via `@danypops/daemon-kit`); the CLI, library, and pi-tickets
+  extension are plain TypeScript but currently ship as source, run through
+  Bun rather than a compiled Node build.
+- A local checkout of `@danypops/daemon-kit` (referenced here via a `file:`
+  dependency — it is not yet published to a registry). Adjust the path in
+  `package.json` if your checkout isn't at `../../Projects/daemon-kit`
+  relative to this repo.
+
+## Install
+
+```bash
+bun install
+```
+
+## Run
+
+```bash
+# Start the daemon (binds 127.0.0.1 on an ephemeral port; writes a handle +
+# auth token under $XDG_RUNTIME_DIR/tickets and $XDG_STATE_HOME/tickets).
+bun run daemon
+
+# In another shell — the CLI auto-starts the daemon if it isn't already running.
+bun run src/cli/index.ts backends
+bun run src/cli/index.ts list -b github --status todo
+bun run src/cli/index.ts get jira:PROJ-42
+bun run src/cli/index.ts create -b github "Fix the thing" --label bug
+bun run src/cli/index.ts comment add jira:PROJ-42 "Looks good, shipping"
+bun run src/cli/index.ts ledger search "login bug"
+bun run src/cli/index.ts ledger stats
+```
+
+Once installed as a package, the same commands are available as `tickets`
+and `tickets-daemon` (see `bin` in `package.json`).
+
+## Configuration
+
+### Environment variables
+
+```bash
+# GitHub (token optional for public-repo reads)
+export GITHUB_TOKEN=ghp_xxx
+export GITHUB_OWNER=your-org
+export GITHUB_REPO=your-repo
+
+# GitLab (token optional for public-project reads)
+export GITLAB_TOKEN=glpat-xxx
+export GITLAB_PROJECT=namespace/project
+export GITLAB_URL=https://gitlab.example.com   # optional, defaults to gitlab.com
+
+# Jira
+export JIRA_API_TOKEN=xxx
+export JIRA_URL=https://yourcompany.atlassian.net
+export JIRA_EMAIL=you@yourcompany.com
+export JIRA_PROJECT=PROJ
+```
+
+### Config file (multi-instance)
+
+`$XDG_CONFIG_HOME/tickets/config.yaml` (default `~/.config/tickets/config.yaml`):
+
+```yaml
+backends:
+  github:
+    owner: your-org
+    repo: your-repo
+    token_env: GITHUB_TOKEN
+
+  gitlab:
+    project: namespace/project
+    token_env: GITLAB_TOKEN
+
+  jira:
+    url: https://yourcompany.atlassian.net
+    email: you@yourcompany.com
+    token_env: JIRA_API_TOKEN
+    project: PROJ
+
+  jira-staging:            # multi-instance: same type, different name
+    type: jira
+    url: https://staging.atlassian.net
+    email: you@yourcompany.com
+    token_env: JIRA_STAGING_TOKEN
+```
+
+## Delegated OAuth login (instead of a static token)
+
+Each backend supports a different real delegated-auth flow — see
+[RESEARCH.md](RESEARCH.md) for exactly which, and why Jira's is shaped
+differently from GitHub/GitLab's:
+
+```bash
+# GitHub / GitLab: device flow — opens a browser, prints a short code.
+tickets auth login --backend github --client-id <your-github-oauth-app-client-id>
+tickets auth login --backend gitlab --client-id <your-gitlab-application-id>
+
+# Jira: authorization code grant — opens a browser, receives the callback
+# on a local loopback server. Atlassian's 3LO apps are confidential clients
+# (no PKCE, no device flow), so a client secret is required here.
+tickets auth login --backend jira \
+  --client-id <your-atlassian-oauth-client-id> \
+  --client-secret <your-atlassian-oauth-client-secret>
+
+tickets auth status
+tickets auth logout github
+```
+
+A stored, still-fresh delegated token always takes precedence over a static
+config/env token for that backend. Tokens are written to
+`$XDG_STATE_HOME/tickets/oauth/<backend>.json`, mode `0600`, and are never
+printed by any command. **Restart the daemon** after logging in so it picks
+up the new credential — `buildRepositories()` runs once at daemon startup.
+
+## The `pi-tickets` extension
+
+`extensions/pi-tickets/` registers a single `tickets` tool for
+[pi](https://github.com/badlogic/pi) with one action per CLI command (`list`,
+`get`, `create`, `update`, `search`, `children`, `comments`, `comment_add`,
+`backends`, `ledger_search`, `ledger_stats`). It talks to the same daemon
+through the same authenticated RPC client the CLI uses — never a direct
+backend call or a direct SQLite open. OAuth login is deliberately **not** a
+tool action: approving access requires a human in a browser, which belongs
+in a terminal (`tickets auth login`), not an LLM tool call.
+
+To use it:
+
+```bash
+cd extensions/pi-tickets
+bun install
+```
+
+then either symlink (or copy) `extensions/pi-tickets` into
+`~/.pi/agent/extensions/pi-tickets`, or add its path to `settings.json`:
+
+```json
+{ "extensions": ["/path/to/tickets/extensions/pi-tickets"] }
+```
+
+## Development
+
+```bash
+bun install
+bun run typecheck   # tsc --noEmit against src/ and test/
+bun test            # domain, adapters, application service, auth flows, daemon
+cd extensions/pi-tickets && bun install && bun test && bun run typecheck
+```
+
+Tests never hit real GitHub/GitLab/Jira/Atlassian: adapters take an
+injectable `fetchImpl`, and the daemon tests (`test/daemon/`) run the real
+`@danypops/daemon-kit` `startDaemon()`/SQLite/HTTP stack against a scratch
+XDG root with a fake `IssueRepository`.
+
+## Architecture
+
+```
+Driver (inbound)              Application              Driven (outbound)
+┌───────────────┐        ┌─────────────────┐        ┌──────────────────┐
+│ CLI (commander)│──RPC──▶│                 │        │ GitHub adapter   │
+│ pi-tickets     │──RPC──▶│  tickets-daemon │───────▶│ GitLab adapter   │
+│  (Pi tool)     │        │  (TicketService │───────▶│ Jira adapter     │
+└───────────────┘        │   + Ledger      │───────▶│ SQLite (Ledger)  │
+                          │   + Poller)     │        └──────────────────┘
+                          └─────────────────┘
+                          built on @danypops/daemon-kit
+                          (paths, storage, http, logging, daemon, rpc-client)
+```
+
+Hexagonal architecture: `src/domain` has zero I/O, `src/ports` defines the
+outbound contract, `src/adapters` implement it per backend, `src/application`
+orchestrates by parsing `backend:key` refs and routing to the named
+repository, and `src/daemon` is the only place that owns the SQLite ledger,
+wraps it in a Bearer-authenticated HTTP RPC surface, and runs the pooling
+poller as a `daemon-kit` maintenance task.
