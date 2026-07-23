@@ -1,22 +1,26 @@
 /**
  * pi-tickets — exposes the tickets daemon (GitHub/GitLab/Jira issue tracking)
- * as one action-based tool the LLM can call, mirroring the CLI's commands
- * 1:1 (see ../../../src/cli/index.ts and ../../../src/daemon/ops.ts). This
- * extension never talks to a backend or opens the daemon's SQLite ledger
- * directly — every action goes through the same authenticated RPC client the
- * CLI uses, spawning the (Bun-only) daemon on first use if needed.
+ * two ways: a single action-based tool the LLM can call, mirroring the CLI's
+ * commands 1:1 (see ../../../src/cli/index.ts and ../../../src/daemon/ops.ts),
+ * and a `/tickets` interactive TUI for the human (see tui.ts) — a browsable
+ * list of pooled issues across every backend, with a persistent footer status
+ * showing the current focus. Neither ever talks to a backend or opens the
+ * daemon's SQLite ledger directly — both go through the same authenticated
+ * RPC client the CLI uses, spawning the (Bun-only) daemon on first use if
+ * needed.
  *
  * OAuth login (`tickets auth login`) and daemon lifecycle control (`tickets
- * daemon stop/restart`) are deliberately NOT exposed as tool actions: login
- * requires a human to open a browser link and approve access, and stopping
- * the daemon out from under other callers is an operational decision that
- * belongs to a human at a terminal, not something an agent should be able to
- * trigger mid-conversation.
+ * daemon stop/restart`) are deliberately NOT exposed as a tool action or a
+ * TUI command: login requires a human to open a browser link and approve
+ * access, and stopping the daemon out from under other callers is an
+ * operational decision that belongs to a human at a terminal, not something
+ * an agent or a casual keypress should trigger.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createTicketsClient, type TicketsRpcClient } from "../../../src/client/tickets-client.js";
 import type { CreateInput, ListFilter, Priority, Status, UpdateInput } from "../../../src/domain/issue.js";
+import { registerTicketsTui } from "./tui.js";
 
 const ACTIONS = [
   "list",
@@ -153,6 +157,8 @@ export async function dispatch(client: TicketsRpcClient, params: Record<string, 
 }
 
 export default function (pi: ExtensionAPI) {
+  registerTicketsTui(pi);
+
   pi.registerTool({
     name: "tickets",
     label: "Tickets",

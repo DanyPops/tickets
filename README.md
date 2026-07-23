@@ -151,9 +151,23 @@ up the new credential — `buildRepositories()` runs once at daemon startup.
 `backends`, `ledger_search`, `ledger_stats`, `focus_set`, `focus_get`,
 `focus_pause`, `focus_unpause`, `focus_clear`). It talks to the same daemon
 through the same authenticated RPC client the CLI uses — never a direct
-backend call or a direct SQLite open. OAuth login is deliberately **not** a
-tool action: approving access requires a human in a browser, which belongs
-in a terminal (`tickets auth login`), not an LLM tool call.
+backend call or a direct SQLite open. OAuth login and daemon lifecycle
+control are deliberately **not** exposed here (neither as a tool action nor
+as the `/tickets` command below): approving OAuth access requires a human in
+a browser, and stopping a shared daemon is an operational decision, not
+something an LLM tool call or a casual keypress should trigger. Use
+`tickets auth login`/`tickets daemon stop` from a terminal for those.
+
+It also registers a `/tickets [query]` interactive TUI command (for the
+human, not the LLM): a browsable list of every issue the daemon's ledger has
+pooled across every configured backend in one flat list (no backend picker
+needed). `↑↓` navigate, `enter` sets focus on the highlighted issue, `o`
+opens its real web URL in a browser without closing the dialog, and `esc`
+cancels. When a focus is already set, a "Clear current focus" row appears
+first. A persistent footer status (`🎯 backend:key`, or `⏸` when paused)
+shows the current focus at all times, refreshed on session start and after
+every `tickets` tool call — so a focus the LLM sets via `focus_set` mid-
+conversation shows up in the footer too, and vice versa.
 
 To use it:
 

@@ -90,15 +90,21 @@ describe("pi-tickets dispatch", () => {
 });
 
 describe("extension registration", () => {
-  it("registers exactly one tool named 'tickets'", async () => {
+  it("registers exactly one tool named 'tickets', plus the /tickets TUI command and its event handlers", async () => {
     const registered: { name: string }[] = [];
+    const commands: string[] = [];
+    const events: string[] = [];
     const fakePi = {
       registerTool: (def: { name: string }) => registered.push(def),
+      registerCommand: (name: string) => commands.push(name),
+      on: (event: string) => events.push(event),
     };
     const mod = await import("../src/index.js");
     // biome-ignore lint: test-only cast into the ExtensionAPI shape the factory expects
     (mod.default as (pi: unknown) => void)(fakePi);
     expect(registered).toHaveLength(1);
     expect(registered[0]?.name).toBe("tickets");
+    expect(commands).toEqual(["tickets"]);
+    expect(events).toEqual(expect.arrayContaining(["session_start", "tool_execution_end"]));
   });
 });
