@@ -1,5 +1,5 @@
 {
-  "name": "tickets",
+  "name": "@danypops/tickets",
   "version": "0.1.0",
   "description": "Unified CLI, daemon, and TypeScript library for issue tracking across GitHub, GitLab, and Jira.",
   "type": "module",
@@ -31,6 +31,9 @@
   "devDependencies": {
     "bun-types": "^1.3.0",
     "typescript": "^5.7.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "bun": ">=1.1.0"

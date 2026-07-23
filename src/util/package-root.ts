@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
  * sit above an installed copy). Bounded to `maxLevels` so a misconfigured
  * install fails fast instead of walking to filesystem root.
  */
-export function packageRoot(startDir: string, packageName = "tickets", maxLevels = 8): string {
+export function packageRoot(startDir: string, packageName = "@danypops/tickets", maxLevels = 8): string {
   let dir = startDir;
   for (let i = 0; i < maxLevels; i++) {
     const candidate = join(dir, "package.json");
