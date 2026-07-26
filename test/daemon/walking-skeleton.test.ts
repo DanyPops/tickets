@@ -36,7 +36,7 @@ describe("tickets daemon walking skeleton", () => {
       { ref: "github:#1", id: "1", key: "#1", title: "Skeleton issue", status: "todo", priority: "none", url: "https://github.com/acme/widgets/issues/1" },
     ]);
 
-    const { options, ledger, db } = bootstrap({
+    const { options, ledger, db } = await bootstrap({
       pathEnv,
       repos: { github },
       version: "0.0.0-skeleton",
@@ -90,7 +90,7 @@ describe("tickets daemon walking skeleton", () => {
   it("wrong token is rejected before any op runs", async () => {
     tmpRoot = mkdtempSync(join(tmpdir(), "tickets-daemon-skeleton-auth-"));
     const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
-    const { options } = bootstrap({ pathEnv, repos: {}, version: "0.0.0-skeleton" });
+    const { options } = await bootstrap({ pathEnv, repos: {}, version: "0.0.0-skeleton" });
     daemon = startDaemon(options);
 
     const badClient = new AuthenticatedRpcClient<TicketOperation, TicketOpInputs, TicketOpOutputs>(
@@ -105,7 +105,7 @@ describe("tickets daemon walking skeleton", () => {
     tmpRoot = mkdtempSync(join(tmpdir(), "tickets-daemon-skeleton-shutdown-"));
     const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
     let requested = 0;
-    const { options } = bootstrap({
+    const { options } = await bootstrap({
       pathEnv,
       repos: {},
       version: "0.0.0-skeleton",

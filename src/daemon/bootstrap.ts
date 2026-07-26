@@ -48,14 +48,14 @@ export interface BootstrappedDaemon {
 const DEFAULT_SYNC_INTERVAL_MS = 5 * 60_000;
 const DEFAULT_CHECKPOINT_INTERVAL_MS = 10 * 60_000;
 
-export function bootstrap(opts: BootstrapOptions = {}): BootstrappedDaemon {
+export async function bootstrap(opts: BootstrapOptions = {}): Promise<BootstrappedDaemon> {
   const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, opts.pathEnv);
   const token = ensureAuthToken(paths.token, "Tickets");
   const db = openSqliteWithPragmas(paths.database, { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS] });
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const logger = opts.logger ?? createLogger("tickets-daemon", { levelEnvVar: "TICKETS_LOG_LEVEL" });
-  const repos = opts.repos ?? buildRepositories(opts.config ?? loadConfig());
+  const repos = opts.repos ?? (await buildRepositories(opts.config ?? loadConfig()));
   const service = new TicketService(repos);
   const version = opts.version ?? "0.0.0-dev";
 

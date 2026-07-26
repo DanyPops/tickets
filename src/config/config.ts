@@ -12,6 +12,7 @@ import { GitLabRepository } from "../adapters/gitlab.js";
 import { JiraRepository } from "../adapters/jira.js";
 import type { IssueRepository } from "../ports/repository.js";
 import { isTokenFresh, loadToken } from "../auth/token-store.js";
+import { type TryEnigmaCredential, tryEnigmaCredential } from "../auth/enigma-source.js";
 
 export interface BackendConfig {
   /** Adapter type: "github" | "gitlab" | "jira". Falls back to the config key when omitted. */
@@ -55,19 +56,27 @@ function resolveToken(cfg: BackendConfig, env: NodeJS.ProcessEnv, envFallback: s
 }
 
 /**
- * Prefers a locally stored, still-fresh delegated OAuth token (see auth/,
- * populated by `tickets auth login`) over a static config/env PAT, per the
- * general "delegated auth over static token" precedence this project follows
- * for GitHub, GitLab, and Jira — see RESEARCH.md for the auth flows each
- * backend actually supports (device flow for GitHub/GitLab, authorization
- * code for Jira, which has no device flow or PKCE).
+ * Resolution order, highest priority first: (1) a running Enigma vault, if
+ * one happens to be configured for this backend — entirely optional, never a
+ * hard dependency, and bounded so Tickets never waits long for it (see
+ * auth/enigma-source.ts); (2) a locally stored, still-fresh delegated OAuth
+ * token (see auth/token-store.ts, populated by `tickets auth login`); (3) a
+ * static config/env PAT. (1) is additive to the pre-Enigma precedence this
+ * project already followed for GitHub, GitLab, and Jira — see RESEARCH.md
+ * for the auth flows each backend actually supports (device flow for
+ * GitHub/GitLab, authorization code for Jira, which has no device flow or
+ * PKCE).
  */
-function preferredAuth(
+export async function preferredAuth(
   name: string,
   cfg: BackendConfig,
   env: NodeJS.ProcessEnv,
   envFallback: string,
-): { token: string | undefined; oauth: boolean; extra?: Record<string, string> } {
+  tryEnigma: TryEnigmaCredential = tryEnigmaCredential,
+): Promise<{ token: string | undefined; oauth: boolean; extra?: Record<string, string> }> {
+  const fromEnigma = await tryEnigma(name, { env });
+  if (fromEnigma) return { token: fromEnigma.accessToken, oauth: true, extra: fromEnigma.extra };
+
   const stored = loadToken(name, { env });
   if (stored && isTokenFresh(stored)) {
     return { token: stored.accessToken, oauth: true, extra: stored.extra };
@@ -80,45 +89,47 @@ function preferredAuth(
  * inferrable purely from environment variables when not present in the config file.
  * Config-file entries take precedence over bare env-var inference for the same name.
  */
-export function buildRepositories(
+export async function buildRepositories(
   config: Config,
   env: NodeJS.ProcessEnv = process.env,
-): Record<string, IssueRepository> {
+  tryEnigma: TryEnigmaCredential = tryEnigmaCredential,
+): Promise<Record<string, IssueRepository>> {
   const repos: Record<string, IssueRepository> = {};
 
   for (const [name, cfg] of Object.entries(config.backends)) {
     const type = cfg.type ?? name;
-    const repo = createRepository(name, type, cfg, env);
+    const repo = await createRepository(name, type, cfg, env, tryEnigma);
     if (repo) repos[name] = repo;
   }
 
   if (!repos.github && (env.GITHUB_OWNER || env.GITHUB_TOKEN)) {
-    const repo = createRepository("github", "github", {}, env);
+    const repo = await createRepository("github", "github", {}, env, tryEnigma);
     if (repo) repos.github = repo;
   }
   if (!repos.gitlab && (env.GITLAB_PROJECT || env.GITLAB_TOKEN)) {
-    const repo = createRepository("gitlab", "gitlab", {}, env);
+    const repo = await createRepository("gitlab", "gitlab", {}, env, tryEnigma);
     if (repo) repos.gitlab = repo;
   }
   if (!repos.jira && env.JIRA_URL) {
-    const repo = createRepository("jira", "jira", {}, env);
+    const repo = await createRepository("jira", "jira", {}, env, tryEnigma);
     if (repo) repos.jira = repo;
   }
 
   return repos;
 }
 
-function createRepository(
+async function createRepository(
   name: string,
   type: string,
   cfg: BackendConfig,
   env: NodeJS.ProcessEnv,
-): IssueRepository | undefined {
+  tryEnigma: TryEnigmaCredential,
+): Promise<IssueRepository | undefined> {
   switch (type) {
     case "github": {
       const owner = cfg.owner ?? env.GITHUB_OWNER;
       if (!owner) return undefined;
-      const auth = preferredAuth(name, cfg, env, "GITHUB_TOKEN");
+      const auth = await preferredAuth(name, cfg, env, "GITHUB_TOKEN", tryEnigma);
       return new GitHubRepository(name, {
         owner,
         repo: cfg.repo ?? env.GITHUB_REPO,
@@ -129,7 +140,7 @@ function createRepository(
     case "gitlab": {
       const project = cfg.project ?? env.GITLAB_PROJECT;
       if (!project) return undefined;
-      const auth = preferredAuth(name, cfg, env, "GITLAB_TOKEN");
+      const auth = await preferredAuth(name, cfg, env, "GITLAB_TOKEN", tryEnigma);
       return new GitLabRepository(name, {
         projectId: project,
         token: auth.token,
@@ -138,7 +149,7 @@ function createRepository(
       });
     }
     case "jira": {
-      const auth = preferredAuth(name, cfg, env, "JIRA_API_TOKEN");
+      const auth = await preferredAuth(name, cfg, env, "JIRA_API_TOKEN", tryEnigma);
       if (auth.oauth && auth.token && auth.extra?.cloudId) {
         return new JiraRepository(name, {
           accessToken: auth.token,

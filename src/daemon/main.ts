@@ -10,7 +10,7 @@ import { readPackageVersion } from "@danypops/daemon-kit/version";
 import { bootstrap } from "./bootstrap.js";
 
 const version = readPackageVersion(new URL("../../package.json", import.meta.url), "Tickets");
-const { options } = bootstrap({ version });
+const { options } = await bootstrap({ version });
 
 runDaemonProcess({
   ...options,
