@@ -1,7 +1,7 @@
 /**
  * pi-tickets — exposes the tickets daemon (GitHub/GitLab/Jira issue tracking)
  * two ways: a single action-based tool the LLM can call, mirroring the CLI's
- * commands 1:1 (see ../../../src/cli/index.ts and ../../../src/daemon/ops.ts),
+ * commands 1:1 (see @danypops/tickets' src/cli/index.ts and src/daemon/ops.ts),
  * and a `/tickets` interactive TUI for the human (see tui.ts) — a browsable
  * list of pooled issues across every backend, with a persistent footer status
  * showing the current focus. Neither ever talks to a backend or opens the
@@ -18,8 +18,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createTicketsClient, type TicketsRpcClient } from "../../../src/client/tickets-client.js";
-import type { CreateInput, ListFilter, Priority, Status, UpdateInput } from "../../../src/domain/issue.js";
+import { createTicketsClient, type TicketsRpcClient, type CreateInput, type ListFilter, type Priority, type Status, type UpdateInput } from "@danypops/tickets";
 import { registerTicketsTui } from "./tui.js";
 
 const ACTIONS = [

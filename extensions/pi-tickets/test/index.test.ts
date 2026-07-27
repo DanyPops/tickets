@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
+import type { TicketsRpcClient } from "@danypops/tickets";
 import { dispatch } from "../src/index.js";
-import type { TicketsRpcClient } from "../../../src/client/tickets-client.js";
 
 function fakeClient(handler: (op: string, input: unknown) => unknown): TicketsRpcClient {
   return { call: mock((op: string, input: unknown) => Promise.resolve(handler(op, input))) } as unknown as TicketsRpcClient;

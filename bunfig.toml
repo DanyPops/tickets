@@ -1,0 +1,6 @@
+[install]
+# Bun's default isolated linker leaves @gitbeaker/rest's own transitive
+# dependency on @gitbeaker/requester-utils unresolvable inside this
+# workspace (confirmed: reproduces only once this repo became a bun
+# workspace, not in a single-package install) -- hoisted linking avoids it.
+linker = "hoisted"

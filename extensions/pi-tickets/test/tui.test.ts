@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
+import type { TicketsRpcClient } from "@danypops/tickets";
 import { registerTicketsTui } from "../src/tui.js";
-import type { TicketsRpcClient } from "../../../src/client/tickets-client.js";
 
 interface Component {
   render(width: number): string[];

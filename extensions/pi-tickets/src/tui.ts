@@ -17,10 +17,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
-import { openUrl } from "../../../src/auth/browser.js";
-import { createTicketsClient, type EnsureDaemonOptions, type TicketsRpcClient } from "../../../src/client/tickets-client.js";
-import type { Issue } from "../../../src/domain/issue.js";
-import type { TicketFocusState } from "../../../src/daemon/focus.js";
+import { createTicketsClient, type EnsureDaemonOptions, type Issue, openUrl, type TicketFocusState, type TicketsRpcClient } from "@danypops/tickets";
 
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
 const BROWSE_LIMIT = 100;

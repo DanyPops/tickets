@@ -1,0 +1,61 @@
+{
+  "name": "@danypops/tickets",
+  "version": "0.2.1",
+  "description": "Unified CLI, daemon, and TypeScript library for issue tracking across GitHub, GitLab, and Jira.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "tickets": "./src/cli/index.ts",
+    "tickets-daemon": "./src/daemon/main.ts"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "RESEARCH.md"
+  ],
+  "scripts": {
+    "daemon": "bun run src/daemon/main.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@danypops/daemon-kit": "^0.3.0",
+    "@gitbeaker/rest": "^43.8.0",
+    "commander": "^12.1.0",
+    "jira.js": "^5.4.0",
+    "octokit": "^5.0.5",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.0",
+    "typescript": "^5.7.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "keywords": [
+    "issue-tracker",
+    "jira",
+    "github",
+    "gitlab",
+    "cli",
+    "daemon"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DanyPops/tickets.git",
+    "directory": "packages/tickets"
+  },
+  "homepage": "https://github.com/DanyPops/tickets#readme",
+  "bugs": {
+    "url": "https://github.com/DanyPops/tickets/issues"
+  }
+}

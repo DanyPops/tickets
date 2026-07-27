@@ -14,10 +14,12 @@ export {
   configDir,
 } from "./config/config.js";
 export type { TicketOperation, TicketOpInputs, TicketOpOutputs } from "./daemon/ops.js";
+export type { FocusStatus, TicketFocusState } from "./daemon/focus.js";
 export {
   createTicketsClient,
   ensureDaemonRunning,
   ticketsPaths,
+  type EnsureDaemonOptions,
   type TicketsRpcClient,
 } from "./client/tickets-client.js";
 
