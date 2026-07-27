@@ -1,6 +1,6 @@
 /**
  * The RPC protocol shared between the tickets daemon (server.ts, running under
- * Bun) and every client (cli/index.ts, extensions/pi-tickets, running under
+ * Bun) and every client (cli/index.ts, packages/pi-tickets, running under
  * whatever consumes this package). Pure types, zero runtime imports, safe to
  * import from either side without pulling in bun:sqlite or Bun.serve.
  */

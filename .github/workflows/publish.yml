@@ -9,7 +9,7 @@ name: Publish @danypops/tickets
 # silent skip).
 #
 # Tag stays a bare "v*" for continuity with this package's existing release
-# history (v0.1.0, v0.2.0) predating the extensions/pi-tickets workspace
+# history (v0.1.0, v0.2.0) predating the packages/pi-tickets workspace
 # member -- see publish-pi-tickets.yml for that package's own tag/workflow.
 
 on:

@@ -165,7 +165,7 @@ up the new credential — `buildRepositories()` runs once at daemon startup.
 
 ## The `pi-tickets` extension
 
-Published as `@danypops/pi-tickets`. `../../extensions/pi-tickets/` (this repo's workspace member) registers a single `tickets` tool for
+Published as `@danypops/pi-tickets`. `../pi-tickets/` (this repo's workspace member) registers a single `tickets` tool for
 [pi](https://github.com/badlogic/pi) with one action per CLI command (`list`,
 `get`, `create`, `update`, `search`, `children`, `comments`, `comment_add`,
 `backends`, `ledger_search`, `ledger_stats`, `focus_set`, `focus_get`,
@@ -196,7 +196,7 @@ To use it, add it to pi's `settings.json`:
 ```
 
 Or, for local development against this monorepo, point at the workspace
-member directory instead: `{ "packages": ["/path/to/tickets/extensions/pi-tickets"] }`.
+member directory instead: `{ "packages": ["/path/to/tickets/packages/pi-tickets"] }`.
 
 ## Development
 

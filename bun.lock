@@ -5,7 +5,7 @@
     "": {
       "name": "tickets-workspace",
     },
-    "extensions/pi-tickets": {
+    "packages/pi-tickets": {
       "name": "@danypops/pi-tickets",
       "version": "0.1.0",
       "dependencies": {
@@ -97,7 +97,7 @@
 
     "@danypops/daemon-kit": ["@danypops/daemon-kit@0.3.2", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "typescript": "^5" } }, "sha512-M9/XJ/rzxpaYcf8RwSURpRifezx4CLBYW4wmmJgEL7Bigu8RRw+SQ9gmW8HvL+7hch43AVIFmMpV5FlBaMMOsQ=="],
 
-    "@danypops/pi-tickets": ["@danypops/pi-tickets@workspace:extensions/pi-tickets"],
+    "@danypops/pi-tickets": ["@danypops/pi-tickets@workspace:packages/pi-tickets"],
 
     "@danypops/tickets": ["@danypops/tickets@workspace:packages/tickets"],
 

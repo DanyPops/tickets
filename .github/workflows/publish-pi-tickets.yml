@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: extensions/pi-tickets
+        working-directory: packages/pi-tickets
     steps:
       - uses: actions/checkout@v6
 
