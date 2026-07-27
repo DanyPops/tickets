@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { buildRepositories, preferredAuth } from "../../src/config/config.js";
-import type { TryEnigmaCredential } from "../../src/auth/enigma-source.js";
+import type { TryEnigmaCredential } from "@danypops/enigma-client";
 import { GitHubRepository } from "../../src/adapters/github.js";
 import { GitLabRepository } from "../../src/adapters/gitlab.js";
 import { JiraRepository } from "../../src/adapters/jira.js";

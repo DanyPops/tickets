@@ -12,7 +12,7 @@ import { GitLabRepository } from "../adapters/gitlab.js";
 import { JiraRepository } from "../adapters/jira.js";
 import type { IssueRepository } from "../ports/repository.js";
 import { isTokenFresh, loadToken } from "../auth/token-store.js";
-import { type TryEnigmaCredential, tryEnigmaCredential } from "../auth/enigma-source.js";
+import { type TryEnigmaCredential, tryEnigmaCredential } from "@danypops/enigma-client";
 
 export interface BackendConfig {
   /** Adapter type: "github" | "gitlab" | "jira". Falls back to the config key when omitted. */
@@ -59,7 +59,7 @@ function resolveToken(cfg: BackendConfig, env: NodeJS.ProcessEnv, envFallback: s
  * Resolution order, highest priority first: (1) a running Enigma vault, if
  * one happens to be configured for this backend — entirely optional, never a
  * hard dependency, and bounded so Tickets never waits long for it (see
- * auth/enigma-source.ts); (2) a locally stored, still-fresh delegated OAuth
+ * @danypops/enigma-client); (2) a locally stored, still-fresh delegated OAuth
  * token (see auth/token-store.ts, populated by `tickets auth login`); (3) a
  * static config/env PAT. (1) is additive to the pre-Enigma precedence this
  * project already followed for GitHub, GitLab, and Jira — see RESEARCH.md

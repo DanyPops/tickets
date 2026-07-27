@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@danypops/daemon-kit": "^0.3.0",
+    "@danypops/enigma-client": "^0.1.0",
     "@gitbeaker/rest": "^43.8.0",
     "commander": "^12.1.0",
     "jira.js": "^5.4.0",
