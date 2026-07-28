@@ -157,6 +157,23 @@ tickets auth status
 tickets auth logout github
 ```
 
+### GitHub: reuse an already-authenticated `gh` CLI session
+
+`tickets auth login --backend github --gh-cli [account]` skips the device
+flow (and the `GITHUB_OAUTH_CLIENT_ID` App registration it needs) entirely
+by reading `gh auth token` instead — never re-implement a vendor CLI's own
+auth, just consume its result via its own documented, stable interface.
+Works whether `gh` stores its token in the OS keyring or a legacy
+plaintext file. Omit `account` for `gh`'s current active account, or name
+one of `gh`'s own multiple authenticated accounts (`gh auth status` lists
+them) — pair with a distinct `--backend` name to register each as its own
+tickets backend:
+
+```bash
+tickets auth login --backend github-personal --gh-cli DanyPops
+tickets auth login --backend github-work --gh-cli work-account
+```
+
 A stored, still-fresh delegated token always takes precedence over a static
 config/env token for that backend. Tokens are written to
 `$XDG_STATE_HOME/tickets/oauth/<backend>.json`, mode `0600`, and are never

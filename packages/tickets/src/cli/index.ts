@@ -11,6 +11,7 @@ import { parseStatus } from "../domain/issue.js";
 import { createTicketsClient, type TicketsRpcClient } from "../client/tickets-client.js";
 import { openUrl } from "../auth/browser.js";
 import { loginWithGitHubDeviceFlow } from "../auth/github-oauth.js";
+import { readGhCliToken } from "../auth/gh-cli.js";
 import { gitlabDeviceEndpoints, loginWithGitLabDeviceFlow } from "../auth/gitlab-oauth.js";
 import { loginWithJiraAuthorizationCode } from "../auth/jira-oauth.js";
 import { deleteToken, isTokenFresh, listStoredBackends, loadToken, saveToken } from "../auth/token-store.js";
@@ -305,12 +306,20 @@ auth
   .option("--client-secret <secret>", "OAuth client secret (Jira only — GitHub/GitLab device flow needs none)")
   .option("--url <baseUrl>", "self-managed GitLab URL (defaults to gitlab.com)")
   .option("--scope <scope>", "space-delimited OAuth scope override")
+  .option("--gh-cli [account]", "github only: reuse an already-authenticated gh CLI session instead of the device flow (omit value for gh's active account)")
   .action(async (opts) => {
     const type = opts.type ?? opts.backend;
     try {
+      if (type === "github" && opts.ghCli !== undefined) {
+        const result = await readGhCliToken(opts.ghCli === true ? undefined : opts.ghCli);
+        if (!result.ok) throw new Error(result.reason);
+        saveToken(opts.backend, { accessToken: result.token });
+        printJson({ backend: opts.backend, status: "authorized", via: "gh-cli", note: "restart the tickets daemon (or run `tickets daemon-status` after a fresh start) to pick up the new token" });
+        return;
+      }
       if (type === "github") {
         const clientId = opts.clientId ?? process.env.GITHUB_OAUTH_CLIENT_ID;
-        if (!clientId) throw new Error("--client-id or GITHUB_OAUTH_CLIENT_ID is required");
+        if (!clientId) throw new Error("--client-id or GITHUB_OAUTH_CLIENT_ID is required (or pass --gh-cli [account] to reuse an already-authenticated gh CLI session instead)");
         const token = await loginWithGitHubDeviceFlow({
           clientId,
           scope: opts.scope,
