@@ -130,4 +130,58 @@ describe("tickets daemon walking skeleton", () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(requested).toBe(1);
   });
+
+  it("a backend added after startup becomes callable live, with no restart, via the backend-refresh maintenance task", async () => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "tickets-daemon-skeleton-refresh-"));
+    const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
+
+    const github = new FakeRepository("github", [
+      { ref: "github:#1", id: "1", key: "#1", title: "Skeleton issue", status: "todo", priority: "none" },
+    ]);
+    const gitlab = new FakeRepository("gitlab", [
+      { ref: "gitlab:1", id: "1", key: "1", title: "Newly configured", status: "todo", priority: "none" },
+    ]);
+    // Simulates `enigma login gitlab` happening after the daemon already booted: the
+    // first buildRepositories() call sees only github, the second (what the refresh
+    // task re-resolves to) also has gitlab.
+    let calls = 0;
+    const buildRepositories = async (): Promise<Record<string, typeof github>> => {
+      calls++;
+      return calls === 1 ? { github } : { github, gitlab };
+    };
+
+    const { options, db } = await bootstrap({
+      pathEnv,
+      config: { backends: {} },
+      buildRepositories,
+      version: "0.0.0-skeleton",
+      backendRefreshIntervalMs: 20,
+    });
+
+    daemon = startDaemon(options);
+
+    const { ensureAuthToken, resolveDaemonPaths } = await import("@danypops/daemon-kit/paths");
+    const { TICKETS_DAEMON_NAMES } = await import("../../src/daemon/ops.js");
+    const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, pathEnv);
+    const token = ensureAuthToken(paths.token, "Tickets");
+    const client = new AuthenticatedRpcClient<TicketOperation, TicketOpInputs, TicketOpOutputs>(
+      `http://${daemon.host}:${daemon.port}`,
+      token,
+      { label: "Tickets" },
+    );
+
+    const before = await client.call("backends.list", {});
+    expect(before.backends).toEqual(["github"]);
+
+    // Give the refresh task at least one tick.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    const after = await client.call("backends.list", {});
+    expect(after.backends.sort()).toEqual(["github", "gitlab"]);
+
+    const got = await client.call("issue.get", { ref: "gitlab:1" });
+    expect(got.issue.title).toBe("Newly configured");
+
+    db.close();
+  });
 });

@@ -35,10 +35,16 @@ export async function syncOnce(
   return results;
 }
 
+/**
+ * Reads the backend list fresh from service.backends() on every tick,
+ * rather than a list frozen at task-creation time -- a backend the
+ * refresh task (config.ts's createBackendRefreshTask) just added to the
+ * service is synced on this task's very next run, no daemon restart or
+ * task rebuild needed.
+ */
 export function createSyncTask(
   service: TicketService,
   ledger: Ledger,
-  backends: string[],
   intervalMs: number,
   logger?: Logger,
 ): MaintenanceTask {
@@ -46,7 +52,7 @@ export function createSyncTask(
     name: "ledger-sync",
     intervalMs,
     run: async () => {
-      await syncOnce(service, ledger, backends, logger);
+      await syncOnce(service, ledger, service.backends(), logger);
     },
   };
 }

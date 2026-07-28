@@ -11,7 +11,7 @@ import { ensureAuthToken, type PathEnvironment, resolveDaemonPaths } from "@dany
 import { checkpoint, openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
 import type { StartDaemonOptions } from "@danypops/daemon-kit/daemon";
 import { TicketService } from "../application/service.js";
-import { buildRepositories, type Config, loadConfig } from "../config/config.js";
+import { buildRepositories, type BuildRepositories, type Config, createBackendRefreshTask, loadConfig } from "../config/config.js";
 import type { IssueRepository } from "../ports/repository.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "./focus.js";
 import { Ledger, LEDGER_MIGRATIONS } from "./ledger.js";
@@ -22,12 +22,20 @@ import { createSyncTask } from "./poller.js";
 export interface BootstrapOptions {
   pathEnv?: PathEnvironment;
   config?: Config;
-  /** Injected directly in tests instead of building from config/env. */
+  /**
+   * Injected directly in tests instead of building from config/env. Also
+   * disables the live backend-refresh task -- an injected repo set is a
+   * fixed test fixture, not something to re-resolve from Enigma/config.
+   */
   repos?: Record<string, IssueRepository>;
+  /** Injected in tests to control which backends a refresh cycle resolves to, without a real Enigma/GitHub/GitLab/Jira. */
+  buildRepositories?: BuildRepositories;
   version?: string;
   logger?: Logger;
   syncIntervalMs?: number;
   checkpointIntervalMs?: number;
+  /** How often the live backend set re-resolves from config/env/Enigma. Ignored when repos is injected. */
+  backendRefreshIntervalMs?: number;
   /**
    * Overrides the daemon.shutdown op's effect. Defaults to sending this
    * process SIGTERM, which daemon-kit's runDaemonProcess already handles
@@ -47,6 +55,7 @@ export interface BootstrappedDaemon {
 
 const DEFAULT_SYNC_INTERVAL_MS = 5 * 60_000;
 const DEFAULT_CHECKPOINT_INTERVAL_MS = 10 * 60_000;
+const DEFAULT_BACKEND_REFRESH_INTERVAL_MS = 30_000;
 
 export async function bootstrap(opts: BootstrapOptions = {}): Promise<BootstrappedDaemon> {
   const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, opts.pathEnv);
@@ -55,7 +64,9 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const logger = opts.logger ?? createLogger("tickets-daemon", { levelEnvVar: "TICKETS_LOG_LEVEL" });
-  const repos = opts.repos ?? (await buildRepositories(opts.config ?? loadConfig()));
+  const config = opts.config ?? loadConfig();
+  const buildRepos = opts.buildRepositories ?? buildRepositories;
+  const repos = opts.repos ?? (await buildRepos(config));
   const service = new TicketService(repos);
   const version = opts.version ?? "0.0.0-dev";
 
@@ -64,12 +75,17 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
     handlePath: paths.handle,
     logger,
     maintenanceTasks: [
-      createSyncTask(service, ledger, Object.keys(repos), opts.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS, logger),
+      createSyncTask(service, ledger, opts.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS, logger),
       {
         name: "checkpoint",
         intervalMs: opts.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS,
         run: () => checkpoint(db),
       },
+      // Only when repos came from real config/env/Enigma resolution -- an
+      // injected test fixture (opts.repos) has no config to re-resolve from.
+      ...(opts.repos === undefined
+        ? [createBackendRefreshTask(service, config, buildRepos, opts.backendRefreshIntervalMs ?? DEFAULT_BACKEND_REFRESH_INTERVAL_MS, logger)]
+        : []),
     ],
     buildApp: () =>
       buildApp({

@@ -66,4 +66,34 @@ describe("TicketService", () => {
     const svc = new TicketService({ bare: bareRepo });
     await expect(svc.comments("bare:1")).rejects.toThrow(NotSupportedError);
   });
+
+  describe("setRepos", () => {
+    it("swaps in a newly available backend without reconstructing the service", async () => {
+      const github = new FakeRepository("github", [
+        { ref: "github:#1", id: "1", key: "#1", title: "First issue", status: "todo", priority: "none" },
+      ]);
+      const svc = new TicketService({ github });
+      await expect(svc.list("gitlab", {})).rejects.toThrow(UnknownBackendError);
+
+      const gitlab = new FakeRepository("gitlab", [
+        { ref: "gitlab:1", id: "1", key: "1", title: "GitLab issue", status: "todo", priority: "none" },
+      ]);
+      svc.setRepos({ github, gitlab });
+      const issue = await svc.get("gitlab:1");
+      expect(issue.title).toBe("GitLab issue");
+    });
+
+    it("drops a backend that's no longer configured", async () => {
+      const svc = makeService();
+      expect(svc.backends().sort()).toEqual(["github", "jira"]);
+
+      const jira = new FakeRepository("jira", [
+        { ref: "jira:PROJ-1", id: "1", key: "PROJ-1", title: "Jira one", status: "in_progress", priority: "urgent" },
+      ]);
+      svc.setRepos({ jira });
+
+      expect(svc.backends()).toEqual(["jira"]);
+      await expect(svc.list("github", {})).rejects.toThrow(UnknownBackendError);
+    });
+  });
 });

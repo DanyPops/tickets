@@ -1,9 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { buildRepositories, preferredAuth } from "../../src/config/config.js";
+import { buildRepositories, createBackendRefreshTask, preferredAuth } from "../../src/config/config.js";
 import type { TryEnigmaCredential } from "@danypops/enigma-client";
 import { GitHubRepository } from "../../src/adapters/github.js";
 import { GitLabRepository } from "../../src/adapters/gitlab.js";
 import { JiraRepository } from "../../src/adapters/jira.js";
+import type { Logger } from "@danypops/daemon-kit/logging";
+import { TicketService } from "../../src/application/service.js";
+import { FakeRepository } from "../support/fake-repository.js";
 
 /**
  * Never the real tryEnigmaCredential in a test: it does a real filesystem
@@ -98,5 +101,50 @@ describe("preferredAuth > Enigma as an optional, additive credential source", ()
     const noEnigmaHere: TryEnigmaCredential = async () => undefined;
     const auth = await preferredAuth("github", {}, { GITHUB_TOKEN: "env-pat" } as NodeJS.ProcessEnv, "GITHUB_TOKEN", noEnigmaHere);
     expect(auth).toEqual({ token: "env-pat", oauth: false });
+  });
+});
+
+describe("createBackendRefreshTask", () => {
+  it("swaps a newly-resolved backend set into the service", async () => {
+    const service = new TicketService({});
+    const gitlab = new FakeRepository("gitlab");
+    const task = createBackendRefreshTask(service, { backends: {} }, async () => ({ gitlab }), 1_000);
+
+    await task.run();
+
+    expect(service.backends()).toEqual(["gitlab"]);
+  });
+
+  it("keeps the previous backend set when a refresh attempt fails, instead of wiping it out", async () => {
+    const github = new FakeRepository("github");
+    const service = new TicketService({ github });
+    const task = createBackendRefreshTask(
+      service,
+      { backends: {} },
+      async () => {
+        throw new Error("Enigma unreachable");
+      },
+      1_000,
+    );
+
+    await task.run();
+
+    expect(service.backends()).toEqual(["github"]);
+  });
+
+  it("logs which backends were added and removed, only when the set actually changed", async () => {
+    const github = new FakeRepository("github");
+    const service = new TicketService({ github });
+    const infoCalls: unknown[][] = [];
+    const logger: Logger = { debug: () => {}, info: (...args) => infoCalls.push(args), warn: () => {}, error: () => {} };
+
+    const noChangeTask = createBackendRefreshTask(service, { backends: {} }, async () => ({ github }), 1_000, logger);
+    await noChangeTask.run();
+    expect(infoCalls).toEqual([]);
+
+    const gitlab = new FakeRepository("gitlab");
+    const changeTask = createBackendRefreshTask(service, { backends: {} }, async () => ({ gitlab }), 1_000, logger);
+    await changeTask.run();
+    expect(infoCalls).toEqual([["backend set changed", { added: ["gitlab"], removed: ["github"] }]]);
   });
 });

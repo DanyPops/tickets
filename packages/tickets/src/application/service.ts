@@ -23,10 +23,21 @@ export class NotSupportedError extends Error {
 }
 
 export class TicketService {
-  constructor(private readonly repos: Record<string, IssueRepository>) {}
+  constructor(private repos: Record<string, IssueRepository>) {}
 
   backends(): string[] {
     return Object.keys(this.repos);
+  }
+
+  /**
+   * Swaps the live backend set atomically. A backend newly configured in
+   * Enigma (or removed) becomes usable on the next call without
+   * reconstructing the service or restarting the daemon -- see
+   * config.ts's createBackendRefreshTask, the maintenance task that calls
+   * this on a schedule.
+   */
+  setRepos(repos: Record<string, IssueRepository>): void {
+    this.repos = repos;
   }
 
   private repo(backend: string): IssueRepository {

@@ -7,10 +7,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
+import type { MaintenanceTask } from "@danypops/daemon-kit/daemon";
+import type { Logger } from "@danypops/daemon-kit/logging";
 import { GitHubRepository } from "../adapters/github.js";
 import { GitLabRepository } from "../adapters/gitlab.js";
 import { JiraRepository } from "../adapters/jira.js";
 import type { IssueRepository } from "../ports/repository.js";
+import type { TicketService } from "../application/service.js";
 import { isTokenFresh, loadToken } from "../auth/token-store.js";
 import { type TryEnigmaCredential, tryEnigmaCredential } from "@danypops/enigma-client";
 
@@ -119,6 +122,50 @@ export async function buildRepositories(
   }
 
   return repos;
+}
+
+export type BuildRepositories = typeof buildRepositories;
+
+/**
+ * Re-runs buildRepositories on a schedule and swaps the result into a live
+ * TicketService via setRepos -- the counterpart to token-provider.ts's
+ * per-request freshness in Pipes, one level up: this refreshes which
+ * backends exist at all, not just an existing backend's token. A backend
+ * enigma login just made available becomes callable without a daemon
+ * restart; a removed one stops being offered. A failed refresh (Enigma
+ * unreachable, transient) keeps the previous backend set rather than
+ * wiping it out.
+ */
+export function createBackendRefreshTask(
+  service: TicketService,
+  config: Config,
+  buildRepos: BuildRepositories,
+  intervalMs: number,
+  logger?: Logger,
+): MaintenanceTask {
+  return {
+    name: "backend-refresh",
+    intervalMs,
+    run: async () => {
+      const before = new Set(service.backends());
+      let fresh: Record<string, IssueRepository>;
+      try {
+        fresh = await buildRepos(config);
+      } catch (error) {
+        logger?.warn("backend refresh failed, keeping previous backend set", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      service.setRepos(fresh);
+      const after = new Set(Object.keys(fresh));
+      const added = [...after].filter((backend) => !before.has(backend));
+      const removed = [...before].filter((backend) => !after.has(backend));
+      if (added.length > 0 || removed.length > 0) {
+        logger?.info("backend set changed", { added, removed });
+      }
+    },
+  };
 }
 
 async function createRepository(
