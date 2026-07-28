@@ -195,6 +195,37 @@ focus
     await withClient((client) => client.call("focus.clear", {}));
   });
 
+const discoverCmd = program.command("discover").description("discover and persist backend-specific mappings (custom fields, statuses) or a description template");
+
+discoverCmd
+  .command("fields")
+  .description("discover a backend's custom field display names -> IDs and persist them for reuse (Jira only today)")
+  .requiredOption("-b, --backend <name>", "backend name")
+  .action(async (opts) => {
+    await withClient((client) => client.call("discover.fields", { backend: opts.backend }));
+  });
+
+discoverCmd
+  .command("statuses")
+  .description("discover a backend's status names -> domain status and persist them (Jira only today)")
+  .requiredOption("-b, --backend <name>", "backend name")
+  .action(async (opts) => {
+    await withClient((client) => client.call("discover.statuses", { backend: opts.backend }));
+  });
+
+discoverCmd
+  .command("template")
+  .description("sample recent issues for a project/issue-type and extract a reusable description template (Jira only today)")
+  .requiredOption("-b, --backend <name>", "backend name")
+  .requiredOption("--project <project>", "project key")
+  .requiredOption("--issue-type <type>", "issue type, e.g. Bug")
+  .option("--sample-size <n>", "how many recent issues to sample", (v) => Number.parseInt(v, 10))
+  .action(async (opts) => {
+    await withClient((client) =>
+      client.call("discover.template", { backend: opts.backend, project: opts.project, issueType: opts.issueType, sampleSize: opts.sampleSize }),
+    );
+  });
+
 const daemon = program.command("daemon").description("manage the tickets daemon process");
 
 daemon
@@ -417,6 +448,13 @@ auth
     printJson({ backend, status: "logged_out" });
   });
 
-program.parseAsync(process.argv).catch(() => {
-  process.exitCode = 1;
-});
+// Guarded so this module can be imported for introspection (e.g. a CLI-parity
+// test walking `program`'s registered commands) without executing real CLI
+// argument parsing against the importer's own process.argv.
+if (import.meta.main) {
+  program.parseAsync(process.argv).catch(() => {
+    process.exitCode = 1;
+  });
+}
+
+export { program };

@@ -1,7 +1,20 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from "axios";
 import { JiraRepository } from "../../src/adapters/jira.js";
 import { IssueNotFoundError } from "../../src/adapters/errors.js";
+import { discover, load, save } from "../../src/manifest/manifest.js";
+
+async function withTempDir<T>(fn: (dir: string) => T | Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), "tickets-jira-test-"));
+  try {
+    return await fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 /**
  * jira.js's sanctioned test-injection point is axios's own `adapter` config
@@ -175,5 +188,127 @@ describe("JiraRepository", () => {
     const repo = new JiraRepository("jira", { accessToken: "oauth-token", cloudId: "cloud-123", axiosAdapter });
     const issue = await repo.get("PROJ-1");
     expect(issue.key).toBe("PROJ-1");
+  });
+
+  describe("discovery engine", () => {
+    it("discoverFields() persists a name->id manifest and makes it resolvable inbound via fieldDisplayName()", async () => {
+      await withTempDir(async (dir) => {
+        const axiosAdapter = mockAdapter((config) => {
+          expect(String(config.url)).toBe("/rest/api/2/field");
+          return {
+            data: [
+              { id: "customfield_10855", name: "Target Version", custom: true, schema: { type: "array", items: "version" } },
+              { id: "summary", name: "Summary", custom: false, schema: { type: "string" } },
+            ],
+            status: 200,
+          };
+        });
+        const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter, configDir: dir });
+        const mappings = await repo.discoverFields();
+        expect(mappings).toEqual({ "Target Version": "customfield_10855" });
+        expect(repo.fieldDisplayName("customfield_10855")).toBe("Target Version");
+
+        const persisted = load("fields", "jira", dir);
+        expect(persisted.mappings).toEqual({ "Target Version": "customfield_10855" });
+      });
+    });
+
+    it("a persisted field manifest is loaded at construction -- fieldDisplayName resolves with zero network calls", async () => {
+      await withTempDir(async (dir) => {
+        // First repository discovers and persists (one live call).
+        let fieldCalls = 0;
+        const discoverAdapter = mockAdapter(() => {
+          fieldCalls++;
+          return { data: [{ id: "customfield_10855", name: "Target Version", custom: true, schema: { type: "array" } }], status: 200 };
+        });
+        const first = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter: discoverAdapter, configDir: dir });
+        await first.discoverFields();
+        expect(fieldCalls).toBe(1);
+
+        // Second repository, fresh process-equivalent instance, same configDir -- no live call needed.
+        const noNetworkAdapter = mockAdapter(() => {
+          throw new Error("should not hit the network -- persisted manifest should have been loaded at construction");
+        });
+        const second = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter: noNetworkAdapter, configDir: dir });
+        expect(second.fieldDisplayName("customfield_10855")).toBe("Target Version");
+      });
+    });
+
+    it("discoverStatuses() seeds a manifest from Jira's category, and immediately reflects it in toDomain() without a restart", async () => {
+      await withTempDir(async (dir) => {
+        const axiosAdapter = mockAdapter((config) => {
+          const url = String(config.url);
+          if (url === "/rest/api/2/status") {
+            return { data: [{ name: "ON_QA", statusCategory: { key: "indeterminate" } }], status: 200 };
+          }
+          return { data: { ...RAW_ISSUE("PROJ-1", "x"), fields: { ...RAW_ISSUE("PROJ-1", "x").fields, status: { name: "ON_QA", statusCategory: { key: "indeterminate" } } } }, status: 200 };
+        });
+        const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter, configDir: dir });
+        const before = await repo.get("PROJ-1");
+        expect(before.status).toBe("in_progress"); // category-based default, no manifest yet
+
+        await repo.discoverStatuses();
+        expect(load("statuses", "jira", dir).mappings.ON_QA).toBe("in_progress");
+
+        const after = await repo.get("PROJ-1");
+        expect(after.status).toBe("in_progress"); // same repo instance, in-memory manifest updated in place
+      });
+    });
+
+    it("a hand-edited manifest entry (e.g. via config.yaml) overrides the category-based default", async () => {
+      await withTempDir(async (dir) => {
+        // Simulate a human override: ON_QA's real Jira category is "indeterminate"
+        // (-> in_progress by default), but this team wants it treated as in_review.
+        save("statuses", "jira", dir, discover("jira", { ON_QA: "in_review" }));
+        const axiosAdapter = mockAdapter(() => ({
+          data: { ...RAW_ISSUE("PROJ-1", "x"), fields: { ...RAW_ISSUE("PROJ-1", "x").fields, status: { name: "ON_QA", statusCategory: { key: "indeterminate" } } } },
+          status: 200,
+        }));
+        const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter, configDir: dir });
+        const issue = await repo.get("PROJ-1");
+        expect(issue.status).toBe("in_review");
+        expect(issue.rawStatus).toBe("ON_QA");
+      });
+    });
+
+    it("discoverTemplate() samples issues via JQL and extracts sections common to all of them", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        expect(String(config.url)).toBe("/rest/api/2/search");
+        const body = JSON.parse(String(config.data)) as { jql: string; maxResults: number };
+        expect(body.jql).toContain('project = "PROJ"');
+        expect(body.jql).toContain('issuetype = "Bug"');
+        expect(body.maxResults).toBe(2);
+        return {
+          data: {
+            issues: [
+              { ...RAW_ISSUE("PROJ-1", "a"), fields: { ...RAW_ISSUE("PROJ-1", "a").fields, description: "Problem:\n\nImpact:" } },
+              { ...RAW_ISSUE("PROJ-2", "b"), fields: { ...RAW_ISSUE("PROJ-2", "b").fields, description: "Problem:\n\nImpact:\n\nExtra:" } },
+            ],
+          },
+          status: 200,
+        };
+      });
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const template = await repo.discoverTemplate("PROJ", "Bug", 2);
+      expect(template).toEqual({ project: "PROJ", issueType: "Bug", sections: ["Problem:", "Impact:"], body: "Problem:\n\nImpact:" });
+    });
+
+    it("discoverTemplate() returns undefined when no common sections are found", async () => {
+      const axiosAdapter = mockAdapter(() => ({ data: { issues: [RAW_ISSUE("PROJ-1", "a")] } , status: 200 }));
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const template = await repo.discoverTemplate("PROJ", "Bug");
+      expect(template).toBeUndefined();
+    });
+
+    it("without configDir, discovery still works but persists nothing", async () => {
+      const axiosAdapter = mockAdapter(() => ({
+        data: [{ id: "customfield_1", name: "Sprint", custom: true, schema: { type: "number" } }],
+        status: 200,
+      }));
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const mappings = await repo.discoverFields();
+      expect(mappings).toEqual({ Sprint: "customfield_1" });
+      expect(repo.fieldDisplayName("customfield_1")).toBe("Sprint");
+    });
   });
 });

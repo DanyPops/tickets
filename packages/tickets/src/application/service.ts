@@ -6,7 +6,14 @@
  */
 import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../domain/issue.js";
 import { parseRef } from "../domain/issue.js";
-import { hasComments, type IssueRepository } from "../ports/repository.js";
+import type { Template } from "../domain/template.js";
+import {
+  hasComments,
+  hasFieldDiscovery,
+  hasStatusDiscovery,
+  hasTemplateDiscovery,
+  type IssueRepository,
+} from "../ports/repository.js";
 
 export class UnknownBackendError extends Error {
   constructor(backend: string, known: string[]) {
@@ -91,5 +98,23 @@ export class TicketService {
     const repo = this.repo(backend);
     if (!hasComments(repo)) throw new NotSupportedError(backend, "comments");
     return repo.addComment(key, body);
+  }
+
+  async discoverFields(backend: string): Promise<Record<string, string>> {
+    const repo = this.repo(backend);
+    if (!hasFieldDiscovery(repo)) throw new NotSupportedError(backend, "field discovery");
+    return repo.discoverFields();
+  }
+
+  async discoverStatuses(backend: string): Promise<Record<string, string>> {
+    const repo = this.repo(backend);
+    if (!hasStatusDiscovery(repo)) throw new NotSupportedError(backend, "status discovery");
+    return repo.discoverStatuses();
+  }
+
+  async discoverTemplate(backend: string, project: string, issueType: string, sampleSize?: number): Promise<Template | undefined> {
+    const repo = this.repo(backend);
+    if (!hasTemplateDiscovery(repo)) throw new NotSupportedError(backend, "template discovery");
+    return repo.discoverTemplate(project, issueType, sampleSize);
   }
 }

@@ -63,6 +63,11 @@ const handlers: { [Op in TicketOperation]: Handler<Op> } = {
   "focus.pause": async (deps, input) => ({ focus: deps.focusStore.pause(input.reason) }),
   "focus.unpause": async (deps) => ({ focus: deps.focusStore.unpause() }),
   "focus.clear": async (deps) => ({ cleared: deps.focusStore.clear() }),
+  "discover.fields": async (deps, input) => ({ mappings: await deps.service.discoverFields(input.backend) }),
+  "discover.statuses": async (deps, input) => ({ mappings: await deps.service.discoverStatuses(input.backend) }),
+  "discover.template": async (deps, input) => ({
+    template: (await deps.service.discoverTemplate(input.backend, input.project, input.issueType, input.sampleSize)) ?? null,
+  }),
   "daemon.shutdown": async (deps) => {
     // Deferred so this handler's own response has already been handed back
     // to Bun.serve before the process starts tearing down.

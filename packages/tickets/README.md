@@ -60,6 +60,17 @@ bun run src/cli/index.ts focus get
 bun run src/cli/index.ts focus pause "waiting on review"
 bun run src/cli/index.ts focus unpause
 bun run src/cli/index.ts focus clear
+
+# Discover and persist backend-specific mappings (Jira only today): custom
+# field display names -> IDs, and status names -> domain status. Read once
+# from the backend, cached to ~/.config/tickets/{fields,statuses}/<backend>.yaml
+# so a later lookup needs no network call and survives a daemon restart.
+bun run src/cli/index.ts discover fields -b jira
+bun run src/cli/index.ts discover statuses -b jira
+
+# Sample recent issues for a project/issue-type and extract a reusable
+# description template from the section headers common to all of them.
+bun run src/cli/index.ts discover template -b jira --project PROJ --issue-type Bug
 ```
 
 ### Running the daemon persistently (systemd --user)
@@ -208,7 +219,8 @@ Published as `@danypops/pi-tickets`. `../pi-tickets/` (this repo's workspace mem
 [pi](https://github.com/badlogic/pi) with one action per CLI command (`list`,
 `get`, `create`, `update`, `search`, `children`, `comments`, `comment_add`,
 `backends`, `ledger_search`, `ledger_stats`, `focus_set`, `focus_get`,
-`focus_pause`, `focus_unpause`, `focus_clear`). It talks to the same daemon
+`focus_pause`, `focus_unpause`, `focus_clear`, `discover_fields`,
+`discover_statuses`, `discover_template`). It talks to the same daemon
 through the same authenticated RPC client the CLI uses — never a direct
 backend call or a direct SQLite open. OAuth login and daemon lifecycle
 control are deliberately **not** exposed here (neither as a tool action nor

@@ -205,6 +205,7 @@ async function createRepository(
           accessToken: auth.token,
           cloudId: auth.extra.cloudId,
           project: cfg.project ?? env.JIRA_PROJECT,
+          configDir: configDir(),
         });
       }
       const baseUrl = cfg.url ?? env.JIRA_URL;
@@ -215,6 +216,7 @@ async function createRepository(
         email,
         token: auth.token,
         project: cfg.project ?? env.JIRA_PROJECT,
+        configDir: configDir(),
       });
     }
     default:
