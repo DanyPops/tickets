@@ -75,6 +75,16 @@ describe("preferredAuth > Enigma as an optional, additive credential source", ()
     expect(auth).toEqual({ token: "enigma-supplied-token", oauth: true, extra: { fromEnigma: "true" } });
   });
 
+  it("forwards ENIGMA_CLIENT_TOKEN as the registered-client token, instead of relying on Enigma's shared admin-token file", async () => {
+    let seenToken: string | undefined;
+    const fromEnigma: TryEnigmaCredential = async (_backend, opts) => {
+      seenToken = opts?.token;
+      return { accessToken: "enigma-supplied-token", extra: {} };
+    };
+    await preferredAuth("github", {}, { ENIGMA_CLIENT_TOKEN: "tickets-scoped-token" } as NodeJS.ProcessEnv, "GITHUB_TOKEN", fromEnigma);
+    expect(seenToken).toBe("tickets-scoped-token");
+  });
+
   it("falls through to the existing static-token behavior unchanged when Enigma has nothing for this backend", async () => {
     const noEnigmaHere: TryEnigmaCredential = async () => undefined;
     const auth = await preferredAuth("github", { token: "static-config-token" }, process.env, "GITHUB_TOKEN", noEnigmaHere);

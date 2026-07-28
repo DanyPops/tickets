@@ -74,7 +74,10 @@ export async function preferredAuth(
   envFallback: string,
   tryEnigma: TryEnigmaCredential = tryEnigmaCredential,
 ): Promise<{ token: string | undefined; oauth: boolean; extra?: Record<string, string> }> {
-  const fromEnigma = await tryEnigma(name, { env });
+  // ENIGMA_CLIENT_TOKEN is this daemon's own registered-client token (`enigma client add`) --
+  // Enigma's shared admin-token file is deliberately unreadable outside its own service
+  // account, so tickets must present its own scoped token to get anything back at all.
+  const fromEnigma = await tryEnigma(name, { env, token: env.ENIGMA_CLIENT_TOKEN });
   if (fromEnigma) return { token: fromEnigma.accessToken, oauth: true, extra: fromEnigma.extra };
 
   const stored = loadToken(name, { env });
