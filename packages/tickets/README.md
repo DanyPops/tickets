@@ -163,6 +163,28 @@ config/env token for that backend. Tokens are written to
 printed by any command. **Restart the daemon** after logging in so it picks
 up the new credential — `buildRepositories()` runs once at daemon startup.
 
+### Optional: credentials via Enigma
+
+If an [Enigma](https://github.com/DanyPops/enigma) vault is running,
+tickets checks it first on every request, ahead of a stored delegated token
+and any static config/env token — a credential Enigma rotates is picked up
+on the very next call, no daemon restart needed. Purely additive: tickets
+works identically with no Enigma running at all.
+
+Register tickets as a scoped Enigma client (once), then pass the printed
+token to the daemon via `ENIGMA_CLIENT_TOKEN`:
+
+```bash
+enigma client add tickets --backends github,gitlab,jira
+# -> prints a token once; export it wherever the tickets daemon is started
+export ENIGMA_CLIENT_TOKEN=<printed token>
+```
+
+Without `ENIGMA_CLIENT_TOKEN`, tickets falls back to Enigma's shared
+admin-token file if one exists at `$XDG_STATE_HOME/enigma/token` — fine for
+a single-user machine where every local daemon is equally trusted, but a
+scoped client token is the least-privilege default.
+
 ## The `pi-tickets` extension
 
 Published as `@danypops/pi-tickets`. `../pi-tickets/` (this repo's workspace member) registers a single `tickets` tool for
