@@ -18,6 +18,9 @@ import type { AxiosAdapter } from "axios";
 import type { Comment, CreateInput, Issue, ListFilter, Status, UpdateInput } from "../domain/issue.js";
 import { parsePriority } from "../domain/issue.js";
 import { ApiError, IssueNotFoundError } from "./errors.js";
+import type { Template } from "../domain/template.js";
+import { buildTemplateBody, extractTemplateSections } from "../domain/template.js";
+import * as manifest from "../manifest/manifest.js";
 
 /**
  * Basic-auth mode (email + API token) hits the tenant's own *.atlassian.net
@@ -39,6 +42,13 @@ export interface JiraBasicAuthOptions {
   timeoutMs?: number;
   /** Injected in tests instead of a real network call — see axios's AxiosRequestConfig.adapter. */
   axiosAdapter?: AxiosAdapter;
+  /**
+   * Directory holding this daemon's persisted field/status discovery manifests
+   * (see ../manifest/manifest.ts), typically configDir() from config.ts. When
+   * omitted, discovery still works but nothing is persisted across restarts —
+   * every test and any caller that doesn't care about persistence can leave it out.
+   */
+  configDir?: string;
 }
 
 export interface JiraOAuthOptions {
@@ -47,6 +57,7 @@ export interface JiraOAuthOptions {
   project?: string;
   timeoutMs?: number;
   axiosAdapter?: AxiosAdapter;
+  configDir?: string;
 }
 
 function isOAuthOptions(opts: JiraOptions): opts is JiraOAuthOptions {
@@ -92,12 +103,26 @@ export class JiraRepository {
   readonly name: string;
   private readonly client: Version2Client;
   private readonly project?: string;
+  private readonly configDir?: string;
   /** display name (lowercased) -> { fieldId, schema type/items }, populated lazily from client.issueFields.getFields(). */
   private customFieldCache?: Map<string, { id: string; type: string; items?: string }>;
+  /** field id -> display name, the inbound counterpart of customFieldCache. Seeded from the persisted manifest at construction (no network), refreshed by discoverFields(). */
+  private fieldNameById = new Map<string, string>();
+  /** Jira status name -> domain Status, loaded from the persisted manifest at construction; refreshed by discoverStatuses(). Empty until discovery has run at least once (falls back to category-based mapping until then). */
+  private statusManifest: manifest.Manifest;
 
   constructor(name: string, opts: JiraOptions) {
     this.name = name;
     this.project = opts.project;
+    this.configDir = opts.configDir;
+
+    if (this.configDir) {
+      const fieldManifest = manifest.load("fields", this.name, this.configDir);
+      for (const [displayName, id] of Object.entries(fieldManifest.mappings)) this.fieldNameById.set(id, displayName);
+      this.statusManifest = manifest.load("statuses", this.name, this.configDir);
+    } else {
+      this.statusManifest = { backend: this.name, mappings: {} };
+    }
 
     if (isOAuthOptions(opts)) {
       if (!opts.accessToken || !opts.cloudId) throw new Error("jira: accessToken and cloudId are required for OAuth mode");
@@ -134,7 +159,7 @@ export class JiraRepository {
 
   async get(key: string): Promise<Issue> {
     const raw = await this.call<JiraIssue>(() => this.client.issues.getIssue({ issueIdOrKey: key }), key);
-    return toDomain(raw);
+    return this.toDomain(raw);
   }
 
   /** Runs a jira.js call and maps its HttpException onto this project's shared error taxonomy. */
@@ -218,7 +243,7 @@ export class JiraRepository {
     const result = await this.call<{ issues?: JiraIssue[] }>(() =>
       this.client.issueSearch.searchForIssuesUsingJqlPost({ jql, maxResults: limit }),
     );
-    return (result?.issues ?? []).map(toDomain);
+    return (result?.issues ?? []).map((raw) => this.toDomain(raw));
   }
 
   private async transitionTo(key: string, status: Status, resolution?: string): Promise<void> {
@@ -252,17 +277,104 @@ export class JiraRepository {
   }
 
   private async resolveCustomField(displayName: string): Promise<{ id: string; type: string; items?: string }> {
-    if (!this.customFieldCache) {
-      const all = await this.call<JiraFieldDetails[]>(() => this.client.issueFields.getFields());
-      this.customFieldCache = new Map(
-        all
-          .filter((f) => f.custom && f.id && f.name)
-          .map((f) => [f.name!.toLowerCase(), { id: f.id!, type: f.schema?.type ?? "string", items: f.schema?.items }]),
-      );
-    }
-    const field = this.customFieldCache.get(displayName.toLowerCase());
+    if (!this.customFieldCache) await this.discoverFields();
+    const field = this.customFieldCache?.get(displayName.toLowerCase());
     if (!field) throw new Error(`jira: unknown custom field "${displayName}"`);
     return field;
+  }
+
+  /**
+   * Discovers every custom field's display name -> customfield_XXXXX ID via
+   * client.issueFields.getFields() (GET /rest/api/2/field), same live call
+   * resolveCustomField already made lazily -- this just also persists the
+   * result to a manifest (see ../manifest/manifest.ts) so a later inbound
+   * lookup (fieldDisplayName) doesn't need a network round trip at all, and
+   * survives a daemon restart. Ported from emcee's FieldService.DiscoverFields
+   * (~/Workspace/emcee), same manifest file shape.
+   */
+  async discoverFields(): Promise<Record<string, string>> {
+    const all = await this.call<JiraFieldDetails[]>(() => this.client.issueFields.getFields());
+    const custom = all.filter((f) => f.custom && f.id && f.name);
+    this.customFieldCache = new Map(
+      custom.map((f) => [f.name!.toLowerCase(), { id: f.id!, type: f.schema?.type ?? "string", items: f.schema?.items }]),
+    );
+    this.fieldNameById = new Map(custom.map((f) => [f.id!, f.name!]));
+    const mappings = Object.fromEntries(custom.map((f) => [f.name!, f.id!]));
+    if (this.configDir) manifest.save("fields", this.name, this.configDir, manifest.discover(this.name, mappings));
+    return mappings;
+  }
+
+  /** Inbound counterpart of resolveCustomField -- a display name for a raw customfield_XXXXX id, or undefined if never discovered. Never makes a network call; run discoverFields() (or construct with configDir set, so a prior discovery's manifest loads automatically) first. */
+  fieldDisplayName(fieldId: string): string | undefined {
+    return this.fieldNameById.get(fieldId);
+  }
+
+  /**
+   * Discovers every Jira status name -> domain Status via
+   * client.workflowStatuses.getStatuses() (GET /rest/api/2/status), persists
+   * it to a manifest, and immediately applies it in-memory so status mapping
+   * reflects the discovery without a daemon restart. Ported from emcee's
+   * StatusService.DiscoverStatuses.
+   */
+  async discoverStatuses(): Promise<Record<string, string>> {
+    const all = await this.call<{ name: string; statusCategory?: { key: string } }[]>(() => this.client.workflowStatuses.getStatuses());
+    const mappings = Object.fromEntries(all.map((s) => [s.name, categoryToStatus(s.statusCategory?.key)]));
+    this.statusManifest = manifest.discover(this.name, mappings);
+    if (this.configDir) manifest.save("statuses", this.name, this.configDir, this.statusManifest);
+    return mappings;
+  }
+
+  /**
+   * Samples the most recently created issues for a project/issue-type pair
+   * and extracts the description section headers common to all of them --
+   * see ../domain/template.ts. Ported from emcee's TemplateService.DiscoverTemplate.
+   */
+  async discoverTemplate(project: string, issueType: string, sampleSize = 5): Promise<Template | undefined> {
+    const jql = `project = ${jqlQuote(project)} AND issuetype = ${jqlQuote(issueType)} ORDER BY created DESC`;
+    const issues = await this.searchJql(jql, sampleSize > 0 ? sampleSize : 5);
+    const descriptions = issues.map((issue) => issue.description).filter((d): d is string => !!d);
+    const sections = extractTemplateSections(descriptions);
+    if (!sections) return undefined;
+    return { project, issueType, sections, body: buildTemplateBody(sections) };
+  }
+
+  private resolveStatus(categoryKey: string | undefined, statusName: string): Status {
+    const mapped = manifest.get(this.statusManifest, statusName);
+    if (mapped) return mapped as Status;
+    return mapStatusFromCategory(categoryKey);
+  }
+
+  private toDomain(j: JiraIssue): Issue {
+    const issue: Issue = {
+      ref: `jira:${j.key}`,
+      id: j.id,
+      key: j.key,
+      title: j.fields.summary,
+      description: j.fields.description ?? undefined,
+      status: this.resolveStatus(j.fields.status.statusCategory?.key, j.fields.status.name),
+      rawStatus: j.fields.status.name,
+      priority: mapPriorityFromJira(j.fields.priority?.name),
+      labels: j.fields.labels?.length ? j.fields.labels : undefined,
+      assignee: j.fields.assignee?.displayName,
+      reporter: j.fields.reporter?.displayName,
+      project: j.fields.project?.key,
+      issueType: j.fields.issuetype?.name,
+      resolution: j.fields.resolution?.name,
+      createdAt: j.fields.created,
+      updatedAt: j.fields.updated,
+    };
+    if (j.fields.parent) {
+      issue.parent = {
+        key: j.fields.parent.key,
+        title: j.fields.parent.fields?.summary ?? "",
+        status: j.fields.parent.fields?.status?.name,
+      };
+    }
+    if (j.self) {
+      const idx = j.self.indexOf("/rest/");
+      if (idx > 0) issue.url = `${j.self.slice(0, idx)}/browse/${j.key}`;
+    }
+    return issue;
   }
 }
 
@@ -303,7 +415,8 @@ function mapStatusToJira(status: Status): string {
   }
 }
 
-function mapStatusFromJira(categoryKey: string | undefined): Status {
+/** Baseline category -> Status mapping, used until a per-status-name manifest entry (discoverStatuses) says otherwise -- same fallback emcee's own mapStatusFromJira uses. */
+function mapStatusFromCategory(categoryKey: string | undefined): Status {
   switch (categoryKey) {
     case "new":
       return "todo";
@@ -314,6 +427,11 @@ function mapStatusFromJira(categoryKey: string | undefined): Status {
     default:
       return "backlog";
   }
+}
+
+/** categoryKey -> Status, used by discoverStatuses() to seed the persisted manifest from Jira's own status listing. */
+function categoryToStatus(categoryKey: string | undefined): Status {
+  return mapStatusFromCategory(categoryKey);
 }
 
 function mapPriorityToJira(p: ReturnType<typeof parsePriority>): string {
@@ -347,39 +465,6 @@ function mapPriorityFromJira(name: string | undefined): ReturnType<typeof parseP
     default:
       return "none";
   }
-}
-
-function toDomain(j: JiraIssue): Issue {
-  const issue: Issue = {
-    ref: `jira:${j.key}`,
-    id: j.id,
-    key: j.key,
-    title: j.fields.summary,
-    description: j.fields.description ?? undefined,
-    status: mapStatusFromJira(j.fields.status.statusCategory?.key),
-    rawStatus: j.fields.status.name,
-    priority: mapPriorityFromJira(j.fields.priority?.name),
-    labels: j.fields.labels?.length ? j.fields.labels : undefined,
-    assignee: j.fields.assignee?.displayName,
-    reporter: j.fields.reporter?.displayName,
-    project: j.fields.project?.key,
-    issueType: j.fields.issuetype?.name,
-    resolution: j.fields.resolution?.name,
-    createdAt: j.fields.created,
-    updatedAt: j.fields.updated,
-  };
-  if (j.fields.parent) {
-    issue.parent = {
-      key: j.fields.parent.key,
-      title: j.fields.parent.fields?.summary ?? "",
-      status: j.fields.parent.fields?.status?.name,
-    };
-  }
-  if (j.self) {
-    const idx = j.self.indexOf("/rest/");
-    if (idx > 0) issue.url = `${j.self.slice(0, idx)}/browse/${j.key}`;
-  }
-  return issue;
 }
 
 function commentToDomain(c: JiraComment): Comment {

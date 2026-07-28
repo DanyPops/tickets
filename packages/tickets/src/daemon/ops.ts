@@ -5,6 +5,7 @@
  * import from either side without pulling in bun:sqlite or Bun.serve.
  */
 import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../domain/issue.js";
+import type { Template } from "../domain/template.js";
 import type { TicketFocusState } from "./focus.js";
 
 export type TicketOperation =
@@ -24,6 +25,9 @@ export type TicketOperation =
   | "focus.pause"
   | "focus.unpause"
   | "focus.clear"
+  | "discover.fields"
+  | "discover.statuses"
+  | "discover.template"
   | "daemon.shutdown";
 
 export interface TicketOpInputs extends Record<TicketOperation, unknown> {
@@ -43,6 +47,9 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "focus.pause": { reason?: string };
   "focus.unpause": Record<string, never>;
   "focus.clear": Record<string, never>;
+  "discover.fields": { backend: string };
+  "discover.statuses": { backend: string };
+  "discover.template": { backend: string; project: string; issueType: string; sampleSize?: number };
   "daemon.shutdown": Record<string, never>;
 }
 
@@ -63,6 +70,9 @@ export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
   "focus.pause": { focus: TicketFocusState };
   "focus.unpause": { focus: TicketFocusState };
   "focus.clear": { cleared: boolean };
+  "discover.fields": { mappings: Record<string, string> };
+  "discover.statuses": { mappings: Record<string, string> };
+  "discover.template": { template: Template | null };
   "daemon.shutdown": { stopping: true };
 }
 
@@ -83,6 +93,9 @@ export const TICKET_OPERATIONS: TicketOperation[] = [
   "focus.pause",
   "focus.unpause",
   "focus.clear",
+  "discover.fields",
+  "discover.statuses",
+  "discover.template",
   "daemon.shutdown",
 ];
 

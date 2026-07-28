@@ -39,6 +39,9 @@ const ACTIONS = [
   "focus_pause",
   "focus_unpause",
   "focus_clear",
+  "discover_fields",
+  "discover_statuses",
+  "discover_template",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 export { ACTIONS };
@@ -61,6 +64,9 @@ const parameters = Type.Object({
     Type.Literal("focus_pause"),
     Type.Literal("focus_unpause"),
     Type.Literal("focus_clear"),
+    Type.Literal("discover_fields"),
+    Type.Literal("discover_statuses"),
+    Type.Literal("discover_template"),
   ]),
   ref: Type.Optional(Type.String({ description: 'Issue ref "backend:key", e.g. "jira:PROJ-42" or "github:#7". Required for get/update/children/comments/comment_add.' })),
   backend: Type.Optional(Type.String({ description: "Backend name, e.g. github/gitlab/jira or a configured multi-instance name. Required for list/create/search." })),
@@ -75,6 +81,8 @@ const parameters = Type.Object({
   body: Type.Optional(Type.String({ description: "Comment body. Required for comment_add." })),
   limit: Type.Optional(Type.Number()),
   reason: Type.Optional(Type.String({ description: "Optional reason for focus_pause, e.g. \"waiting on review\"." })),
+  issueType: Type.Optional(Type.String({ description: "Issue type, e.g. Bug. Required for discover_template." })),
+  sampleSize: Type.Optional(Type.Number({ description: "How many recent issues to sample for discover_template." })),
 });
 
 export async function dispatch(client: TicketsRpcClient, params: Record<string, unknown>): Promise<unknown> {
@@ -151,6 +159,20 @@ export async function dispatch(client: TicketsRpcClient, params: Record<string, 
       return client.call("focus.unpause", {});
     case "focus_clear":
       return client.call("focus.clear", {});
+    case "discover_fields":
+      if (!backend) throw new Error('action "discover_fields" requires backend');
+      return client.call("discover.fields", { backend });
+    case "discover_statuses":
+      if (!backend) throw new Error('action "discover_statuses" requires backend');
+      return client.call("discover.statuses", { backend });
+    case "discover_template":
+      if (!backend || !params.project || !params.issueType) throw new Error('action "discover_template" requires backend, project, and issueType');
+      return client.call("discover.template", {
+        backend,
+        project: params.project as string,
+        issueType: params.issueType as string,
+        sampleSize: params.sampleSize as number | undefined,
+      });
     default:
       throw new Error(`unknown action: ${String(action)}`);
   }
@@ -166,6 +188,7 @@ export default function (pi: ExtensionAPI) {
     description:
       "Issue tracking across GitHub, GitLab, and Jira via the local tickets daemon (live backend calls plus a locally pooled ledger that keeps working even when a backend is slow or unreachable). " +
       `Actions: ${ACTIONS.join(", ")}. Ref format is "backend:key" (e.g. jira:PROJ-42, github:#7). ` +
+      "discover_fields/discover_statuses persist a backend's custom-field/status name mappings for reuse (Jira only today); discover_template samples recent issues for a project+issueType and extracts a reusable description template. " +
       "OAuth login is not exposed here — the user runs `tickets auth login --backend <name>` from a terminal.",
     promptSnippet: "query/create/update issues across GitHub, GitLab, Jira",
     parameters,

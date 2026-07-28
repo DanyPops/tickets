@@ -87,6 +87,36 @@ describe("pi-tickets dispatch", () => {
     await dispatch(client, { action: "focus_unpause" });
     await dispatch(client, { action: "focus_clear" });
   });
+
+  it("discover_fields requires backend and routes to discover.fields", async () => {
+    const client = fakeClient((op, input) => {
+      expect(op).toBe("discover.fields");
+      expect(input).toEqual({ backend: "jira" });
+      return { mappings: { "Target Version": "customfield_10855" } };
+    });
+    await dispatch(client, { action: "discover_fields", backend: "jira" });
+    await expect(dispatch(client, { action: "discover_fields" })).rejects.toThrow(/requires backend/);
+  });
+
+  it("discover_statuses requires backend and routes to discover.statuses", async () => {
+    const client = fakeClient((op, input) => {
+      expect(op).toBe("discover.statuses");
+      expect(input).toEqual({ backend: "jira" });
+      return { mappings: { ON_QA: "in_review" } };
+    });
+    await dispatch(client, { action: "discover_statuses", backend: "jira" });
+    await expect(dispatch(client, { action: "discover_statuses" })).rejects.toThrow(/requires backend/);
+  });
+
+  it("discover_template requires backend, project, and issueType and routes to discover.template", async () => {
+    const client = fakeClient((op, input) => {
+      expect(op).toBe("discover.template");
+      expect(input).toEqual({ backend: "jira", project: "PROJ", issueType: "Bug", sampleSize: 3 });
+      return { template: { project: "PROJ", issueType: "Bug", sections: [], body: "" } };
+    });
+    await dispatch(client, { action: "discover_template", backend: "jira", project: "PROJ", issueType: "Bug", sampleSize: 3 });
+    await expect(dispatch(client, { action: "discover_template", backend: "jira" })).rejects.toThrow(/requires backend, project, and issueType/);
+  });
 });
 
 describe("extension registration", () => {
