@@ -45,6 +45,25 @@ export interface Comment {
   updatedAt?: string;
 }
 
+/** A link to another issue on the same backend (e.g. Jira's issuelinks: blocks, relates to, caused by). */
+export interface IssueLink {
+  /** The link type's own label from the backend's perspective of this issue, e.g. "blocks" or "is blocked by". */
+  type: string;
+  direction: "inward" | "outward";
+  targetRef: string;
+  targetKey: string;
+  targetTitle?: string;
+  targetStatus?: string;
+}
+
+/** A link to something outside the issue tracker entirely (e.g. Jira's "Web Links"/remote links: a PR, a doc). */
+export interface ExternalLink {
+  url: string;
+  title?: string;
+  /** The linked application's own name when the backend reports one, e.g. "GitHub". */
+  type?: string;
+}
+
 /** The unified representation of a work item, regardless of which platform it lives on. */
 export interface Issue {
   /** "backend:key", e.g. "jira:PROJ-42" or "github:#7". */
@@ -67,6 +86,14 @@ export interface Issue {
   createdAt?: string;
   updatedAt?: string;
   url?: string;
+  /** Versions this issue is fixed in/targeted for release in (Jira: fixVersions). */
+  fixVersions?: string[];
+  /** Links to other issues on the same backend (Jira: issuelinks). */
+  issueLinks?: IssueLink[];
+  /** Links to things outside the tracker entirely -- PRs, docs (Jira: "Web Links"/remote links). Only populated by get(), not list()/search(), to avoid one extra API call per result. */
+  externalLinks?: ExternalLink[];
+  /** Custom fields keyed by their backend display name (e.g. Jira's "Target Version"), resolved via that backend's field-discovery manifest. Empty until discovery has run at least once for the backend. */
+  customFields?: Record<string, string>;
 }
 
 export interface CreateInput {

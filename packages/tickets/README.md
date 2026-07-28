@@ -46,6 +46,9 @@ bun run src/cli/index.ts daemon restart
 
 bun run src/cli/index.ts backends
 bun run src/cli/index.ts list -b github --status todo
+# get includes fixVersions, issueLinks, externalLinks (Jira "Web Links", e.g.
+# the PR that fixed a bug), and customFields (by display name -- run
+# `discover fields` first, see below) whenever the backend has them.
 bun run src/cli/index.ts get jira:PROJ-42
 bun run src/cli/index.ts create -b github "Fix the thing" --label bug
 bun run src/cli/index.ts comment add jira:PROJ-42 "Looks good, shipping"

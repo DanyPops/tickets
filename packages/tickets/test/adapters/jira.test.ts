@@ -63,11 +63,15 @@ const RAW_ISSUE = (key: string, summary: string) => ({
 });
 
 describe("JiraRepository", () => {
-  it("get() sends Basic auth and hits /rest/api/2/issue/{key}", async () => {
+  it("get() sends Basic auth, hits /rest/api/2/issue/{key}, and also fetches its remote (Web) links", async () => {
     const axiosAdapter = mockAdapter((config) => {
-      expect(config.url).toBe("/rest/api/2/issue/PROJ-42");
       const auth = config.headers?.Authorization as string | undefined;
       expect(auth).toStartWith("Basic ");
+      if (String(config.url).endsWith("/remotelink")) {
+        expect(config.url).toBe("/rest/api/2/issue/PROJ-42/remotelink");
+        return { data: [{ object: { url: "https://github.com/acme/widgets/pull/1", title: "Fix it" }, application: { name: "GitHub" } }], status: 200 };
+      }
+      expect(config.url).toBe("/rest/api/2/issue/PROJ-42");
       return { data: RAW_ISSUE("PROJ-42", "Do the thing"), status: 200 };
     });
     const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
@@ -76,6 +80,7 @@ describe("JiraRepository", () => {
     expect(issue.status).toBe("in_progress");
     expect(issue.priority).toBe("high");
     expect(issue.url).toBe("https://acme.atlassian.net/browse/PROJ-42");
+    expect(issue.externalLinks).toEqual([{ url: "https://github.com/acme/widgets/pull/1", title: "Fix it", type: "GitHub" }]);
   });
 
   it("two different explicit keys return two different issues, never the same one twice", async () => {
@@ -309,6 +314,107 @@ describe("JiraRepository", () => {
       const mappings = await repo.discoverFields();
       expect(mappings).toEqual({ Sprint: "customfield_1" });
       expect(repo.fieldDisplayName("customfield_1")).toBe("Sprint");
+    });
+  });
+
+  describe("enriched issue fields (fixVersions, issueLinks, customFields)", () => {
+    function issueWithExtraFields(extra: Record<string, unknown>) {
+      const base = RAW_ISSUE("OCPBUGS-95587", "Bug title");
+      return { ...base, fields: { ...base.fields, ...extra } };
+    }
+
+    it("surfaces fixVersions from getIssue()'s response -- no extra call needed", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        if (String(config.url).endsWith("/remotelink")) return { data: [], status: 200 };
+        return { data: issueWithExtraFields({ fixVersions: [{ name: "4.21" }, { name: "5.0.0" }] }), status: 200 };
+      });
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const issue = await repo.get("OCPBUGS-95587");
+      expect(issue.fixVersions).toEqual(["4.21", "5.0.0"]);
+    });
+
+    it("omits fixVersions entirely when Jira reports none, rather than an empty array", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        if (String(config.url).endsWith("/remotelink")) return { data: [], status: 200 };
+        return { data: issueWithExtraFields({ fixVersions: [] }), status: 200 };
+      });
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const issue = await repo.get("OCPBUGS-95587");
+      expect(issue.fixVersions).toBeUndefined();
+    });
+
+    it("surfaces issuelinks as inward+outward IssueLink entries -- no extra call needed", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        if (String(config.url).endsWith("/remotelink")) return { data: [], status: 200 };
+        return {
+          data: issueWithExtraFields({
+            issuelinks: [
+              {
+                type: { name: "Blocks", inward: "is blocked by", outward: "blocks" },
+                outwardIssue: { key: "OCPBUGS-1", fields: { summary: "Downstream sync", status: { name: "New" } } },
+              },
+              {
+                type: { name: "Relates", inward: "relates to", outward: "relates to" },
+                inwardIssue: { key: "OCPBUGS-2", fields: { summary: "Related bug", status: { name: "Closed" } } },
+              },
+            ],
+          }),
+          status: 200,
+        };
+      });
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const issue = await repo.get("OCPBUGS-95587");
+      expect(issue.issueLinks).toEqual([
+        { type: "blocks", direction: "outward", targetRef: "jira:OCPBUGS-1", targetKey: "OCPBUGS-1", targetTitle: "Downstream sync", targetStatus: "New" },
+        { type: "relates to", direction: "inward", targetRef: "jira:OCPBUGS-2", targetKey: "OCPBUGS-2", targetTitle: "Related bug", targetStatus: "Closed" },
+      ]);
+    });
+
+    it("surfaces customFields by display name once discovery has run, formatting a version-array field as joined names", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        const url = String(config.url);
+        if (url === "/rest/api/2/field") {
+          return { data: [{ id: "customfield_10855", name: "Target Version", custom: true, schema: { type: "array", items: "version" } }], status: 200 };
+        }
+        if (url.endsWith("/remotelink")) return { data: [], status: 200 };
+        return { data: issueWithExtraFields({ customfield_10855: [{ name: "5.0.0" }] }), status: 200 };
+      });
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      await repo.discoverFields();
+      const issue = await repo.get("OCPBUGS-95587");
+      expect(issue.customFields).toEqual({ "Target Version": "5.0.0" });
+    });
+
+    it("omits customFields entirely when discovery has never run for this backend, rather than guessing at raw field ids", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        if (String(config.url).endsWith("/remotelink")) return { data: [], status: 200 };
+        return { data: issueWithExtraFields({ customfield_10855: [{ name: "5.0.0" }] }), status: 200 };
+      });
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const issue = await repo.get("OCPBUGS-95587");
+      expect(issue.customFields).toBeUndefined();
+    });
+
+    it("a persisted field manifest from a prior discovery (loaded at construction) is enough -- no live field call needed this time", async () => {
+      await withTempDir(async (dir) => {
+        const discoverAdapter = mockAdapter((config) => {
+          if (String(config.url) === "/rest/api/2/field") {
+            return { data: [{ id: "customfield_10855", name: "Target Version", custom: true, schema: { type: "array" } }], status: 200 };
+          }
+          return { data: [], status: 200 };
+        });
+        const first = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter: discoverAdapter, configDir: dir });
+        await first.discoverFields();
+
+        const secondAdapter = mockAdapter((config) => {
+          if (String(config.url) === "/rest/api/2/field") throw new Error("should not hit the network -- persisted manifest should have been loaded at construction");
+          if (String(config.url).endsWith("/remotelink")) return { data: [], status: 200 };
+          return { data: issueWithExtraFields({ customfield_10855: [{ name: "5.0.0" }] }), status: 200 };
+        });
+        const second = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter: secondAdapter, configDir: dir });
+        const issue = await second.get("OCPBUGS-95587");
+        expect(issue.customFields).toEqual({ "Target Version": "5.0.0" });
+      });
     });
   });
 });
