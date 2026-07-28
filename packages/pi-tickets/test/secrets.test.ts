@@ -22,6 +22,7 @@ describe("buildTicketsSecretsBackends", () => {
 
 			const local = backends.find((b) => b.source === "local")!;
 			expect(await local.get("github")).toEqual({ name: "github", source: "local", configured: true });
+			expect(await local.reveal("github")).toEqual({ accessToken: "gho_x" });
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
