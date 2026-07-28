@@ -90,7 +90,9 @@ describe("pi-tickets dispatch", () => {
 });
 
 describe("extension registration", () => {
-  it("registers exactly one tool named 'tickets', plus the /tickets and /tickets-secrets commands and its event handlers", async () => {
+  it("registers exactly one tool named 'tickets', the /tickets command, contributes to the shared /secrets namespace, and its event handlers", async () => {
+    const { __resetSecretsRegistryForTests, listSecretsContributors } = await import("@danypops/daemon-kit/secrets-registry");
+    __resetSecretsRegistryForTests();
     const registered: { name: string }[] = [];
     const commands: string[] = [];
     const events: string[] = [];
@@ -104,7 +106,9 @@ describe("extension registration", () => {
     (mod.default as (pi: unknown) => void)(fakePi);
     expect(registered).toHaveLength(1);
     expect(registered[0]?.name).toBe("tickets");
-    expect(commands).toEqual(["tickets", "tickets-secrets"]);
+    // tickets claims the real /secrets registration here since nothing else registered first in this test's isolated registry
+    expect(commands).toEqual(["tickets", "secrets"]);
+    expect(listSecretsContributors().map((c) => c.source)).toEqual(["tickets"]);
     expect(events).toEqual(expect.arrayContaining(["session_start", "tool_execution_end"]));
   });
 });

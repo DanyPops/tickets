@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { saveToken } from "@danypops/tickets";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildTicketsSecretsBackends, registerTicketsSecretsCommand } from "../src/secrets.js";
+import { __resetSecretsRegistryForTests, claimSecretsCommandName, listSecretsContributors } from "@danypops/daemon-kit/secrets-registry";
+import { buildTicketsSecretsBackends, buildTicketsSecretsContribution, registerTicketsSecretsCommand } from "../src/secrets.js";
 
 function tempEnv(): { root: string; env: Record<string, string> } {
 	const root = mkdtempSync(join(tmpdir(), "pi-tickets-secrets-"));
@@ -42,11 +43,36 @@ describe("buildTicketsSecretsBackends", () => {
 	});
 });
 
+describe("buildTicketsSecretsContribution", () => {
+	it("declares tickets itself as a [services] entry using github/gitlab/jira", async () => {
+		const { root, env } = tempEnv();
+		try {
+			const contribution = buildTicketsSecretsContribution(env);
+			expect(await contribution.servicesRegistry?.list()).toEqual([{ name: "tickets", backends: ["github", "gitlab", "jira"] }]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+});
+
 describe("registerTicketsSecretsCommand", () => {
-	it("registers under 'tickets-secrets', not 'secrets' -- pi-enigma already owns that name", () => {
+	it("contributes to the shared /secrets namespace instead of registering its own command", () => {
+		__resetSecretsRegistryForTests();
 		const registered: string[] = [];
 		const pi = { registerCommand: (name: string) => registered.push(name) } as unknown as ExtensionAPI;
-		registerTicketsSecretsCommand(pi, () => []);
-		expect(registered).toEqual(["tickets-secrets"]);
+		registerTicketsSecretsCommand(pi, () => ({ backends: [] }));
+		expect(registered).toEqual(["secrets"]); // claims it since nothing else registered first in this test
+		expect(listSecretsContributors().map((c) => c.source)).toEqual(["tickets"]);
+	});
+
+	it("still contributes even when another consumer already claimed the real command", () => {
+		__resetSecretsRegistryForTests();
+		const registered: string[] = [];
+		const pi = { registerCommand: (name: string) => registered.push(name) } as unknown as ExtensionAPI;
+		pi.registerCommand("secrets", { description: "", handler: async () => {} } as never); // simulate enigma/pipes registering first
+		claimSecretsCommandName("secrets");
+		registerTicketsSecretsCommand(pi, () => ({ backends: [] }));
+		expect(registered).toEqual(["secrets"]); // only the simulated first registration -- tickets did not register a second
+		expect(listSecretsContributors().map((c) => c.source)).toEqual(["tickets"]);
 	});
 });

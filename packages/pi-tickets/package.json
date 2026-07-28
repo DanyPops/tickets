@@ -1,6 +1,6 @@
 {
   "name": "@danypops/pi-tickets",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Pi extension exposing the tickets daemon (GitHub/GitLab/Jira issue tracking) as an LLM-callable tool.",
   "license": "MIT",
   "type": "module",
@@ -20,7 +20,7 @@
     ]
   },
   "dependencies": {
-    "@danypops/daemon-kit": "^0.20.3",
+    "@danypops/daemon-kit": "^0.21.0",
     "@danypops/tickets": "^0.3.0",
     "typebox": "^1.1.34"
   },
