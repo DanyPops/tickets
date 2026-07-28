@@ -1,21 +1,31 @@
-name: Publish @danypops/tickets
+name: Publish packages
 
 # Trusted publishing (OIDC): no long-lived npm tokens. npm CLI detects the
 # OIDC environment automatically (requires npm >= 11.5.1). Configure the
-# trusted publisher on npmjs.com: org=DanyPops repo=tickets workflow=publish.yml
-# -- this is a one-time, manual, npmjs.com-website-only step that must be
-# done before the first tag push can succeed (a package with no trusted
-# publisher configured yet fails its publish step with a 404/403, not a
-# silent skip).
+# trusted publisher on npmjs.com per package: org=DanyPops repo=tickets
+# workflow=publish.yml -- a one-time, manual, npmjs.com-website-only step
+# that must be done before that package's first tag push can succeed (a
+# package with no trusted publisher configured yet fails its publish step
+# with ENEEDAUTH, not a silent skip).
 #
-# Tag stays a bare "v*" for continuity with this package's existing release
-# history (v0.1.0, v0.2.0) predating the packages/pi-tickets workspace
-# member -- see publish-pi-tickets.yml for that package's own tag/workflow.
+# One workflow, both packages -- pi-tickets used to have its own
+# publish-pi-tickets.yml, which meant a second npmjs.com trusted-publisher
+# registration to keep in sync and a second place for the same OIDC-setup
+# quirks (no registry-url on setup-node, npm >= 11.5.1) to drift. Consolidated
+# so both packages ride the same, already-working workflow file -- npmjs.com
+# still needs a trusted publisher entry per npm package (that's inherent to
+# trusted publishing, not something a shared workflow file can skip), but
+# both now point at the same workflow=publish.yml.
+#
+# @danypops/tickets kept its pre-existing bare "v*" tag for continuity with
+# its release history predating the pi-tickets workspace member (v0.1.0,
+# v0.2.0, ...); pi-tickets uses "pi-tickets-v*" to disambiguate.
 
 on:
   push:
     tags:
       - "v*"
+      - "pi-tickets-v*"
 
 permissions:
   id-token: write # Required for OIDC
@@ -24,19 +34,40 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/tickets
     steps:
       - uses: actions/checkout@v6
+
+      - id: package
+        name: Match tag to package directory
+        shell: bash
+        run: |
+          case "$GITHUB_REF_NAME" in
+            pi-tickets-v*)
+              package_dir="packages/pi-tickets"
+              tag_version="${GITHUB_REF_NAME#pi-tickets-v}"
+              ;;
+            v*)
+              package_dir="packages/tickets"
+              tag_version="${GITHUB_REF_NAME#v}"
+              ;;
+            *)
+              echo "Unsupported release tag: $GITHUB_REF_NAME" >&2
+              exit 1
+              ;;
+          esac
+          package_version="$(node -p "require('./$package_dir/package.json').version")"
+          if [[ "$tag_version" != "$package_version" ]]; then
+            echo "Tag version $tag_version does not match $package_dir version $package_version" >&2
+            exit 1
+          fi
+          echo "dir=$package_dir" >> "$GITHUB_OUTPUT"
 
       - uses: oven-sh/setup-bun@v2
 
       - run: bun install
-        working-directory: .
 
-      - run: bun run test
-      - run: bun run typecheck
+      - run: bun run --filter '*' test
+      - run: bun run --filter '*' typecheck
 
       # npm CLI only for the publish step (trusted publishing needs >= 11.5.1).
       # NO registry-url here: it makes setup-node write an .npmrc with an empty
@@ -50,4 +81,5 @@ jobs:
       # Trusted publishing needs npm >= 11.5.1; Node's bundled npm can be older.
       - run: npm install -g npm@latest && npm --version
 
-      - run: npm publish --access public
+      - working-directory: ${{ steps.package.outputs.dir }}
+        run: npm publish --access public --provenance
