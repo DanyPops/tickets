@@ -15,7 +15,7 @@
 import { Version2Client } from "jira.js";
 import type { HttpException } from "jira.js";
 import type { AxiosAdapter } from "axios";
-import type { Comment, CreateInput, Issue, ListFilter, Status, UpdateInput } from "../domain/issue.js";
+import type { Comment, CreateInput, Issue, IssueLink, ListFilter, Status, UpdateInput } from "../domain/issue.js";
 import { parsePriority } from "../domain/issue.js";
 import { ApiError, IssueNotFoundError } from "./errors.js";
 import type { Template } from "../domain/template.js";
@@ -64,6 +64,15 @@ function isOAuthOptions(opts: JiraOptions): opts is JiraOAuthOptions {
   return "accessToken" in opts;
 }
 
+interface JiraIssueLinkedIssue {
+  key: string;
+  fields: { summary: string; status: { name: string } };
+}
+interface JiraIssueLink {
+  type: { name: string; inward: string; outward: string };
+  inwardIssue?: JiraIssueLinkedIssue;
+  outwardIssue?: JiraIssueLinkedIssue;
+}
 interface JiraIssueFields {
   summary: string;
   description?: string | null;
@@ -78,12 +87,20 @@ interface JiraIssueFields {
   parent?: { key: string; fields?: { summary: string; status?: { name: string } } };
   created?: string;
   updated?: string;
+  fixVersions?: { name: string }[];
+  issuelinks?: JiraIssueLink[];
+  /** customfield_XXXXX passthrough -- Jira's getIssue returns every field by default, this just doesn't narrow their type. */
+  [key: string]: unknown;
 }
 interface JiraIssue {
   id: string;
   key: string;
   self: string;
   fields: JiraIssueFields;
+}
+interface JiraRemoteLink {
+  object?: { url?: string; title?: string };
+  application?: { name?: string };
 }
 interface JiraComment {
   id?: string;
@@ -158,8 +175,15 @@ export class JiraRepository {
   }
 
   async get(key: string): Promise<Issue> {
-    const raw = await this.call<JiraIssue>(() => this.client.issues.getIssue({ issueIdOrKey: key }), key);
-    return this.toDomain(raw);
+    const [raw, remoteLinks] = await Promise.all([
+      this.call<JiraIssue>(() => this.client.issues.getIssue({ issueIdOrKey: key }), key),
+      this.call<JiraRemoteLink[]>(() => this.client.issueRemoteLinks.getRemoteIssueLinks({ issueIdOrKey: key }), key),
+    ]);
+    const issue = this.toDomain(raw);
+    if (remoteLinks.length > 0) {
+      issue.externalLinks = remoteLinks.map((link) => ({ url: link.object?.url ?? "", title: link.object?.title, type: link.application?.name }));
+    }
+    return issue;
   }
 
   /** Runs a jira.js call and maps its HttpException onto this project's shared error taxonomy. */
@@ -374,8 +398,76 @@ export class JiraRepository {
       const idx = j.self.indexOf("/rest/");
       if (idx > 0) issue.url = `${j.self.slice(0, idx)}/browse/${j.key}`;
     }
+    if (j.fields.fixVersions?.length) issue.fixVersions = j.fields.fixVersions.map((v) => v.name);
+    if (j.fields.issuelinks?.length) issue.issueLinks = j.fields.issuelinks.flatMap(jiraIssueLinkToDomain);
+    const customFields = this.extractCustomFields(j.fields);
+    if (customFields) issue.customFields = customFields;
     return issue;
   }
+
+  /**
+   * Every customfield_XXXXX Jira's getIssue response already carries (no
+   * extra call -- "All fields are returned by default", jira.js's own
+   * getIssue doc comment), keyed by display name via fieldNameById. A field
+   * with no known display name yet (discovery never ran for this backend) is
+   * skipped, not guessed at -- matching emcee's own "unmapped field, skip
+   * silently" behavior. Run `tickets discover fields -b <backend>` once, or
+   * construct with configDir set so a prior discovery's manifest loads
+   * automatically (see the constructor), to make more fields resolvable.
+   */
+  private extractCustomFields(fields: JiraIssueFields): Record<string, string> | undefined {
+    if (this.fieldNameById.size === 0) return undefined;
+    let result: Record<string, string> | undefined;
+    for (const [fieldId, displayName] of this.fieldNameById) {
+      const raw = fields[fieldId];
+      if (raw === undefined || raw === null) continue;
+      const value = formatCustomFieldValue(raw);
+      if (value === undefined) continue;
+      result ??= {};
+      result[displayName] = value;
+    }
+    return result;
+  }
+}
+
+function jiraIssueLinkToDomain(link: JiraIssueLink): IssueLink[] {
+  const links: IssueLink[] = [];
+  if (link.outwardIssue) {
+    links.push({
+      type: link.type.outward,
+      direction: "outward",
+      targetRef: `jira:${link.outwardIssue.key}`,
+      targetKey: link.outwardIssue.key,
+      targetTitle: link.outwardIssue.fields.summary,
+      targetStatus: link.outwardIssue.fields.status.name,
+    });
+  }
+  if (link.inwardIssue) {
+    links.push({
+      type: link.type.inward,
+      direction: "inward",
+      targetRef: `jira:${link.inwardIssue.key}`,
+      targetKey: link.inwardIssue.key,
+      targetTitle: link.inwardIssue.fields.summary,
+      targetStatus: link.inwardIssue.fields.status.name,
+    });
+  }
+  return links;
+}
+
+/** Formats one raw customfield_XXXXX value for display: a {name}-bearing array (e.g. version fields) joins names; a {value} option object unwraps; everything else is stringified as-is. */
+function formatCustomFieldValue(raw: unknown): string | undefined {
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
+  if (Array.isArray(raw)) {
+    const names = raw.map((item) => (item && typeof item === "object" && "name" in item ? String((item as { name: unknown }).name) : undefined)).filter((n): n is string => !!n);
+    return names.length > 0 ? names.join(", ") : undefined;
+  }
+  if (raw && typeof raw === "object") {
+    if ("value" in raw) return String((raw as { value: unknown }).value);
+    if ("name" in raw) return String((raw as { name: unknown }).name);
+  }
+  return undefined;
 }
 
 function coerceCustomFieldValue(field: { type: string; items?: string }, rawValue: string): unknown {
