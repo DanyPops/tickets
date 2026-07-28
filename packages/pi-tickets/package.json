@@ -20,6 +20,7 @@
     ]
   },
   "dependencies": {
+    "@danypops/daemon-kit": "^0.20.3",
     "@danypops/tickets": "^0.3.0",
     "typebox": "^1.1.34"
   },

@@ -90,7 +90,7 @@ describe("pi-tickets dispatch", () => {
 });
 
 describe("extension registration", () => {
-  it("registers exactly one tool named 'tickets', plus the /tickets TUI command and its event handlers", async () => {
+  it("registers exactly one tool named 'tickets', plus the /tickets and /tickets-secrets commands and its event handlers", async () => {
     const registered: { name: string }[] = [];
     const commands: string[] = [];
     const events: string[] = [];
@@ -104,7 +104,7 @@ describe("extension registration", () => {
     (mod.default as (pi: unknown) => void)(fakePi);
     expect(registered).toHaveLength(1);
     expect(registered[0]?.name).toBe("tickets");
-    expect(commands).toEqual(["tickets"]);
+    expect(commands).toEqual(["tickets", "tickets-secrets"]);
     expect(events).toEqual(expect.arrayContaining(["session_start", "tool_execution_end"]));
   });
 });

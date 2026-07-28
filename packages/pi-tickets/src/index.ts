@@ -20,6 +20,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createTicketsClient, type TicketsRpcClient, type CreateInput, type ListFilter, type Priority, type Status, type UpdateInput } from "@danypops/tickets";
 import { registerTicketsTui } from "./tui.js";
+import { registerTicketsSecretsCommand } from "./secrets.js";
 
 const ACTIONS = [
   "list",
@@ -157,6 +158,7 @@ export async function dispatch(client: TicketsRpcClient, params: Record<string, 
 
 export default function (pi: ExtensionAPI) {
   registerTicketsTui(pi);
+  registerTicketsSecretsCommand(pi);
 
   pi.registerTool({
     name: "tickets",
