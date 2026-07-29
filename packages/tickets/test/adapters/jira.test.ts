@@ -102,12 +102,16 @@ describe("JiraRepository", () => {
     await expect(repo.get("PROJ-999")).rejects.toThrow(IssueNotFoundError);
   });
 
-  it("list() posts a JQL search built from the filter", async () => {
+  it("list() posts a JQL search built from the filter, requesting *all fields", async () => {
     const axiosAdapter = mockAdapter((config) => {
       expect(config.url).toBe("/rest/api/2/search/jql");
-      const body = JSON.parse(String(config.data)) as { jql: string };
+      const body = JSON.parse(String(config.data)) as { jql: string; fields: string[] };
       expect(body.jql).toContain('project = "PROJ"');
       expect(body.jql).toContain('status = "Done"');
+      // The enhanced search endpoint defaults to id-only fields (unlike the
+      // deprecated endpoint's *navigable default) -- omitting this crashes
+      // toDomain() on a missing summary/status for every real search result.
+      expect(body.fields).toEqual(["*all"]);
       return { data: { issues: [RAW_ISSUE("PROJ-1", "One")] }, status: 200 };
     });
     const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", project: "PROJ", axiosAdapter });

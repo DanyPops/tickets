@@ -266,9 +266,12 @@ export class JiraRepository {
   private async searchJql(jql: string, limit: number): Promise<Issue[]> {
     // searchForIssuesUsingJqlPost hits the deprecated /rest/api/2/search, which
     // Atlassian has sunset on Jira Cloud (410 Gone). The enhanced variant posts
-    // to the still-live /rest/api/2/search/jql with an identical request/response shape.
+    // to the still-live /rest/api/2/search/jql -- but unlike the old endpoint
+    // (which defaulted to *navigable fields), this one defaults to id-only, so
+    // toDomain() would crash on a missing summary/status/etc. without an explicit
+    // fields request. "*all" restores the old behavior (including custom fields).
     const result = await this.call<{ issues?: JiraIssue[] }>(() =>
-      this.client.issueSearch.searchForIssuesUsingJqlEnhancedSearchPost({ jql, maxResults: limit }),
+      this.client.issueSearch.searchForIssuesUsingJqlEnhancedSearchPost({ jql, maxResults: limit, fields: ["*all"] }),
     );
     return (result?.issues ?? []).map((raw) => this.toDomain(raw));
   }
