@@ -36,7 +36,7 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "issue.get": { ref: string };
   "issue.create": { backend: string; input: CreateInput };
   "issue.update": { ref: string; input: UpdateInput };
-  "issue.search": { backend: string; query: string; limit?: number };
+  "issue.search": { backend: string; query: string; limit?: number; project?: string };
   "issue.children": { ref: string };
   "issue.comments": { ref: string };
   "issue.comment_add": { ref: string; body: string };

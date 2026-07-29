@@ -13,7 +13,8 @@ export interface IssueRepository {
   get(key: string): Promise<Issue>;
   create(input: CreateInput): Promise<Issue>;
   update(key: string, input: UpdateInput): Promise<Issue>;
-  search(query: string, limit?: number): Promise<Issue[]>;
+  /** project: per-call override of this repository's own default/configured project (Jira only; GitHub/GitLab ignore it -- their scope is fixed to the configured repo/project at construction). */
+  search(query: string, limit?: number, project?: string): Promise<Issue[]>;
   listChildren(key: string): Promise<Issue[]>;
 }
 

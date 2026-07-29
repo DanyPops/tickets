@@ -237,8 +237,9 @@ export class JiraRepository {
     return this.get(key);
   }
 
-  async search(query: string, limit = 50): Promise<Issue[]> {
-    const scope = this.project ? `project = ${jqlQuote(this.project)} AND ` : "";
+  async search(query: string, limit = 50, project?: string): Promise<Issue[]> {
+    const effectiveProject = project ?? this.project;
+    const scope = effectiveProject ? `project = ${jqlQuote(effectiveProject)} AND ` : "";
     const jql = `${scope}text ~ ${jqlQuote(query)} ORDER BY created DESC`;
     return this.searchJql(jql, limit);
   }

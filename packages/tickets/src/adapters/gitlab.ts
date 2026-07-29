@@ -141,7 +141,9 @@ export class GitLabRepository {
     return toDomain(raw);
   }
 
-  async search(query: string, limit = 50): Promise<Issue[]> {
+  // project is accepted for IssueRepository interface parity but ignored --
+  // GitLab's scope (projectId) is fixed at construction, not overridable per call.
+  async search(query: string, limit = 50, _project?: string): Promise<Issue[]> {
     const raw = await this.call<GlIssue[]>(() =>
       this.client.Issues.all({ projectId: this.projectId, search: query, perPage: limit }),
     );

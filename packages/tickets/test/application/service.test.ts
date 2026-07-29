@@ -39,6 +39,13 @@ describe("TicketService", () => {
     await expect(svc.list("nonexistent", {})).rejects.toThrow(UnknownBackendError);
   });
 
+  it("search() forwards an explicit project override to the repository, distinct from its own configured default", async () => {
+    const jira = new FakeRepository("jira", []);
+    const svc = new TicketService({ jira });
+    await svc.search("jira", "PTP", 10, "OCPBUGS");
+    expect(jira.lastSearchCall).toEqual({ query: "PTP", limit: 10, project: "OCPBUGS" });
+  });
+
   it("create() and update() route to the named backend", async () => {
     const svc = makeService();
     const created = await svc.create("github", { title: "New one" });

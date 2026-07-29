@@ -102,6 +102,27 @@ describe("JiraRepository", () => {
     await expect(repo.get("PROJ-999")).rejects.toThrow(IssueNotFoundError);
   });
 
+  it("search() scopes to the backend's configured default project when no override is given", async () => {
+    const axiosAdapter = mockAdapter((config) => {
+      const body = JSON.parse(String(config.data)) as { jql: string };
+      expect(body.jql).toContain('project = "TELCOSTRAT"');
+      return { data: { issues: [] }, status: 200 };
+    });
+    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", project: "TELCOSTRAT", axiosAdapter });
+    await repo.search("PTP");
+  });
+
+  it("search() with an explicit project overrides the backend's own configured default -- e.g. reaching CNF or OCPBUGS from a Jira backend configured to default to TELCOSTRAT", async () => {
+    const axiosAdapter = mockAdapter((config) => {
+      const body = JSON.parse(String(config.data)) as { jql: string };
+      expect(body.jql).toContain('project = "OCPBUGS"');
+      expect(body.jql).not.toContain("TELCOSTRAT");
+      return { data: { issues: [] }, status: 200 };
+    });
+    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", project: "TELCOSTRAT", axiosAdapter });
+    await repo.search("PTP", 50, "OCPBUGS");
+  });
+
   it("list() posts a JQL search built from the filter, requesting *all fields", async () => {
     const axiosAdapter = mockAdapter((config) => {
       expect(config.url).toBe("/rest/api/2/search/jql");
