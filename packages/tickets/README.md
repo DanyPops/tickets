@@ -171,6 +171,22 @@ tickets auth status
 tickets auth logout github
 ```
 
+### Static token instead (API key/PAT, no OAuth)
+
+For a backend with no OAuth app to register against (e.g. a plain Atlassian
+API token from `id.atlassian.com/manage-profile/security/api-tokens`),
+store it directly -- same 0600 local file `auth login` writes to, checked
+ahead of any `token`/`token_env` config-file or plain env-var fallback:
+
+```bash
+tickets auth set-token jira
+# Paste the "jira" token (input hidden): ****
+
+# or non-interactively, e.g. from a password manager (piped stdin works too,
+# since a non-TTY stdin is read as-is with nothing to mask):
+pass show jira-api-token | tickets auth set-token jira
+```
+
 ### GitHub: reuse an already-authenticated `gh` CLI session
 
 `tickets auth login --backend github --gh-cli [account]` skips the device
