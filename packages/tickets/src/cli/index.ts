@@ -40,12 +40,14 @@ program
   .command("list")
   .description("list issues on a backend")
   .requiredOption("-b, --backend <name>", "backend name")
+  .option("--project <key>", "project key/id override (e.g. reach ENG or OPS on a Jira backend defaulting to another project)")
   .option("--status <status>", "filter by status")
   .option("--assignee <user>", "filter by assignee")
   .option("--label <label...>", "filter by label(s)")
   .option("--limit <n>", "max results", (v) => Number.parseInt(v, 10))
   .action(async (opts) => {
     const filter: ListFilter = {
+      project: opts.project,
       status: opts.status ? parseStatus(opts.status) : undefined,
       assignee: opts.assignee,
       labels: opts.label,
@@ -107,9 +109,10 @@ program
   .command("search <query>")
   .description("search issues on a backend")
   .requiredOption("-b, --backend <name>", "backend name")
+  .option("--project <key>", "project key/id override (e.g. reach ENG or OPS on a Jira backend defaulting to another project)")
   .option("--limit <n>", "max results", (v) => Number.parseInt(v, 10))
   .action(async (query: string, opts) => {
-    await withClient((client) => client.call("issue.search", { backend: opts.backend, query, limit: opts.limit }));
+    await withClient((client) => client.call("issue.search", { backend: opts.backend, query, limit: opts.limit, project: opts.project }));
   });
 
 program
