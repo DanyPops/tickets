@@ -77,8 +77,8 @@ export class TicketService {
     return this.repo(backend).update(key, input);
   }
 
-  async search(backend: string, query: string, limit?: number): Promise<Issue[]> {
-    return this.repo(backend).search(query, limit);
+  async search(backend: string, query: string, limit?: number, project?: string): Promise<Issue[]> {
+    return this.repo(backend).search(query, limit, project);
   }
 
   async children(ref: string): Promise<Issue[]> {

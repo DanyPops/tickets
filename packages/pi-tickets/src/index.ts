@@ -76,7 +76,12 @@ const parameters = Type.Object({
   priority: Type.Optional(Type.String({ description: "none | urgent | high | medium | low" })),
   labels: Type.Optional(Type.Array(Type.String())),
   assignee: Type.Optional(Type.String()),
-  project: Type.Optional(Type.String({ description: "Project key/id override for create" })),
+  project: Type.Optional(
+    Type.String({
+      description:
+        "Project key/id override for create/list/search. Without it, list/search fall back to the backend's own configured default project (e.g. Jira's JIRA_PROJECT) -- pass this to reach a different project (e.g. ENG, OPS) in the same backend. No effect on GitHub/GitLab, whose scope is fixed per backend config.",
+    }),
+  ),
   query: Type.Optional(Type.String({ description: "Search text. Required for search/ledger_search." })),
   body: Type.Optional(Type.String({ description: "Comment body. Required for comment_add." })),
   limit: Type.Optional(Type.Number()),
@@ -96,6 +101,7 @@ export async function dispatch(client: TicketsRpcClient, params: Record<string, 
     case "list": {
       if (!backend) throw new Error('action "list" requires backend');
       const filter: ListFilter = {
+        project: params.project as string | undefined,
         status: params.status as Status | undefined,
         assignee: params.assignee as string | undefined,
         labels: params.labels as string[] | undefined,
@@ -133,7 +139,12 @@ export async function dispatch(client: TicketsRpcClient, params: Record<string, 
     }
     case "search":
       if (!backend || !params.query) throw new Error('action "search" requires backend and query');
-      return client.call("issue.search", { backend, query: params.query as string, limit: params.limit as number | undefined });
+      return client.call("issue.search", {
+        backend,
+        query: params.query as string,
+        limit: params.limit as number | undefined,
+        project: params.project as string | undefined,
+      });
     case "children":
       if (!ref) throw new Error('action "children" requires ref');
       return client.call("issue.children", { ref });

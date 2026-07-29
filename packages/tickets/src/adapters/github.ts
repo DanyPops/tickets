@@ -158,7 +158,9 @@ export class GitHubRepository {
     return toDomain(raw);
   }
 
-  async search(query: string, limit = 50): Promise<Issue[]> {
+  // project is accepted for IssueRepository interface parity but ignored --
+  // GitHub's scope (owner/repo) is fixed at construction, not overridable per call.
+  async search(query: string, limit = 50, _project?: string): Promise<Issue[]> {
     const scope = this.repo ? `repo:${this.owner}/${this.repo}` : `org:${this.owner}`;
     const result = (await this.call((signal) =>
       this.client.rest.search.issuesAndPullRequests({ q: `${scope} ${query}`, per_page: limit, request: { signal } }),

@@ -58,7 +58,11 @@ export class FakeRepository implements IssueRepository, CommentCapable {
     return updated;
   }
 
-  async search(query: string): Promise<Issue[]> {
+  /** Records the args of the most recent search() call so a caller (e.g. TicketService) can be asserted to have forwarded them, notably project. */
+  lastSearchCall?: { query: string; limit?: number; project?: string };
+
+  async search(query: string, limit?: number, project?: string): Promise<Issue[]> {
+    this.lastSearchCall = { query, limit, project };
     return [...this.issues.values()].filter((i) => i.title.includes(query));
   }
 

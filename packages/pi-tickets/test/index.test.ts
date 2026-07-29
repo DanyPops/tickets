@@ -22,6 +22,24 @@ describe("pi-tickets dispatch", () => {
     await expect(dispatch(client, { action: "list" })).rejects.toThrow(/requires backend/);
   });
 
+  it("list passes a project override through to reach a non-default project (e.g. ENG, OPS)", async () => {
+    const client = fakeClient((op, input) => {
+      expect(op).toBe("issue.list");
+      expect(input).toEqual({ backend: "jira", filter: { project: "ENG", status: undefined, assignee: undefined, labels: undefined, limit: undefined } });
+      return { issues: [] };
+    });
+    await dispatch(client, { action: "list", backend: "jira", project: "ENG" });
+  });
+
+  it("search passes a project override through, distinct from the backend's own configured default", async () => {
+    const client = fakeClient((op, input) => {
+      expect(op).toBe("issue.search");
+      expect(input).toEqual({ backend: "jira", query: "PTP", limit: undefined, project: "OPS" });
+      return { issues: [] };
+    });
+    await dispatch(client, { action: "search", backend: "jira", query: "PTP", project: "OPS" });
+  });
+
   it("create builds a CreateInput from flat params", async () => {
     const client = fakeClient((op, input) => {
       expect(op).toBe("issue.create");
