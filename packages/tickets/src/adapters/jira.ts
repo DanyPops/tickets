@@ -264,8 +264,11 @@ export class JiraRepository {
   }
 
   private async searchJql(jql: string, limit: number): Promise<Issue[]> {
+    // searchForIssuesUsingJqlPost hits the deprecated /rest/api/2/search, which
+    // Atlassian has sunset on Jira Cloud (410 Gone). The enhanced variant posts
+    // to the still-live /rest/api/2/search/jql with an identical request/response shape.
     const result = await this.call<{ issues?: JiraIssue[] }>(() =>
-      this.client.issueSearch.searchForIssuesUsingJqlPost({ jql, maxResults: limit }),
+      this.client.issueSearch.searchForIssuesUsingJqlEnhancedSearchPost({ jql, maxResults: limit }),
     );
     return (result?.issues ?? []).map((raw) => this.toDomain(raw));
   }
