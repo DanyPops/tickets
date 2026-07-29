@@ -15,6 +15,7 @@ import { readGhCliToken } from "../auth/gh-cli.js";
 import { gitlabDeviceEndpoints, loginWithGitLabDeviceFlow } from "../auth/gitlab-oauth.js";
 import { loginWithJiraAuthorizationCode } from "../auth/jira-oauth.js";
 import { deleteToken, isTokenFresh, listStoredBackends, loadToken, saveToken } from "../auth/token-store.js";
+import { promptMaskedSecret } from "../auth/masked-prompt.js";
 import { installTicketsService, systemctlTickets, systemdUnitPath } from "./systemd-service.js";
 
 function printJson(value: unknown): void {
@@ -420,6 +421,23 @@ auth
       process.stderr.write(`error: ${message}\n`);
       process.exitCode = 1;
     }
+  });
+
+auth
+  .command("set-token <backend>")
+  .description("store a plain static token (API key/PAT, no OAuth) for a backend -- e.g. an Atlassian API token for jira")
+  .action(async (backend: string) => {
+    // TICKETS_TOKEN_VALUE remains for non-interactive/scripted use (a provisioning
+    // script, `pass show jira | tickets auth set-token jira`) -- never accepted as a
+    // plain CLI argument, which would land in shell history the way this would not.
+    const value = process.env.TICKETS_TOKEN_VALUE ?? (await promptMaskedSecret(`Paste the "${backend}" token (input hidden): `));
+    if (!value) {
+      process.stderr.write("no token value provided — paste one at the prompt, or set TICKETS_TOKEN_VALUE for non-interactive use\n");
+      process.exitCode = 1;
+      return;
+    }
+    saveToken(backend, { accessToken: value });
+    printJson({ backend, status: "stored", note: "restart the tickets daemon (or run `tickets daemon-status` after a fresh start) to pick up the new token" });
   });
 
 auth
