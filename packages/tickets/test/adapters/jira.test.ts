@@ -104,7 +104,7 @@ describe("JiraRepository", () => {
 
   it("list() posts a JQL search built from the filter", async () => {
     const axiosAdapter = mockAdapter((config) => {
-      expect(config.url).toBe("/rest/api/2/search");
+      expect(config.url).toBe("/rest/api/2/search/jql");
       const body = JSON.parse(String(config.data)) as { jql: string };
       expect(body.jql).toContain('project = "PROJ"');
       expect(body.jql).toContain('status = "Done"');
@@ -278,7 +278,7 @@ describe("JiraRepository", () => {
 
     it("discoverTemplate() samples issues via JQL and extracts sections common to all of them", async () => {
       const axiosAdapter = mockAdapter((config) => {
-        expect(String(config.url)).toBe("/rest/api/2/search");
+        expect(String(config.url)).toBe("/rest/api/2/search/jql");
         const body = JSON.parse(String(config.data)) as { jql: string; maxResults: number };
         expect(body.jql).toContain('project = "PROJ"');
         expect(body.jql).toContain('issuetype = "Bug"');
