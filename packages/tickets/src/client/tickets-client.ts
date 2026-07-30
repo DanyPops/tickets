@@ -83,6 +83,32 @@ export async function ensureDaemonRunning(
   return { baseUrl: `http://${handle.host}:${handle.port}`, token };
 }
 
+export interface VehicleClientTarget {
+  /** Base URL for tickets' VehicleRegistry (see ../vehicle/tickets-vehicle.ts) -- @danypops/vehicle-client's RemoteVehicleClient mounts its own /vehicle/manifest, /vehicle/invoke, /vehicle/cancel routes under this. */
+  baseUrl: string;
+  token: string;
+}
+
+/**
+ * Narrow, side-effect-free surface for a Vehicle-projected domain consumer --
+ * same daemon, same handle file, same Bearer token every other tickets RPC
+ * call already uses (see daemon/server.ts's buildApp, which mounts the
+ * Vehicle HTTP app at /vehicle/* on this same port). Deliberately does NOT
+ * call ensureDaemonRunning: that spawns the daemon and mints a fresh auth
+ * token file as a side effect, which is wrong to do just from a Pi
+ * extension loading and registering its tool schemas -- only reads the
+ * handle if the daemon has already started, mirroring how Papyrus's own
+ * resolveVehicleClientTarget() tolerates "never started" by returning
+ * undefined rather than throwing or spawning.
+ */
+export function resolveVehicleClientTarget(env?: Record<string, string | undefined>): VehicleClientTarget | undefined {
+  const paths = ticketsPaths(env);
+  const handle = readDaemonHandle(paths.handle);
+  if (!handle) return undefined;
+  const token = ensureAuthToken(paths.token, "Tickets");
+  return { baseUrl: `http://${handle.host}:${handle.port}`, token };
+}
+
 export type TicketsRpcClient = AuthenticatedRpcClient<TicketOperation, TicketOpInputs, TicketOpOutputs>;
 
 export async function createTicketsClient(opts: EnsureDaemonOptions = {}): Promise<TicketsRpcClient> {

@@ -1,11 +1,15 @@
 /**
- * Daemon HTTP surface: Bearer-token auth, /health, /ready, and a single
- * dispatch endpoint (/api/v1/ops) per vehicle-server's http.ts convention.
- * Every operation here has a CLI command (cli/index.ts) and a pi-tickets
- * tool action — no operation exists only for one caller.
+ * Daemon HTTP surface: Bearer-token auth, /health, /ready, a single
+ * dispatch endpoint (/api/v1/ops) per vehicle-server's http.ts convention,
+ * and a VehicleRegistry (see ../vehicle/tickets-vehicle.ts) mounted at
+ * /vehicle/* -- same daemon, same auth, same port, not a second service to
+ * stand up. Every operation here has a CLI command (cli/index.ts) and a
+ * pi-tickets tool action — no operation exists only for one caller.
  */
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
 import type { Logger } from "@danypops/vehicle-server/logging";
+import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
+import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { AuthRequiredError, IssueNotFoundError } from "../adapters/errors.js";
 import { NotSupportedError, type TicketService, UnknownBackendError } from "../application/service.js";
 import { parseRef } from "../domain/issue.js";
@@ -28,14 +32,31 @@ export interface TicketsAppDeps {
    * never calls process.exit directly.
    */
   onShutdownRequested?: () => void;
+  /**
+   * Built by ../vehicle/tickets-vehicle.ts's createTicketsVehicleRegistry,
+   * from the same base deps this interface describes -- passed in rather
+   * than built here to avoid a server.ts <-> tickets-vehicle.ts import cycle
+   * (tickets-vehicle.ts already imports TICKET_OP_HANDLERS and this type
+   * from this file).
+   */
+  vehicleRegistry: VehicleRegistry;
 }
 
-type Handler<Op extends TicketOperation> = (
-  deps: TicketsAppDeps,
+// Narrower than TicketsAppDeps on purpose: no real handler reads
+// deps.vehicleRegistry, and vehicle/tickets-vehicle.ts's own registry
+// builder needs to call these before a registry exists to put there.
+export type Handler<Op extends TicketOperation> = (
+  deps: Omit<TicketsAppDeps, "vehicleRegistry">,
   input: TicketOpInputs[Op],
 ) => Promise<TicketOpOutputs[Op]>;
 
-const handlers: { [Op in TicketOperation]: Handler<Op> } = {
+/**
+ * The one real implementation of every ticket operation, shared verbatim by
+ * the hand-rolled /api/v1/ops dispatch below and vehicle/tickets-vehicle.ts's
+ * VehicleRegistry projection -- never reimplemented a second time for the
+ * newer surface.
+ */
+export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
   "backends.list": async (deps) => ({ backends: deps.service.backends() }),
   "issue.list": async (deps, input) => ({ issues: await deps.service.list(input.backend, input.filter) }),
   "issue.get": async (deps, input) => ({ issue: await deps.service.get(input.ref) }),
@@ -88,11 +109,17 @@ function statusFor(error: unknown): number {
 }
 
 export function buildApp(deps: TicketsAppDeps): { fetch(request: Request): Promise<Response> } {
+  // Same Bearer token as the rest of this API -- the Vehicle-projected
+  // domain (see ../vehicle/tickets-vehicle.ts) rides the same daemon, same
+  // auth, same port; it is not a second service to stand up or
+  // authenticate against separately.
+  const vehicleApp = createVehicleHttpApp({ registry: deps.vehicleRegistry, token: deps.token });
   return {
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
 
       if (!requireBearerToken(request, deps.token)) return errorResponse("unauthorized", 401);
+      if (url.pathname.startsWith("/vehicle/")) return vehicleApp.fetch(request);
       if (request.method === "GET" && url.pathname === "/health") return healthResponse(deps.version);
       if (request.method === "GET" && url.pathname === "/ready") return readyResponse(true);
 
@@ -106,7 +133,7 @@ export function buildApp(deps: TicketsAppDeps): { fetch(request: Request): Promi
             return errorResponse("invalid JSON body", 400);
           }
           if (!isTicketOperation(body.op)) return errorResponse(`unknown op: ${String(body.op)}`, 400);
-          const handler = handlers[body.op] as Handler<TicketOperation>;
+          const handler = TICKET_OP_HANDLERS[body.op] as Handler<TicketOperation>;
           try {
             const result = await handler(deps, (body.input ?? {}) as never);
             return jsonResponse({ result });
