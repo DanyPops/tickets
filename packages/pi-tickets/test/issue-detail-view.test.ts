@@ -16,6 +16,13 @@ function issue(overrides: Partial<Issue> = {}): Issue {
 }
 
 describe("IssueDetailComponent", () => {
+  it("frames the view with a full-width border rule top and bottom, so it reads as a distinct overlay", () => {
+    const view = new IssueDetailComponent(fakeTui(), fakeTheme, issue(), [], () => {});
+    const lines = view.render(80);
+    expect(lines[0]).toBe("\u2500".repeat(80));
+    expect(lines.at(-1)).toBe("\u2500".repeat(80));
+  });
+
   it("renders the key, title, and every populated field", () => {
     const view = new IssueDetailComponent(
       fakeTui(),

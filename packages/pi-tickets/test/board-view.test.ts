@@ -109,6 +109,14 @@ describe("KanbanBoardComponent", () => {
     issue({ ref: "a:3", key: "CNF-3", title: "In progress one", status: "in_progress" }),
   ];
 
+  it("frames the board with a full-width border rule top and bottom, so it reads as a distinct overlay", () => {
+    const tui = fakeTui();
+    const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });
+    const lines = board.render(80).map(stripAnsi);
+    expect(lines[0]).toBe("\u2500".repeat(80));
+    expect(lines.at(-1)).toBe("\u2500".repeat(80));
+  });
+
   it("selects the first non-empty column on construction and highlights that card", () => {
     const tui = fakeTui();
     const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });

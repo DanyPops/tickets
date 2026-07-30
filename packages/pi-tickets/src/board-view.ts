@@ -99,8 +99,8 @@ function initials(name: string): string {
   return parts.length === 1 ? parts[0]!.slice(0, 2).toUpperCase() : `${parts[0]![0]}${parts.at(-1)![0]}`.toUpperCase();
 }
 
-/** Rows reserved for the title line and the footer -- render() subtracts this from the terminal's own row count to get the scrollable window height. */
-const BOARD_RESERVED_ROWS = 2;
+/** Rows reserved for the top/title/border-under-title/footer/bottom-border lines -- render() subtracts this from the terminal's own row count to get the scrollable window height. */
+const BOARD_RESERVED_ROWS = 4;
 
 export interface KanbanBoardOptions {
   /** Called when the user presses enter on a selected card; the component awaits this before re-rendering, so a caller can push a detail view and return here on close. */
@@ -156,10 +156,14 @@ export class KanbanBoardComponent implements Component {
       lines.length > visibleRows ? `\u2191/\u2193 scroll \u2022 ${this.offsetY + 1}-${end}/${lines.length}` : "",
       "\u2190/\u2192/\u2191/\u2193 navigate \u2022 enter open \u2022 o browser \u2022 esc close",
     ].filter(Boolean).join(" \u2022 ");
+    const border = this.theme.fg("accent", "\u2500".repeat(Math.max(1, width)));
     return [
+      border,
       this.theme.fg("accent", this.theme.bold(`Board: ${this.boardName}`)),
+      border,
       ...lines.slice(this.offsetY, end),
       this.theme.fg("dim", footer),
+      border,
     ];
   }
 

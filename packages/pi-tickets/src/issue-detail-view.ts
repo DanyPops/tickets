@@ -39,7 +39,7 @@ export class IssueDetailComponent implements Component {
     const visibleRows = this.visibleRows();
     this.offsetY = Math.min(this.offsetY, Math.max(0, this.lines.length - visibleRows));
     const end = Math.min(this.lines.length, this.offsetY + visibleRows);
-    const border = theme.fg("borderMuted", "\u2500".repeat(Math.max(1, width)));
+    const border = theme.fg("accent", "\u2500".repeat(Math.max(1, width)));
     const footer = [
       this.lines.length > visibleRows ? `\u2191/\u2193 scroll \u2022 ${this.offsetY + 1}-${end}/${this.lines.length}` : "",
       "esc back",
