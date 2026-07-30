@@ -74,6 +74,36 @@ describe("TicketService", () => {
     await expect(svc.comments("bare:1")).rejects.toThrow(NotSupportedError);
   });
 
+  it("runQuery() throws NotSupportedError when the repo lacks RawQueryable", async () => {
+    const bareRepo = {
+      name: "bare",
+      list: async () => [],
+      get: async () => {
+        throw new Error("n/a");
+      },
+      create: async () => {
+        throw new Error("n/a");
+      },
+      update: async () => {
+        throw new Error("n/a");
+      },
+      search: async () => [],
+      listChildren: async () => [],
+    };
+    const svc = new TicketService({ bare: bareRepo });
+    await expect(svc.runQuery("bare", "project = X")).rejects.toThrow(NotSupportedError);
+  });
+
+  it("runQuery() forwards the raw query and limit to a RawQueryable repo", async () => {
+    const jira = new FakeRepository("jira", [
+      { ref: "jira:PROJ-1", id: "1", key: "PROJ-1", title: "Sprint issue", status: "todo", priority: "none" },
+    ]);
+    const svc = new TicketService({ jira });
+    const issues = await svc.runQuery("jira", "Sprint", 5);
+    expect(issues.map((i) => i.title)).toEqual(["Sprint issue"]);
+    expect(jira.lastRunQueryCall).toEqual({ query: "Sprint", limit: 5 });
+  });
+
   describe("setRepos", () => {
     it("swaps in a newly available backend without reconstructing the service", async () => {
       const github = new FakeRepository("github", [

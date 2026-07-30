@@ -7,6 +7,7 @@
 import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../domain/issue.js";
 import type { Template } from "../domain/template.js";
 import type { TicketFocusState } from "./focus.js";
+import type { SavedQuery } from "./saved-queries.js";
 
 export type TicketOperation =
   | "backends.list"
@@ -28,6 +29,11 @@ export type TicketOperation =
   | "discover.fields"
   | "discover.statuses"
   | "discover.template"
+  | "discover.board_quickfilter"
+  | "query.save"
+  | "query.list"
+  | "query.remove"
+  | "query.run"
   | "daemon.shutdown";
 
 export interface TicketOpInputs extends Record<TicketOperation, unknown> {
@@ -50,6 +56,11 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "discover.fields": { backend: string };
   "discover.statuses": { backend: string };
   "discover.template": { backend: string; project: string; issueType: string; sampleSize?: number };
+  "discover.board_quickfilter": { backend: string; boardId: number; quickFilterId: number };
+  "query.save": { name: string; backend: string; query: string; description?: string };
+  "query.list": Record<string, never>;
+  "query.remove": { name: string };
+  "query.run": { name: string; limit?: number };
   "daemon.shutdown": Record<string, never>;
 }
 
@@ -73,6 +84,11 @@ export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
   "discover.fields": { mappings: Record<string, string> };
   "discover.statuses": { mappings: Record<string, string> };
   "discover.template": { template: Template | null };
+  "discover.board_quickfilter": { jql: string };
+  "query.save": { query: SavedQuery };
+  "query.list": { queries: SavedQuery[] };
+  "query.remove": { removed: boolean };
+  "query.run": { issues: Issue[] };
   "daemon.shutdown": { stopping: true };
 }
 
@@ -96,6 +112,11 @@ export const TICKET_OPERATIONS: TicketOperation[] = [
   "discover.fields",
   "discover.statuses",
   "discover.template",
+  "discover.board_quickfilter",
+  "query.save",
+  "query.list",
+  "query.remove",
+  "query.run",
   "daemon.shutdown",
 ];
 

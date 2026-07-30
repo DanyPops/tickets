@@ -5,6 +5,7 @@ import { TicketService } from "../../src/application/service.js";
 import { buildApp } from "../../src/daemon/server.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/daemon/focus.js";
 import { Ledger, LEDGER_MIGRATIONS } from "../../src/daemon/ledger.js";
+import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/daemon/saved-queries.js";
 import { createTicketsVehicleRegistry } from "../../src/vehicle/tickets-vehicle.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
@@ -17,16 +18,17 @@ afterEach(() => {
 });
 
 function makeApp() {
-  db = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS] });
+  db = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS] });
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
+  const queries = new SavedQueryStore(db);
   const github = new FakeRepository("github", [
     { ref: "github:#1", id: "1", key: "#1", title: "First", status: "todo", priority: "none", url: "https://github.com/acme/widgets/issues/1" },
   ]);
   const service = new TicketService({ github });
-  const baseDeps = { service, ledger, focusStore, token: TOKEN, version: "0.0.0-test" };
+  const baseDeps = { service, ledger, focusStore, queries, token: TOKEN, version: "0.0.0-test" };
   const app = buildApp({ ...baseDeps, vehicleRegistry: createTicketsVehicleRegistry(baseDeps) });
-  return { app, ledger, focusStore, service };
+  return { app, ledger, focusStore, queries, service };
 }
 
 function req(path: string, init: RequestInit = {}, token = TOKEN): Request {
@@ -172,15 +174,17 @@ describe("daemon HTTP surface", () => {
   });
 
   it("daemon.shutdown responds before invoking onShutdownRequested, never calls it synchronously", async () => {
-    db = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS] });
+    db = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS] });
     const ledger = new Ledger(db);
     const focusStore = new FocusStore(db);
+    const queries = new SavedQueryStore(db);
     const service = new TicketService({});
     let calls = 0;
     const baseDeps = {
       service,
       ledger,
       focusStore,
+      queries,
       token: TOKEN,
       version: "0.0.0-test",
       onShutdownRequested: () => {
@@ -198,5 +202,45 @@ describe("daemon HTTP surface", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(calls).toBe(1);
+  });
+
+  it("query.save then query.list round-trips a saved query", async () => {
+    const { app } = makeApp();
+    const saveRes = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "query.save", input: { name: "q1", backend: "github", query: "First" } }) }),
+    );
+    expect(saveRes.status).toBe(200);
+    const saveBody = (await saveRes.json()) as { result: { query: { name: string; backend: string; query: string } } };
+    expect(saveBody.result.query).toMatchObject({ name: "q1", backend: "github", query: "First" });
+
+    const listRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "query.list", input: {} }) }));
+    const listBody = (await listRes.json()) as { result: { queries: { name: string }[] } };
+    expect(listBody.result.queries.map((q) => q.name)).toEqual(["q1"]);
+  });
+
+  it("query.run executes a saved query's raw query against its backend", async () => {
+    const { app } = makeApp();
+    await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "query.save", input: { name: "q1", backend: "github", query: "First" } }) }));
+    const runRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "query.run", input: { name: "q1" } }) }));
+    expect(runRes.status).toBe(200);
+    const runBody = (await runRes.json()) as { result: { issues: { title: string }[] } };
+    expect(runBody.result.issues.map((i) => i.title)).toEqual(["First"]);
+  });
+
+  it("query.run on an unknown saved-query name maps to 404", async () => {
+    const { app } = makeApp();
+    const res = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "query.run", input: { name: "nope" } }) }));
+    expect(res.status).toBe(404);
+  });
+
+  it("query.remove deletes a saved query", async () => {
+    const { app } = makeApp();
+    await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "query.save", input: { name: "q1", backend: "github", query: "First" } }) }));
+    const removeRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "query.remove", input: { name: "q1" } }) }));
+    const removeBody = (await removeRes.json()) as { result: { removed: boolean } };
+    expect(removeBody.result.removed).toBe(true);
+    const listRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "query.list", input: {} }) }));
+    const listBody = (await listRes.json()) as { result: { queries: unknown[] } };
+    expect(listBody.result.queries).toEqual([]);
   });
 });

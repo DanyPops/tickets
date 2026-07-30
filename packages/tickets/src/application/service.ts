@@ -8,8 +8,10 @@ import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../do
 import { parseRef } from "../domain/issue.js";
 import type { Template } from "../domain/template.js";
 import {
+  hasBoardQuickFilterDiscovery,
   hasComments,
   hasFieldDiscovery,
+  hasRawQuery,
   hasStatusDiscovery,
   hasTemplateDiscovery,
   type IssueRepository,
@@ -116,5 +118,19 @@ export class TicketService {
     const repo = this.repo(backend);
     if (!hasTemplateDiscovery(repo)) throw new NotSupportedError(backend, "template discovery");
     return repo.discoverTemplate(project, issueType, sampleSize);
+  }
+
+  /** Runs a raw query string (Jira JQL) verbatim against one backend -- the execution half of the "saved query" feature. */
+  async runQuery(backend: string, query: string, limit?: number): Promise<Issue[]> {
+    const repo = this.repo(backend);
+    if (!hasRawQuery(repo)) throw new NotSupportedError(backend, "raw queries");
+    return repo.runQuery(query, limit);
+  }
+
+  /** Resolves a Jira board's quick filter id to its JQL fragment -- the one-time step that turns a board/backlog view into a saved query. */
+  async discoverBoardQuickFilterJql(backend: string, boardId: number, quickFilterId: number): Promise<string> {
+    const repo = this.repo(backend);
+    if (!hasBoardQuickFilterDiscovery(repo)) throw new NotSupportedError(backend, "board quick filter discovery");
+    return repo.discoverBoardQuickFilterJql(boardId, quickFilterId);
   }
 }

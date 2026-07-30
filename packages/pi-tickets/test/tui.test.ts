@@ -228,4 +228,87 @@ describe("registerTicketsTui", () => {
     await pi.commands.get("tickets")?.handler(undefined, ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("daemon unavailable"), "error");
   });
+
+  it("registers the /query command", () => {
+    const pi = fakePi();
+    registerTicketsTui(pi as never);
+    expect(pi.commands.has("query")).toBe(true);
+  });
+
+  it("/query with no saved queries notifies instead of opening a dialog", async () => {
+    const pi = fakePi();
+    const client = fakeClient((op) => {
+      if (op === "query.list") return { queries: [] };
+      throw new Error(`unexpected op ${op}`);
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    await pi.commands.get("query")?.handler(undefined, ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No saved queries yet"), "info");
+  });
+
+  it("/query <name> runs that saved query directly, skipping the picker", async () => {
+    const pi = fakePi();
+    const client = fakeClient((op, input) => {
+      if (op === "query.list") return { queries: [{ name: "bmptemp-sprint", backend: "jira", query: "...", createdAt: "now", updatedAt: "now" }] };
+      if (op === "query.run") {
+        expect(input).toEqual({ name: "bmptemp-sprint", limit: 100 });
+        return { issues: ISSUES };
+      }
+      if (op === "focus.get") return { focus: null };
+      if (op === "focus.set") return { focus: { ref: "github:#1", title: "First bug", url: "https://github.com/a/b/issues/1", status: "active", updatedAt: "now" } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    const done = pi.commands.get("query")?.handler("bmptemp-sprint", ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const component = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
+    expect(component.render(80).join("\n")).toContain("Query: bmptemp-sprint");
+    component.handleInput("\r");
+    await done;
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("https://github.com/a/b/issues/1"), "info");
+  });
+
+  it("/query with no args opens a saved-query picker first, then browses the selected query's issues", async () => {
+    const pi = fakePi();
+    const client = fakeClient((op, input) => {
+      if (op === "query.list") return { queries: [{ name: "bmptemp-sprint", backend: "jira", query: "...", description: "QE Scrum Board - Active Sprint", createdAt: "now", updatedAt: "now" }] };
+      if (op === "query.run") {
+        expect(input).toEqual({ name: "bmptemp-sprint", limit: 100 });
+        return { issues: ISSUES };
+      }
+      if (op === "focus.get") return { focus: null };
+      throw new Error(`unexpected op ${op}`);
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    const done = pi.commands.get("query")?.handler(undefined, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const picker = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
+    expect(picker.render(80).join("\n")).toContain("bmptemp-sprint");
+    picker.handleInput("\r"); // pick the only saved query
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const browser = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
+    expect(browser.render(80).join("\n")).toContain("Query: bmptemp-sprint");
+    browser.handleInput("\x1b"); // cancel browsing
+    await done;
+  });
+
+  it("/query surfaces a query.run failure via notify instead of throwing", async () => {
+    const pi = fakePi();
+    const client = fakeClient((op) => {
+      if (op === "query.list") return { queries: [{ name: "broken", backend: "jira", query: "nonsense", createdAt: "now", updatedAt: "now" }] };
+      if (op === "query.run") throw new Error("jira: invalid JQL");
+      throw new Error(`unexpected op ${op}`);
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    await pi.commands.get("query")?.handler("broken", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("jira: invalid JQL"), "error");
+  });
 });

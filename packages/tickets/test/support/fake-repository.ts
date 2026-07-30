@@ -70,6 +70,17 @@ export class FakeRepository implements IssueRepository, CommentCapable {
     return [...this.issues.values()].filter((i) => i.title.includes(query));
   }
 
+  /** Records the args of the most recent runQuery() call so a caller can be asserted to have forwarded them. */
+  lastRunQueryCall?: { query: string; limit?: number };
+
+  /** RawQueryable -- treats the "query" as a plain substring filter over title, same shallow semantics as search(), just under the raw-query capability instead. */
+  async runQuery(query: string, limit?: number): Promise<Issue[]> {
+    this.lastRunQueryCall = { query, limit };
+    let issues = [...this.issues.values()].filter((i) => i.title.includes(query));
+    if (limit) issues = issues.slice(0, limit);
+    return issues;
+  }
+
   async listChildren(): Promise<Issue[]> {
     return [];
   }

@@ -442,4 +442,23 @@ describe("JiraRepository", () => {
       });
     });
   });
+
+  describe("discoverBoardQuickFilterJql", () => {
+    it("resolves a board's quick filter id to its JQL via the durable (non-deprecated) Agile REST endpoint", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        expect(config.method).toBe("get");
+        expect(config.url).toBe("/rest/agile/1.0/board/9525/quickfilter/67003");
+        return { data: { id: 67003, boardId: 9525, name: "QE Scrum Board", jql: "assignee = currentUser()" }, status: 200 };
+      });
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const jql = await repo.discoverBoardQuickFilterJql(9525, 67003);
+      expect(jql).toBe("assignee = currentUser()");
+    });
+
+    it("throws a clear error when the quick filter has no jql", async () => {
+      const axiosAdapter = mockAdapter(() => ({ data: { id: 67003, boardId: 9525, name: "Empty" }, status: 200 }));
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      await expect(repo.discoverBoardQuickFilterJql(9525, 67003)).rejects.toThrow(/no JQL/);
+    });
+  });
 });

@@ -12,8 +12,8 @@
  * client's `UserDetails.accountId` typing would make the fix straightforward
  * (see RESEARCH.md for the full analysis of the bug this leaves unfixed).
  */
-import { Version2Client } from "jira.js";
-import type { HttpException } from "jira.js";
+import { AgileClient, Version2Client } from "jira.js";
+import type { Config as JiraClientConfig, HttpException } from "jira.js";
 import type { AxiosAdapter } from "axios";
 import type { Comment, CreateInput, Issue, IssueLink, ListFilter, Status, UpdateInput } from "../domain/issue.js";
 import { parsePriority } from "../domain/issue.js";
@@ -119,6 +119,8 @@ interface JiraFieldDetails {
 export class JiraRepository {
   readonly name: string;
   private readonly client: Version2Client;
+  /** Same auth/host config Version2Client was built from -- reused lazily by agileClient() so the Agile API client (board/quickfilter resolution) authenticates identically without duplicating the OAuth-vs-basic branching in the constructor below. */
+  private readonly clientConfig: JiraClientConfig;
   private readonly project?: string;
   private readonly configDir?: string;
   /** display name (lowercased) -> { fieldId, schema type/items }, populated lazily from client.issueFields.getFields(). */
@@ -143,24 +145,26 @@ export class JiraRepository {
 
     if (isOAuthOptions(opts)) {
       if (!opts.accessToken || !opts.cloudId) throw new Error("jira: accessToken and cloudId are required for OAuth mode");
-      this.client = new Version2Client({
+      this.clientConfig = {
         authentication: { oauth2: { accessToken: opts.accessToken, cloudId: opts.cloudId } },
         // axios's own native, tested timeout handling -- a stalled call fails predictably
         // instead of hanging (see RESEARCH.md for the octokit throttling-plugin hang this
         // migration found and fixed; jira.js/axios has no equivalent auto-retry-and-wait
         // behavior by default, but had no explicit timeout either until now).
         baseRequestConfig: { timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, ...(opts.axiosAdapter ? { adapter: opts.axiosAdapter } : {}) },
-      });
+      };
+      this.client = new Version2Client(this.clientConfig);
       return;
     }
 
     if (!opts.baseUrl) throw new Error("jira: baseUrl is required");
     if (!opts.email || !opts.token) throw new Error("jira: email and token are required");
-    this.client = new Version2Client({
+    this.clientConfig = {
       host: opts.baseUrl,
       authentication: { basic: { email: opts.email, apiToken: opts.token } },
       baseRequestConfig: { timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, ...(opts.axiosAdapter ? { adapter: opts.axiosAdapter } : {}) },
-    });
+    };
+    this.client = new Version2Client(this.clientConfig);
   }
 
   async list(filter: ListFilter): Promise<Issue[]> {
@@ -262,6 +266,40 @@ export class JiraRepository {
       key,
     );
     return commentToDomain(raw);
+  }
+
+  /** RawQueryable -- runs a raw JQL string verbatim, for the "Saved query" feature (and anything else that already has real JQL rather than a ListFilter to build one from). */
+  async runQuery(query: string, limit = 50): Promise<Issue[]> {
+    return this.searchJql(query, limit);
+  }
+
+  /**
+   * BoardQuickFilterDiscoverable -- resolves a board's quick filter (the same object
+   * a board view's `quickFilter=` URL param and a backlog view's `customFilter=`
+   * param both reference -- Jira just spells the query param differently per view)
+   * to its real JQL clause, via the durable (non-deprecated)
+   * `GET /rest/agile/1.0/board/{boardId}/quickfilter/{id}` endpoint. This is a
+   * fragment, not a full query -- Jira itself ANDs it with the board's own project
+   * scope and a sprint clause when rendering a live board/backlog view. Combine it
+   * with `project = X AND sprint in openSprints()` (board/active-sprint view) or
+   * `project = X AND (sprint is EMPTY OR sprint in futureSprints())` (backlog view)
+   * to save as a plain runnable JQL string via query.save, same as any other saved
+   * query -- no separate "board view" execution path needed. jira.js's AgileClient
+   * wraps the Agile REST API surface; Version2Client (this.client) only covers the
+   * Platform REST API, hence the separate client here.
+   */
+  async discoverBoardQuickFilterJql(boardId: number, quickFilterId: number): Promise<string> {
+    const agile = this.agileClient();
+    const result = await this.call<{ jql?: string }>(() => agile.board.getQuickFilter({ boardId, quickFilterId }));
+    if (!result?.jql) throw new Error(`jira: quick filter ${quickFilterId} on board ${boardId} has no JQL`);
+    return result.jql;
+  }
+
+  private agileClientInstance?: AgileClient;
+
+  private agileClient(): AgileClient {
+    this.agileClientInstance ??= new AgileClient(this.clientConfig);
+    return this.agileClientInstance;
   }
 
   private async searchJql(jql: string, limit: number): Promise<Issue[]> {
