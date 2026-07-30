@@ -30,6 +30,7 @@ export type TicketOperation =
   | "discover.statuses"
   | "discover.template"
   | "discover.board_quickfilter"
+  | "discover.board_filter"
   | "query.save"
   | "query.list"
   | "query.remove"
@@ -57,6 +58,7 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "discover.statuses": { backend: string };
   "discover.template": { backend: string; project: string; issueType: string; sampleSize?: number };
   "discover.board_quickfilter": { backend: string; boardId: number; quickFilterId: number };
+  "discover.board_filter": { backend: string; boardId: number };
   "query.save": { name: string; backend: string; query: string; description?: string };
   "query.list": Record<string, never>;
   "query.remove": { name: string };
@@ -85,6 +87,7 @@ export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
   "discover.statuses": { mappings: Record<string, string> };
   "discover.template": { template: Template | null };
   "discover.board_quickfilter": { jql: string };
+  "discover.board_filter": { jql: string };
   "query.save": { query: SavedQuery };
   "query.list": { queries: SavedQuery[] };
   "query.remove": { removed: boolean };
@@ -113,6 +116,7 @@ export const TICKET_OPERATIONS: TicketOperation[] = [
   "discover.statuses",
   "discover.template",
   "discover.board_quickfilter",
+  "discover.board_filter",
   "query.save",
   "query.list",
   "query.remove",
