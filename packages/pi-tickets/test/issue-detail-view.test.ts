@@ -54,6 +54,14 @@ describe("IssueDetailComponent", () => {
     expect(rendered).toContain("Second comment");
   });
 
+  it("always shows the scroll keys in the footer, even when everything already fits on screen", () => {
+    const view = new IssueDetailComponent(fakeTui(), fakeTheme, issue(), [], () => {});
+    const rendered = view.render(100).join("\n");
+    expect(rendered).toContain("\u2191/\u2193 scroll");
+    expect(rendered).toContain("pgup/pgdn page");
+    expect(rendered).not.toMatch(/\d+-\d+\/\d+/); // no position indicator when nothing to scroll
+  });
+
   it("omits the comments section entirely when there are none", () => {
     const view = new IssueDetailComponent(fakeTui(), fakeTheme, issue(), [], () => {});
     expect(view.render(100).join("\n")).not.toContain("Comments");

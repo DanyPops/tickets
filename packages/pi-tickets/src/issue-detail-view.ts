@@ -41,7 +41,9 @@ export class IssueDetailComponent implements Component {
     const end = Math.min(this.lines.length, this.offsetY + visibleRows);
     const border = theme.fg("accent", "\u2500".repeat(Math.max(1, width)));
     const footer = [
-      this.lines.length > visibleRows ? `\u2191/\u2193 scroll \u2022 ${this.offsetY + 1}-${end}/${this.lines.length}` : "",
+      "\u2191/\u2193 scroll",
+      "pgup/pgdn page",
+      this.lines.length > visibleRows ? `${this.offsetY + 1}-${end}/${this.lines.length}` : undefined,
       "esc back",
     ].filter(Boolean).join(" \u2022 ");
     return [
