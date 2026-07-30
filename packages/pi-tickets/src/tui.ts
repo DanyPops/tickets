@@ -18,6 +18,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 import { createTicketsClient, type EnsureDaemonOptions, type Issue, openUrl, type TicketFocusState, type TicketsRpcClient } from "@danypops/tickets";
+import { isTicketsVehicleTool } from "./vehicle-client.js";
 
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
 const BROWSE_LIMIT = 100;
@@ -66,7 +67,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
   });
 
   pi.on("tool_execution_end", async (event, ctx) => {
-    if (event.toolName !== "tickets") return;
+    if (!isTicketsVehicleTool(event.toolName)) return;
     await refreshStatus(ctx);
   });
 

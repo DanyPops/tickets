@@ -80,7 +80,7 @@ describe("registerTicketsTui", () => {
     expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("tickets-focus", "🎯 github:#1");
   });
 
-  it("tool_execution_end refreshes status only for the tickets tool", async () => {
+  it("tool_execution_end refreshes status only for a real tickets Vehicle tool", async () => {
     const pi = fakePi();
     const client = fakeClient((op) => {
       if (op === "focus.get") return { focus: { ref: "jira:PROJ-1", title: "x", url: "https://x", status: "paused", updatedAt: "now" } };
@@ -92,7 +92,7 @@ describe("registerTicketsTui", () => {
     await pi.handlers.get("tool_execution_end")?.({ toolName: "bash" }, ctx);
     expect(ctx.ui.setStatus).not.toHaveBeenCalled();
 
-    await pi.handlers.get("tool_execution_end")?.({ toolName: "tickets" }, ctx);
+    await pi.handlers.get("tool_execution_end")?.({ toolName: "focus_set" }, ctx);
     expect(ctx.ui.setStatus).toHaveBeenCalledWith("tickets-focus", "⏸ jira:PROJ-1");
   });
 
