@@ -15,8 +15,9 @@
  * daemon stop`), not a `/` command an LLM conversation could trigger.
  */
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
-import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { type SelectItem, SelectList } from "@earendil-works/pi-tui";
+import { BorderedSelectPanel } from "malevich-tui-components";
 import { type Comment, createTicketsClient, type EnsureDaemonOptions, type Issue, openUrl, type TicketFocusState, type TicketsRpcClient } from "@danypops/tickets";
 import { KanbanBoardComponent } from "./board-view.js";
 import { IssueDetailComponent } from "./issue-detail-view.js";
@@ -112,10 +113,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       const byRef = new Map(issues.map((issue) => [issue.ref, issue] as const));
 
       const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-        const container = new Container();
-        container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
         const title = focus ? `Tickets — focused: ${focus.ref}` : "Tickets";
-        container.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
 
         // Built from the callback's own `theme` param, not the package's
         // getSelectListTheme() helper -- that reads a module-global theme
@@ -130,14 +128,21 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         });
         selectList.onSelect = (item) => done(item.value);
         selectList.onCancel = () => done(null);
-        container.addChild(selectList);
 
-        container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter focus • v view • o open in browser • esc cancel"), 1, 0));
-        container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+        const panel = new BorderedSelectPanel({
+          title,
+          list: selectList,
+          helpText: "↑↓ navigate • enter focus • v view • o open in browser • esc cancel",
+          theme: {
+            border: (s: string) => theme.fg("accent", s),
+            title: (s: string) => theme.fg("accent", theme.bold(s)),
+            help: (s: string) => theme.fg("dim", s),
+          },
+        });
 
         return {
-          render: (w: number) => container.render(w),
-          invalidate: () => container.invalidate(),
+          render: (w: number) => panel.render(w),
+          invalidate: () => panel.invalidate(),
           handleInput: (data: string) => {
             if (data === "o") {
               const highlighted = selectList.getSelectedItem();
@@ -157,7 +162,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
               if (issue) void showIssueDetail(ctx, client, issue.ref).then(() => tui.requestRender());
               return;
             }
-            selectList.handleInput(data);
+            panel.handleInput(data);
             tui.requestRender();
           },
         };
@@ -203,9 +208,6 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       let name = requestedName;
       if (!name) {
         const picked = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-          const container = new Container();
-          container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-          container.addChild(new Text(theme.fg("accent", theme.bold("Saved queries")), 1, 0));
           const items: SelectItem[] = queries.map((q) => ({ value: q.name, label: q.name, description: q.description ?? `${q.backend}: ${q.query}` }));
           const selectList = new SelectList(items, Math.min(items.length, 12), {
             selectedPrefix: (t: string) => theme.fg("accent", t),
@@ -216,14 +218,21 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
           });
           selectList.onSelect = (item) => done(item.value);
           selectList.onCancel = () => done(null);
-          container.addChild(selectList);
-          container.addChild(new Text(theme.fg("dim", "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel"), 1, 0));
-          container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+          const panel = new BorderedSelectPanel({
+            title: "Saved queries",
+            list: selectList,
+            helpText: "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel",
+            theme: {
+              border: (s: string) => theme.fg("accent", s),
+              title: (s: string) => theme.fg("accent", theme.bold(s)),
+              help: (s: string) => theme.fg("dim", s),
+            },
+          });
           return {
-            render: (w: number) => container.render(w),
-            invalidate: () => container.invalidate(),
+            render: (w: number) => panel.render(w),
+            invalidate: () => panel.invalidate(),
             handleInput: (data: string) => {
-              selectList.handleInput(data);
+              panel.handleInput(data);
               tui.requestRender();
             },
           };
@@ -249,9 +258,6 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       const byRef = new Map(issues.map((issue) => [issue.ref, issue] as const));
 
       const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-        const container = new Container();
-        container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-        container.addChild(new Text(theme.fg("accent", theme.bold(`Query: ${name}`)), 1, 0));
         const items: SelectItem[] = issues.map((issue) => ({ value: issue.ref, label: issueLabel(issue), description: issueDescription(issue, focus?.ref) }));
         const selectList = new SelectList(items, Math.min(items.length, 12), {
           selectedPrefix: (t: string) => theme.fg("accent", t),
@@ -262,12 +268,19 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         });
         selectList.onSelect = (item) => done(item.value);
         selectList.onCancel = () => done(null);
-        container.addChild(selectList);
-        container.addChild(new Text(theme.fg("dim", "\u2191\u2193 navigate \u2022 enter focus \u2022 v view \u2022 o open in browser \u2022 esc cancel"), 1, 0));
-        container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+        const panel = new BorderedSelectPanel({
+          title: `Query: ${name}`,
+          list: selectList,
+          helpText: "\u2191\u2193 navigate \u2022 enter focus \u2022 v view \u2022 o open in browser \u2022 esc cancel",
+          theme: {
+            border: (s: string) => theme.fg("accent", s),
+            title: (s: string) => theme.fg("accent", theme.bold(s)),
+            help: (s: string) => theme.fg("dim", s),
+          },
+        });
         return {
-          render: (w: number) => container.render(w),
-          invalidate: () => container.invalidate(),
+          render: (w: number) => panel.render(w),
+          invalidate: () => panel.invalidate(),
           handleInput: (data: string) => {
             if (data === "o") {
               const highlighted = selectList.getSelectedItem();
@@ -287,7 +300,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
               if (issue) void showIssueDetail(ctx, client, issue.ref).then(() => tui.requestRender());
               return;
             }
-            selectList.handleInput(data);
+            panel.handleInput(data);
             tui.requestRender();
           },
         };
@@ -327,9 +340,6 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       let name = args?.trim();
       if (!name) {
         const picked = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-          const container = new Container();
-          container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-          container.addChild(new Text(theme.fg("accent", theme.bold("Saved queries")), 1, 0));
           const items: SelectItem[] = queries.map((q) => ({ value: q.name, label: q.name, description: q.description ?? `${q.backend}: ${q.query}` }));
           const selectList = new SelectList(items, Math.min(items.length, 12), {
             selectedPrefix: (t: string) => theme.fg("accent", t),
@@ -340,14 +350,21 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
           });
           selectList.onSelect = (item) => done(item.value);
           selectList.onCancel = () => done(null);
-          container.addChild(selectList);
-          container.addChild(new Text(theme.fg("dim", "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel"), 1, 0));
-          container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+          const panel = new BorderedSelectPanel({
+            title: "Saved queries",
+            list: selectList,
+            helpText: "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel",
+            theme: {
+              border: (s: string) => theme.fg("accent", s),
+              title: (s: string) => theme.fg("accent", theme.bold(s)),
+              help: (s: string) => theme.fg("dim", s),
+            },
+          });
           return {
-            render: (w: number) => container.render(w),
-            invalidate: () => container.invalidate(),
+            render: (w: number) => panel.render(w),
+            invalidate: () => panel.invalidate(),
             handleInput: (data: string) => {
-              selectList.handleInput(data);
+              panel.handleInput(data);
               tui.requestRender();
             },
           };
