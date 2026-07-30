@@ -7,7 +7,7 @@
     },
     "packages/pi-tickets": {
       "name": "@danypops/pi-tickets",
-      "version": "0.6.1",
+      "version": "0.6.2",
       "dependencies": {
         "@danypops/tickets": "^0.4.6",
         "@danypops/vehicle-client": "^0.1.1",
@@ -16,6 +16,7 @@
         "typebox": "^1.1.34",
       },
       "devDependencies": {
+        "@danypops/pi-extension-harness": "^0.1.0",
         "bun-types": "^1.3.0",
         "typescript": "^5.7.0",
       },
@@ -104,6 +105,8 @@
     "@danypops/daemon-kit": ["@danypops/daemon-kit@0.13.0", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typescript": "^5" } }, ""],
 
     "@danypops/enigma-client": ["@danypops/enigma-client@0.3.0", "", { "dependencies": { "@danypops/daemon-kit": "^0.13.0" } }, ""],
+
+    "@danypops/pi-extension-harness": ["@danypops/pi-extension-harness@0.1.0", "", { "dependencies": { "jiti": "^2.0.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typebox": "*" } }, "sha512-kOUZIkMM6nBCv2xRjYVd+s4g3hkBTwUxRhjj9W+fy6e42x6IqKm4oaQoamiJNldcSTQxnzgHBWUwZpRO/QXPzQ=="],
 
     "@danypops/pi-tickets": ["@danypops/pi-tickets@workspace:packages/pi-tickets"],
 
