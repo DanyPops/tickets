@@ -311,4 +311,61 @@ describe("registerTicketsTui", () => {
     await pi.commands.get("query")?.handler("broken", ctx);
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("jira: invalid JQL"), "error");
   });
+
+  it("registers the /board command", () => {
+    const pi = fakePi();
+    registerTicketsTui(pi as never);
+    expect(pi.commands.has("board")).toBe(true);
+  });
+
+  it("/board with no saved queries notifies instead of opening a dialog", async () => {
+    const pi = fakePi();
+    const client = fakeClient((op) => {
+      if (op === "query.list") return { queries: [] };
+      throw new Error(`unexpected op ${op}`);
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    await pi.commands.get("board")?.handler(undefined, ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No saved queries yet"), "info");
+  });
+
+  it("/board <name> runs that saved query and renders a Kanban board grouped by status, closable with escape", async () => {
+    const pi = fakePi();
+    const client = fakeClient((op, input) => {
+      if (op === "query.list") return { queries: [{ name: "sprint", backend: "jira", query: "...", createdAt: "now", updatedAt: "now" }] };
+      if (op === "query.run") {
+        expect(input).toEqual({ name: "sprint", limit: 100 });
+        return { issues: ISSUES };
+      }
+      throw new Error(`unexpected op ${op}`);
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    const done = pi.commands.get("board")?.handler("sprint", ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const component = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
+    const rendered = component.render(120).join("\n");
+    expect(rendered).toContain("Board: sprint");
+    expect(rendered).toContain("First bug");
+    expect(rendered).toContain("esc close");
+    component.handleInput("\x1b");
+    await done;
+  });
+
+  it("/board surfaces a query.run failure via notify instead of throwing", async () => {
+    const pi = fakePi();
+    const client = fakeClient((op) => {
+      if (op === "query.list") return { queries: [{ name: "broken", backend: "jira", query: "nonsense", createdAt: "now", updatedAt: "now" }] };
+      if (op === "query.run") throw new Error("jira: invalid JQL");
+      throw new Error(`unexpected op ${op}`);
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    await pi.commands.get("board")?.handler("broken", ctx);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("jira: invalid JQL"), "error");
+  });
 });

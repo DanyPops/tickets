@@ -18,6 +18,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 import { createTicketsClient, type EnsureDaemonOptions, type Issue, openUrl, type TicketFocusState, type TicketsRpcClient } from "@danypops/tickets";
+import { renderKanbanBoard } from "./board-view.js";
 import { isTicketsVehicleTool } from "./vehicle-client.js";
 
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
@@ -289,6 +290,114 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       }
 
       await refreshStatus(ctx, client);
+    },
+  });
+
+  pi.registerCommand("board", {
+    description: "Run a saved query and render it as a color-coded Kanban board (TO DO / IN PROGRESS / REVIEW / DONE) instead of a flat list -- a terminal alternative to opening the Jira board",
+    handler: async (args, ctx) => {
+      let client: TicketsRpcClient;
+      try {
+        client = await getClient();
+      } catch (err) {
+        ctx.ui.notify(`tickets daemon unavailable: ${err instanceof Error ? err.message : String(err)}`, "error");
+        return;
+      }
+
+      const { queries } = await client.call("query.list", {});
+      if (queries.length === 0) {
+        ctx.ui.notify('No saved queries yet -- create one with `tickets query save <name> --backend jira --jql "..."`.', "info");
+        return;
+      }
+
+      let name = args?.trim();
+      if (!name) {
+        const picked = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+          const container = new Container();
+          container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+          container.addChild(new Text(theme.fg("accent", theme.bold("Saved queries")), 1, 0));
+          const items: SelectItem[] = queries.map((q) => ({ value: q.name, label: q.name, description: q.description ?? `${q.backend}: ${q.query}` }));
+          const selectList = new SelectList(items, Math.min(items.length, 12), {
+            selectedPrefix: (t: string) => theme.fg("accent", t),
+            selectedText: (t: string) => theme.fg("accent", t),
+            description: (t: string) => theme.fg("muted", t),
+            scrollInfo: (t: string) => theme.fg("dim", t),
+            noMatch: (t: string) => theme.fg("warning", t),
+          });
+          selectList.onSelect = (item) => done(item.value);
+          selectList.onCancel = () => done(null);
+          container.addChild(selectList);
+          container.addChild(new Text(theme.fg("dim", "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel"), 1, 0));
+          container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+          return {
+            render: (w: number) => container.render(w),
+            invalidate: () => container.invalidate(),
+            handleInput: (data: string) => {
+              selectList.handleInput(data);
+              tui.requestRender();
+            },
+          };
+        });
+        if (picked === null) return;
+        name = picked;
+      }
+
+      let issues: Issue[];
+      try {
+        ({ issues } = await client.call("query.run", { name, limit: BROWSE_LIMIT }));
+      } catch (err) {
+        ctx.ui.notify(`error running query "${name}": ${err instanceof Error ? err.message : String(err)}`, "error");
+        return;
+      }
+
+      if (issues.length === 0) {
+        ctx.ui.notify(`Saved query "${name}" matched no issues.`, "info");
+        return;
+      }
+
+      const boardName = name;
+      await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+        let offsetY = 0;
+        let lines: string[] = [];
+        let renderedWidth = 0;
+        const visibleRows = 20;
+
+        const build = (width: number) => {
+          if (renderedWidth === width) return;
+          renderedWidth = width;
+          lines = renderKanbanBoard(issues, theme, width);
+        };
+
+        return {
+          render: (width: number) => {
+            build(width);
+            const end = Math.min(lines.length, offsetY + visibleRows);
+            const footer = [
+              lines.length > visibleRows ? `\u2191\u2193 scroll \u2022 ${offsetY + 1}-${end}/${lines.length}` : "",
+              "esc close",
+            ].filter(Boolean).join(" \u2022 ");
+            return [
+              theme.fg("accent", theme.bold(`Board: ${boardName}`)),
+              ...lines.slice(offsetY, end),
+              theme.fg("dim", footer),
+            ];
+          },
+          invalidate: () => {
+            renderedWidth = 0;
+          },
+          handleInput: (data: string) => {
+            if (data === "\x1b") {
+              done();
+              return;
+            }
+            if (data === "\r" || data === "\n") return;
+            const maxOffset = Math.max(0, lines.length - visibleRows);
+            if (data === "\x1b[A" || data === "k") offsetY = Math.max(0, offsetY - 1);
+            else if (data === "\x1b[B" || data === "j") offsetY = Math.min(maxOffset, offsetY + 1);
+            tui.requestRender();
+          },
+        };
+      });
     },
   });
 }

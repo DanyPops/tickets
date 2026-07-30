@@ -7,12 +7,13 @@
     },
     "packages/pi-tickets": {
       "name": "@danypops/pi-tickets",
-      "version": "0.6.2",
+      "version": "0.7.0",
       "dependencies": {
-        "@danypops/tickets": "^0.4.6",
+        "@danypops/tickets": "^0.5.0",
         "@danypops/vehicle-client": "^0.1.1",
         "@danypops/vehicle-client-pi": "^0.1.5",
         "@danypops/vehicle-core": "^0.1.1",
+        "malevich-tui-components": "^0.2.0",
         "typebox": "^1.1.34",
       },
       "devDependencies": {
@@ -27,7 +28,7 @@
     },
     "packages/tickets": {
       "name": "@danypops/tickets",
-      "version": "0.4.6",
+      "version": "0.5.1",
       "bin": {
         "tickets": "./src/cli/index.ts",
         "tickets-daemon": "./src/daemon/main.ts",
