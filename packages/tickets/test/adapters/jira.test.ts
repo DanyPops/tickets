@@ -486,4 +486,38 @@ describe("JiraRepository", () => {
       await expect(repo.discoverBoardFilterJql(9525)).rejects.toThrow(/no configured filter/);
     });
   });
+
+  describe("comments", () => {
+    // Jira's real wire field is "body" (confirmed against Atlassian's own REST v2 docs and
+    // example payloads: {"body": "...", "visibility": {...}}). jira.js's own bundled
+    // Models.Comment type incorrectly declares it as "comment" -- a library type/runtime
+    // mismatch, not an ADF-rendering issue. Both fixtures use the real wire shape.
+    it("addComment() reads the real 'body' field back, not the library's mistyped 'comment'", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        expect(config.method).toBe("post");
+        expect(config.url).toBe("/rest/api/2/issue/PROJ-42/comment");
+        expect(JSON.parse(config.data as string)).toMatchObject({ body: "hello world" });
+        return { data: { id: "123", body: "hello world", author: { displayName: "Me" }, created: "2026-01-01T00:00:00.000Z" }, status: 201 };
+      });
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const comment = await repo.addComment("PROJ-42", "hello world");
+      expect(comment.body).toBe("hello world");
+      expect(comment.id).toBe("123");
+    });
+
+    it("listComments() reads every comment's real 'body' field, not an empty string", async () => {
+      const axiosAdapter = mockAdapter(() => ({
+        data: {
+          comments: [
+            { id: "1", body: "first comment", author: { displayName: "A" }, created: "2026-01-01T00:00:00.000Z" },
+            { id: "2", body: "second comment", author: { displayName: "B" }, created: "2026-01-02T00:00:00.000Z" },
+          ],
+        },
+        status: 200,
+      }));
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const comments = await repo.listComments("PROJ-42");
+      expect(comments.map((c) => c.body)).toEqual(["first comment", "second comment"]);
+    });
+  });
 });
