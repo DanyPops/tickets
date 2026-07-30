@@ -13,7 +13,11 @@ export class FakeRepository implements IssueRepository, CommentCapable {
     for (const issue of seed) this.issues.set(issue.key, issue);
   }
 
+  /** Records the args of the most recent list() call so a caller can be asserted to have forwarded them, notably project. */
+  lastListCall?: ListFilter;
+
   async list(filter: ListFilter): Promise<Issue[]> {
+    this.lastListCall = filter;
     let issues = [...this.issues.values()];
     if (filter.status) issues = issues.filter((i) => i.status === filter.status);
     if (filter.limit) issues = issues.slice(0, filter.limit);

@@ -32,11 +32,38 @@ interface OperationSpec {
   readonly effect: VehicleEffect;
   readonly properties: Record<string, LooseObjectProperty>;
   readonly required: readonly string[];
+  /**
+   * Reshapes the flat tool-facing input into whatever TICKET_OP_HANDLERS
+   * expects, for the one operation where those differ: issue.list flattens
+   * project/status/assignee/labels/limit as top-level tool properties
+   * (matching issue.search's own flat convention, and pi-stef/atlassian's
+   * jira_search_issues/jira_get_project_issues -- every filter param is its
+   * own top-level property there too, never an opaque nested bag), while
+   * the RPC/CLI-level handler contract keeps its existing nested
+   * `filter: ListFilter` shape. Identity by default.
+   */
+  readonly mapInput?: (input: Record<string, unknown>) => Record<string, unknown>;
+}
+
+const stringArrayProp: LooseObjectProperty = { type: "array" };
+
+function definedEntriesOnly(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
 }
 
 const OPERATIONS: readonly OperationSpec[] = [
   { action: "backends.list", description: "Lists every configured backend name (github, gitlab, jira, ...).", effect: "read", properties: {}, required: [] },
-  { action: "issue.list", description: "Lists issues from one backend, optionally filtered.", effect: "read", properties: { backend: stringProp, filter: { type: "object" } }, required: ["backend"] },
+  {
+    action: "issue.list",
+    description: "Lists issues from one backend, optionally filtered.",
+    effect: "read",
+    properties: { backend: stringProp, project: stringProp, status: stringProp, assignee: stringProp, labels: stringArrayProp, limit: numberProp },
+    required: ["backend"],
+    mapInput: ({ backend, project, status, assignee, labels, limit }) => ({
+      backend,
+      filter: definedEntriesOnly({ project, status, assignee, labels, limit }),
+    }),
+  },
   { action: "issue.get", description: "Gets one issue by its ref (e.g. \"github:#42\").", effect: "read", properties: { ref: stringProp }, required: ["ref"] },
   {
     action: "issue.create",
@@ -103,7 +130,11 @@ export function createTicketsVehicleRegistry(deps: Omit<TicketsAppDeps, "vehicle
       limits: LIMITS,
     });
     const handler = TICKET_OP_HANDLERS[spec.action];
-    registry.register(OWNER, bindVehicleOperation(operation, () => async (context) => handler(deps, context.input as never)));
+    const mapInput = spec.mapInput ?? ((input: Record<string, unknown>) => input);
+    registry.register(
+      OWNER,
+      bindVehicleOperation(operation, () => async (context) => handler(deps, mapInput(context.input as Record<string, unknown>) as never)),
+    );
   }
 
   return registry;
