@@ -217,6 +217,37 @@ describe("registerTicketsTui", () => {
     expect(opened).toEqual(["https://github.com/a/b/issues/1"]);
     component.handleInput("\x1b"); // close the still-open dialog so the handler settles
     await done;
+  });
+
+  it("pressing 'v' pushes an issue detail view for the highlighted issue without closing the dialog", async () => {
+    const pi = fakePi();
+    const client = fakeClient((op, input) => {
+      if (op === "focus.get") return { focus: null };
+      if (op === "ledger.search") return { issues: ISSUES };
+      if (op === "issue.get") {
+        expect(input).toEqual({ ref: "github:#1" });
+        return { issue: { ...ISSUES[0], description: "The full body" } };
+      }
+      if (op === "issue.comments") return { comments: [] };
+      throw new Error(`unexpected op ${op}`);
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const list = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
+    list.handleInput("v"); // highlighted item defaults to the first row (github:#1)
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const detail = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
+    expect(detail).not.toBe(list);
+    expect(detail.render(120).join("\n")).toContain("The full body");
+
+    detail.handleInput("\x1b"); // back to the list
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    list.handleInput("\x1b"); // close the still-open dialog so the handler settles
+    await done;
     expect(ctx.ui.notify).not.toHaveBeenCalled();
   });
 
@@ -299,6 +330,38 @@ describe("registerTicketsTui", () => {
     const browser = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
     expect(browser.render(80).join("\n")).toContain("Query: bmptemp-sprint");
     browser.handleInput("\x1b"); // cancel browsing
+    await done;
+  });
+
+  it("/query: pressing 'v' pushes an issue detail view for the highlighted issue without closing the browser", async () => {
+    const pi = fakePi();
+    const client = fakeClient((op, input) => {
+      if (op === "query.list") return { queries: [{ name: "sprint", backend: "jira", query: "...", createdAt: "now", updatedAt: "now" }] };
+      if (op === "query.run") return { issues: ISSUES };
+      if (op === "focus.get") return { focus: null };
+      if (op === "issue.get") {
+        expect(input).toEqual({ ref: "github:#1" });
+        return { issue: { ...ISSUES[0], description: "The full body" } };
+      }
+      if (op === "issue.comments") return { comments: [] };
+      throw new Error(`unexpected op ${op}`);
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    const done = pi.commands.get("query")?.handler("sprint", ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const browser = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
+    browser.handleInput("v"); // highlighted item defaults to the first row (github:#1)
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const detail = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
+    expect(detail).not.toBe(browser);
+    expect(detail.render(120).join("\n")).toContain("The full body");
+
+    detail.handleInput("\x1b"); // back to the browser
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    browser.handleInput("\x1b"); // cancel browsing so the handler settles
     await done;
   });
 

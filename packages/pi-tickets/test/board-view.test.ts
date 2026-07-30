@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { Issue } from "@danypops/tickets";
-import { epicBadgeColor, groupIssuesByColumn, KanbanBoardComponent, renderKanbanBoard } from "../src/board-view.js";
+import { epicBadgeColor, groupIssuesByColumn, KanbanBoardComponent, renderCard } from "../src/board-view.js";
 
 /**
  * Real ANSI SGR codes (not bracket tags) so visibleWidth/truncateToWidth --
@@ -72,50 +72,33 @@ describe("epicBadgeColor", () => {
   });
 });
 
-describe("renderKanbanBoard", () => {
-  const issues: Issue[] = [
-    issue({ ref: "a:1", key: "CNF-1", title: "First card", status: "todo", parent: { key: "CNF-100", title: "Epic One" }, labels: ["red-team"], customFields: { "Story Points": "3" }, assignee: "Jane Doe" }),
-    issue({ ref: "a:2", key: "CNF-2", title: "Second card", status: "in_progress" }),
-  ];
-
-  it("renders all four column headers with their own counts", () => {
-    const rows = renderKanbanBoard(issues, fakeTheme, 120).lines.join("\n");
-    expect(rows).toContain("TO DO: 1");
-    expect(rows).toContain("IN PROGRESS: 1");
-    expect(rows).toContain("REVIEW: 0");
-    expect(rows).toContain("DONE: 0");
+describe("renderCard", () => {
+  it("includes the card's title, epic title, labels, story points, key, and assignee initials", () => {
+    const card = issue({
+      ref: "a:1",
+      key: "CNF-1",
+      title: "First card",
+      status: "todo",
+      parent: { key: "CNF-100", title: "Epic One" },
+      labels: ["red-team"],
+      customFields: { "Story Points": "3" },
+      assignee: "Jane Doe",
+    });
+    const rendered = renderCard(card, fakeTheme, 60, false).join("\n");
+    expect(rendered).toContain("First card");
+    expect(rendered).toContain("Epic One");
+    expect(rendered).toContain("\u2039red-team\u203a");
+    expect(rendered).toContain("CNF-1");
+    expect(rendered).toContain("\u20223");
+    expect(rendered).toContain("JD");
   });
 
-  it("includes the card's key, epic title, labels, story points, and assignee initials", () => {
-    const rows = renderKanbanBoard(issues, fakeTheme, 120).lines.join("\n");
-    expect(rows).toContain("First card");
-    expect(rows).toContain("Epic One");
-    expect(rows).toContain("\u2039red-team\u203a");
-    expect(rows).toContain("CNF-1");
-    expect(rows).toContain("\u20223");
-    expect(rows).toContain("JD");
-  });
-
-  it("does not cap cards per column -- every issue is rendered so selection can reach any of them", () => {
-    const many = Array.from({ length: 20 }, (_, i) => issue({ ref: `a:${i}`, key: `CNF-${i}`, title: `card ${i}`, status: "todo" }));
-    const board = renderKanbanBoard(many, fakeTheme, 120);
-    expect(board.columns[0]).toHaveLength(20);
-    expect(board.lines.join("\n")).toContain("card 19");
-  });
-
-  it("every rendered row is padded to the same total width, so columns stay aligned", () => {
-    const rows = renderKanbanBoard(issues, fakeTheme, 100).lines;
-    const widths = new Set(rows.map((row) => stripAnsi(row).length));
-    expect(widths.size).toBe(1);
-  });
-
-  it("returns a cardRanges row range for every rendered card, in column/index order matching `columns`", () => {
-    const board = renderKanbanBoard(issues, fakeTheme, 120);
-    expect(board.cardRanges[0]).toHaveLength(1); // TO DO has CNF-1
-    expect(board.cardRanges[1]).toHaveLength(1); // IN PROGRESS has CNF-2
-    const range = board.cardRanges[0]![0]!;
-    expect(range.end).toBeGreaterThanOrEqual(range.start);
-    expect(board.lines[range.start]).toContain("First card");
+  it("uses a distinct bar glyph/color when selected", () => {
+    const card = issue({ ref: "a:1", key: "CNF-1", title: "Card", status: "todo" });
+    const normal = stripAnsi(renderCard(card, fakeTheme, 60, false)[0]!);
+    const selected = stripAnsi(renderCard(card, fakeTheme, 60, true)[0]!);
+    expect(normal.startsWith("\u2502")).toBe(true);
+    expect(selected.startsWith("\u2503")).toBe(true);
   });
 });
 

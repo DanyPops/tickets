@@ -132,7 +132,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         selectList.onCancel = () => done(null);
         container.addChild(selectList);
 
-        container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter focus • o open in browser • esc cancel"), 1, 0));
+        container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter focus • v view • o open in browser • esc cancel"), 1, 0));
         container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
         return {
@@ -149,6 +149,12 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
                   // headless/no-DISPLAY environment — nothing more to do from inside the dialog.
                 }
               }
+              return;
+            }
+            if (data === "v") {
+              const highlighted = selectList.getSelectedItem();
+              const issue = highlighted ? byRef.get(highlighted.value) : undefined;
+              if (issue) void showIssueDetail(ctx, client, issue.ref).then(() => tui.requestRender());
               return;
             }
             selectList.handleInput(data);
@@ -257,7 +263,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         selectList.onSelect = (item) => done(item.value);
         selectList.onCancel = () => done(null);
         container.addChild(selectList);
-        container.addChild(new Text(theme.fg("dim", "\u2191\u2193 navigate \u2022 enter focus \u2022 o open in browser \u2022 esc cancel"), 1, 0));
+        container.addChild(new Text(theme.fg("dim", "\u2191\u2193 navigate \u2022 enter focus \u2022 v view \u2022 o open in browser \u2022 esc cancel"), 1, 0));
         container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
         return {
           render: (w: number) => container.render(w),
@@ -273,6 +279,12 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
                   // headless/no-DISPLAY environment -- nothing more to do from inside the dialog.
                 }
               }
+              return;
+            }
+            if (data === "v") {
+              const highlighted = selectList.getSelectedItem();
+              const issue = highlighted ? byRef.get(highlighted.value) : undefined;
+              if (issue) void showIssueDetail(ctx, client, issue.ref).then(() => tui.requestRender());
               return;
             }
             selectList.handleInput(data);
