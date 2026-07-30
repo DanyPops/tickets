@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 describe("extension registration", () => {
-  it("registers the /tickets, /query, and /secrets commands and its event handlers synchronously, deferring registerTicketsVehicle to session_start", async () => {
+  it("registers the /tickets, /query, /board, and /secrets commands and its event handlers synchronously, deferring registerTicketsVehicle to session_start", async () => {
     const { __resetSecretsRegistryForTests, listSecretsContributors } = await import("@danypops/vehicle-client-pi/secrets-registry");
     __resetSecretsRegistryForTests();
 
@@ -51,7 +51,7 @@ describe("extension registration", () => {
     // No mega-tool anymore; real per-operation tools come from registerVehicleTools itself.
     expect(registered).toHaveLength(0);
     // tickets claims the real /secrets registration here since nothing else registered first in this test's isolated registry
-    expect(commands).toEqual(["tickets", "query", "secrets"]);
+    expect(commands).toEqual(["tickets", "query", "board", "secrets"]);
     expect(listSecretsContributors().map((c) => c.source)).toEqual(["tickets"]);
   });
 });
