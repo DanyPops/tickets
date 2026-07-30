@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 /**
  * The real tickets-daemon binary. Requires Bun (bun:sqlite, Bun.serve via
- * daemon-kit). Everything else in this package (the library, the CLI, the
+ * vehicle-server). Everything else in this package (the library, the CLI, the
  * pi-tickets extension) is plain Node-compatible TypeScript and talks to
  * this process only over the loopback HTTP RPC surface — see client.ts.
  */
-import { runDaemonProcess } from "@danypops/daemon-kit/daemon";
-import { readPackageVersion } from "@danypops/daemon-kit/version";
+import { runDaemonProcess } from "@danypops/vehicle-server/daemon";
+import { readPackageVersion } from "@danypops/vehicle-server/version";
 import { bootstrap } from "./bootstrap.js";
 
 const version = readPackageVersion(new URL("../../package.json", import.meta.url), "Tickets");

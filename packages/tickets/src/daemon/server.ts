@@ -1,11 +1,11 @@
 /**
  * Daemon HTTP surface: Bearer-token auth, /health, /ready, and a single
- * dispatch endpoint (/api/v1/ops) per daemon-kit's http.ts convention.
+ * dispatch endpoint (/api/v1/ops) per vehicle-server's http.ts convention.
  * Every operation here has a CLI command (cli/index.ts) and a pi-tickets
  * tool action — no operation exists only for one caller.
  */
-import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/daemon-kit/http";
-import type { Logger } from "@danypops/daemon-kit/logging";
+import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { AuthRequiredError, IssueNotFoundError } from "../adapters/errors.js";
 import { NotSupportedError, type TicketService, UnknownBackendError } from "../application/service.js";
 import { parseRef } from "../domain/issue.js";
@@ -23,7 +23,7 @@ export interface TicketsAppDeps {
   /**
    * Invoked by the `daemon.shutdown` op, after the HTTP response is already
    * queued to flush. Defaults set by bootstrap.ts self-signal the process so
-   * the same tested SIGINT/SIGTERM path (daemon-kit's runDaemonProcess) does
+   * the same tested SIGINT/SIGTERM path (vehicle-server's runDaemonProcess) does
    * the actual graceful stop — this hook only ever *requests* shutdown, it
    * never calls process.exit directly.
    */

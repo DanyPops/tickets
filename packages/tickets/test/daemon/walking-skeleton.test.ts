@@ -1,18 +1,18 @@
 /**
- * Wires every real piece (daemon-kit's paths/storage/daemon + tickets' own
+ * Wires every real piece (vehicle-server's paths/storage/daemon + tickets' own
  * ledger/server/poller/bootstrap) into one running daemon, over a real
  * loopback socket, authenticated with a real generated token, against a
  * fake IssueRepository (no real GitHub/GitLab/Jira call). Proves the
- * daemon-kit integration end to end before wiring real credentials.
+ * vehicle-server integration end to end before wiring real credentials.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readDaemonHandle } from "@danypops/daemon-kit/paths";
-import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
-import type { RunningDaemon } from "@danypops/daemon-kit/daemon";
-import { startDaemon } from "@danypops/daemon-kit/daemon";
+import { readDaemonHandle } from "@danypops/vehicle-server/paths";
+import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
+import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
+import { startDaemon } from "@danypops/vehicle-server/daemon";
 import { bootstrap } from "../../src/daemon/bootstrap.js";
 import type { TicketOpInputs, TicketOperation, TicketOpOutputs } from "../../src/daemon/ops.js";
 import { FakeRepository } from "../support/fake-repository.js";
@@ -28,7 +28,7 @@ afterEach(async () => {
 });
 
 describe("tickets daemon walking skeleton", () => {
-  it("boots on daemon-kit, authenticates, serves real ops, and pools into the ledger", async () => {
+  it("boots on vehicle-server, authenticates, serves real ops, and pools into the ledger", async () => {
     tmpRoot = mkdtempSync(join(tmpdir(), "tickets-daemon-skeleton-"));
     const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
 
@@ -43,13 +43,13 @@ describe("tickets daemon walking skeleton", () => {
       syncIntervalMs: 20,
     });
 
-    daemon = startDaemon(options);
+    daemon = await startDaemon(options);
 
     const handle = readDaemonHandle(options.handlePath);
     expect(handle?.port).toBe(daemon.port);
 
-    // Read the real token daemon-kit generated for this scratch state dir.
-    const { ensureAuthToken, resolveDaemonPaths } = await import("@danypops/daemon-kit/paths");
+    // Read the real token vehicle-server generated for this scratch state dir.
+    const { ensureAuthToken, resolveDaemonPaths } = await import("@danypops/vehicle-server/paths");
     const { TICKETS_DAEMON_NAMES } = await import("../../src/daemon/ops.js");
     const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, pathEnv);
     const token = ensureAuthToken(paths.token, "Tickets");
@@ -91,7 +91,7 @@ describe("tickets daemon walking skeleton", () => {
     tmpRoot = mkdtempSync(join(tmpdir(), "tickets-daemon-skeleton-auth-"));
     const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
     const { options } = await bootstrap({ pathEnv, repos: {}, version: "0.0.0-skeleton" });
-    daemon = startDaemon(options);
+    daemon = await startDaemon(options);
 
     const badClient = new AuthenticatedRpcClient<TicketOperation, TicketOpInputs, TicketOpOutputs>(
       `http://${daemon.host}:${daemon.port}`,
@@ -113,9 +113,9 @@ describe("tickets daemon walking skeleton", () => {
         requested++;
       },
     });
-    daemon = startDaemon(options);
+    daemon = await startDaemon(options);
 
-    const { ensureAuthToken, resolveDaemonPaths } = await import("@danypops/daemon-kit/paths");
+    const { ensureAuthToken, resolveDaemonPaths } = await import("@danypops/vehicle-server/paths");
     const { TICKETS_DAEMON_NAMES } = await import("../../src/daemon/ops.js");
     const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, pathEnv);
     const token = ensureAuthToken(paths.token, "Tickets");
@@ -158,9 +158,9 @@ describe("tickets daemon walking skeleton", () => {
       backendRefreshIntervalMs: 20,
     });
 
-    daemon = startDaemon(options);
+    daemon = await startDaemon(options);
 
-    const { ensureAuthToken, resolveDaemonPaths } = await import("@danypops/daemon-kit/paths");
+    const { ensureAuthToken, resolveDaemonPaths } = await import("@danypops/vehicle-server/paths");
     const { TICKETS_DAEMON_NAMES } = await import("../../src/daemon/ops.js");
     const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, pathEnv);
     const token = ensureAuthToken(paths.token, "Tickets");

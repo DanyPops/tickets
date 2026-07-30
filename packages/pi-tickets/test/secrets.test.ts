@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { saveToken } from "@danypops/tickets";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { __resetSecretsRegistryForTests, claimSecretsCommandName, listSecretsContributors } from "@danypops/daemon-kit/secrets-registry";
+import { __resetSecretsRegistryForTests, claimSecretsCommandName, listSecretsContributors } from "@danypops/vehicle-client-pi/secrets-registry";
 import { buildTicketsSecretsBackends, buildTicketsSecretsContribution, registerTicketsSecretsCommand } from "../src/secrets.js";
 
 function tempEnv(): { root: string; env: Record<string, string> } {

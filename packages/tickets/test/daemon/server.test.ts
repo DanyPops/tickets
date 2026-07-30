@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
+import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { TicketService } from "../../src/application/service.js";
 import { buildApp } from "../../src/daemon/server.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/daemon/focus.js";

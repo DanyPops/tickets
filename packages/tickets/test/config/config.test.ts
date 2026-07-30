@@ -4,7 +4,7 @@ import type { TryEnigmaCredential } from "@danypops/enigma-client";
 import { GitHubRepository } from "../../src/adapters/github.js";
 import { GitLabRepository } from "../../src/adapters/gitlab.js";
 import { JiraRepository } from "../../src/adapters/jira.js";
-import type { Logger } from "@danypops/daemon-kit/logging";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { TicketService } from "../../src/application/service.js";
 import { FakeRepository } from "../support/fake-repository.js";
 

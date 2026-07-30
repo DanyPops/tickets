@@ -7,7 +7,7 @@
  * of any live upstream call.
  */
 import type { Database } from "bun:sqlite";
-import type { Migration } from "@danypops/daemon-kit/storage";
+import type { Migration } from "@danypops/vehicle-server/storage";
 import type { Issue } from "../domain/issue.js";
 
 export const LEDGER_MIGRATIONS: Migration[] = [

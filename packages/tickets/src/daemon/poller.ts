@@ -5,8 +5,8 @@
  * network, bad creds) is logged and skipped; it never crashes the daemon
  * and never blocks other backends' syncs.
  */
-import type { Logger } from "@danypops/daemon-kit/logging";
-import type { MaintenanceTask } from "@danypops/daemon-kit/daemon";
+import type { Logger } from "@danypops/vehicle-server/logging";
+import type { MaintenanceTask } from "@danypops/vehicle-server/daemon";
 import type { TicketService } from "../application/service.js";
 import type { Ledger } from "./ledger.js";
 

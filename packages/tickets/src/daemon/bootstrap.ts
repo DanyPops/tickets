@@ -1,15 +1,15 @@
 /**
  * Composition root for the tickets daemon: wires paths, auth token, ledger
  * storage, real backend repositories, and the sync poller into the options
- * daemon-kit's startDaemon()/runDaemonProcess() expect. Everything here is
+ * vehicle-server's startDaemon()/runDaemonProcess() expect. Everything here is
  * injectable so tests can substitute fake repositories and a scratch XDG
  * root instead of hitting real GitHub/GitLab/Jira or the real home directory.
  */
 import type { Database } from "bun:sqlite";
-import { createLogger, type Logger } from "@danypops/daemon-kit/logging";
-import { ensureAuthToken, type PathEnvironment, resolveDaemonPaths } from "@danypops/daemon-kit/paths";
-import { checkpoint, openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
-import type { StartDaemonOptions } from "@danypops/daemon-kit/daemon";
+import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
+import { ensureAuthToken, type PathEnvironment, resolveDaemonPaths } from "@danypops/vehicle-server/paths";
+import { checkpoint, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
+import type { StartDaemonOptions } from "@danypops/vehicle-server/daemon";
 import { TicketService } from "../application/service.js";
 import { buildRepositories, type BuildRepositories, type Config, createBackendRefreshTask, loadConfig } from "../config/config.js";
 import type { IssueRepository } from "../ports/repository.js";
@@ -38,7 +38,7 @@ export interface BootstrapOptions {
   backendRefreshIntervalMs?: number;
   /**
    * Overrides the daemon.shutdown op's effect. Defaults to sending this
-   * process SIGTERM, which daemon-kit's runDaemonProcess already handles
+   * process SIGTERM, which vehicle-server's runDaemonProcess already handles
    * with a tested graceful stop (see main.ts). Tests override this instead
    * of self-signaling the test runner's own process.
    */
