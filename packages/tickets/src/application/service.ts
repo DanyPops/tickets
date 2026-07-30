@@ -8,6 +8,7 @@ import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../do
 import { parseRef } from "../domain/issue.js";
 import type { Template } from "../domain/template.js";
 import {
+  hasBoardFilterDiscovery,
   hasBoardQuickFilterDiscovery,
   hasComments,
   hasFieldDiscovery,
@@ -132,5 +133,12 @@ export class TicketService {
     const repo = this.repo(backend);
     if (!hasBoardQuickFilterDiscovery(repo)) throw new NotSupportedError(backend, "board quick filter discovery");
     return repo.discoverBoardQuickFilterJql(boardId, quickFilterId);
+  }
+
+  /** Resolves a Jira board's own real base scope (its saved filter's JQL) -- never assume a board tracks one named project. */
+  async discoverBoardFilterJql(backend: string, boardId: number): Promise<string> {
+    const repo = this.repo(backend);
+    if (!hasBoardFilterDiscovery(repo)) throw new NotSupportedError(backend, "board filter discovery");
+    return repo.discoverBoardFilterJql(boardId);
   }
 }

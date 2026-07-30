@@ -113,6 +113,13 @@ const OPERATIONS: readonly OperationSpec[] = [
     required: ["backend", "boardId", "quickFilterId"],
   },
   {
+    action: "discover.board_filter",
+    description: "Resolves a Jira board's own real base scope -- its saved filter's JQL -- rather than assuming it tracks one named project.",
+    effect: "read",
+    properties: { backend: stringProp, boardId: numberProp },
+    required: ["backend", "boardId"],
+  },
+  {
     action: "query.save",
     description: "Saves a raw backend query (Jira JQL) under a name, so it can be run again later without retyping it -- e.g. a board's sprint or backlog view.",
     effect: "local-write",

@@ -94,6 +94,7 @@ export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
   "discover.board_quickfilter": async (deps, input) => ({
     jql: await deps.service.discoverBoardQuickFilterJql(input.backend, input.boardId, input.quickFilterId),
   }),
+  "discover.board_filter": async (deps, input) => ({ jql: await deps.service.discoverBoardFilterJql(input.backend, input.boardId) }),
   "query.save": async (deps, input) => ({ query: deps.queries.save(input.name, input.backend, input.query, input.description) }),
   "query.list": async (deps) => ({ queries: deps.queries.list() }),
   "query.remove": async (deps, input) => ({ removed: deps.queries.remove(input.name) }),

@@ -88,3 +88,15 @@ export interface BoardQuickFilterDiscoverable {
 export function hasBoardQuickFilterDiscovery(repo: IssueRepository): repo is IssueRepository & BoardQuickFilterDiscoverable {
   return typeof (repo as Partial<BoardQuickFilterDiscoverable>).discoverBoardQuickFilterJql === "function";
 }
+
+/**
+ * Optional capability — resolves a Jira board's own real base scope (its saved
+ * filter's JQL) rather than assuming a board tracks one named project. Jira only.
+ */
+export interface BoardFilterDiscoverable {
+  discoverBoardFilterJql(boardId: number): Promise<string>;
+}
+
+export function hasBoardFilterDiscovery(repo: IssueRepository): repo is IssueRepository & BoardFilterDiscoverable {
+  return typeof (repo as Partial<BoardFilterDiscoverable>).discoverBoardFilterJql === "function";
+}

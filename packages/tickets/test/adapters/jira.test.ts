@@ -461,4 +461,29 @@ describe("JiraRepository", () => {
       await expect(repo.discoverBoardQuickFilterJql(9525, 67003)).rejects.toThrow(/no JQL/);
     });
   });
+
+  describe("discoverBoardFilterJql", () => {
+    it("resolves a board's own real base scope -- its saved filter's JQL -- never a guessed project key", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        if (String(config.url) === "/rest/agile/1.0/board/9525/configuration") {
+          expect(config.method).toBe("get");
+          return { data: { id: 9525, name: "QE Scrum Board", filter: { id: "55501" }, location: { type: "project", projectKeyOrId: "BMPTEMP" } }, status: 200 };
+        }
+        if (String(config.url) === "/rest/api/2/filter/55501") {
+          return { data: { id: "55501", jql: "project in (BMPTEMP, TELCOV10N) AND labels = qe-scrum ORDER BY Rank ASC" }, status: 200 };
+        }
+        throw new Error(`unexpected url ${config.url}`);
+      });
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      const jql = await repo.discoverBoardFilterJql(9525);
+      // Deliberately spans two projects -- proves the board's real scope isn't just "project = BMPTEMP".
+      expect(jql).toBe("project in (BMPTEMP, TELCOV10N) AND labels = qe-scrum ORDER BY Rank ASC");
+    });
+
+    it("throws a clear error when the board has no configured filter", async () => {
+      const axiosAdapter = mockAdapter(() => ({ data: { id: 9525, name: "No filter" }, status: 200 }));
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+      await expect(repo.discoverBoardFilterJql(9525)).rejects.toThrow(/no configured filter/);
+    });
+  });
 });

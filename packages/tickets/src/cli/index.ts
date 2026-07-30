@@ -230,6 +230,15 @@ discoverCmd
     );
   });
 
+discoverCmd
+  .command("board_filter")
+  .description("resolve a Jira board's own real base scope -- its saved filter's JQL -- instead of assuming it tracks one named project")
+  .requiredOption("-b, --backend <name>", "backend name")
+  .requiredOption("--board <id>", "board id", (v) => Number.parseInt(v, 10))
+  .action(async (opts) => {
+    await withClient((client) => client.call("discover.board_filter", { backend: opts.backend, boardId: opts.board }));
+  });
+
 const queryCmd = program.command("query").description("save and run named raw backend queries (Jira JQL) -- e.g. a board's sprint or backlog view");
 
 queryCmd

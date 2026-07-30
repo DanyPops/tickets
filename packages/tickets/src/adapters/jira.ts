@@ -295,6 +295,24 @@ export class JiraRepository {
     return result.jql;
   }
 
+  /**
+   * BoardFilterDiscoverable -- resolves a board's own real base scope: its saved
+   * filter's JQL, via `GET /rest/agile/1.0/board/{boardId}/configuration` (filter
+   * id) then `GET /rest/api/2/filter/{id}` (that filter's JQL). This is the actual
+   * project/query scope a board tracks -- assuming a board scopes to a single named
+   * project (e.g. matching a URL path segment) is a guess, not a fact; a project can
+   * be renamed or a board's filter can span multiple projects, so this is always
+   * resolved from Jira, never inferred from a project key string.
+   */
+  async discoverBoardFilterJql(boardId: number): Promise<string> {
+    const config = await this.call<{ filter?: { id?: string } }>(() => this.agileClient().board.getConfiguration({ boardId }));
+    const filterId = config?.filter?.id;
+    if (!filterId) throw new Error(`jira: board ${boardId} has no configured filter`);
+    const filter = await this.call<{ jql?: string }>(() => this.client.filters.getFilter({ id: Number(filterId) }));
+    if (!filter?.jql) throw new Error(`jira: filter ${filterId} (board ${boardId}'s own filter) has no JQL`);
+    return filter.jql;
+  }
+
   private agileClientInstance?: AgileClient;
 
   private agileClient(): AgileClient {

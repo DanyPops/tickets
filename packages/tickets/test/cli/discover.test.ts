@@ -17,7 +17,7 @@ describe("tickets discover CLI", () => {
 
   it("has one subcommand per discover.* daemon operation", () => {
     const discoverOps = TICKET_OPERATIONS.filter((op) => op.startsWith("discover."));
-    expect(discoverOps).toEqual(["discover.fields", "discover.statuses", "discover.template", "discover.board_quickfilter"]);
+    expect(discoverOps).toEqual(["discover.fields", "discover.statuses", "discover.template", "discover.board_quickfilter", "discover.board_filter"]);
 
     const subcommandNames = (discoverGroup?.commands ?? []).map((c) => c.name());
     for (const op of discoverOps) {
@@ -26,11 +26,12 @@ describe("tickets discover CLI", () => {
     }
   });
 
-  it("fields/statuses require --backend; template requires --backend, --project, --issue-type; board_quickfilter requires --backend, --board, --quick-filter", () => {
+  it("fields/statuses require --backend; template requires --backend, --project, --issue-type; board_quickfilter/board_filter require --backend, --board (plus --quick-filter for board_quickfilter)", () => {
     const fields = discoverGroup?.commands.find((c) => c.name() === "fields");
     const statuses = discoverGroup?.commands.find((c) => c.name() === "statuses");
     const template = discoverGroup?.commands.find((c) => c.name() === "template");
     const boardQuickFilter = discoverGroup?.commands.find((c) => c.name() === "board_quickfilter");
+    const boardFilter = discoverGroup?.commands.find((c) => c.name() === "board_filter");
 
     const requiredFlags = (cmd: typeof fields) => (cmd?.options ?? []).filter((o) => o.mandatory).map((o) => o.long);
 
@@ -38,5 +39,6 @@ describe("tickets discover CLI", () => {
     expect(requiredFlags(statuses)).toEqual(["--backend"]);
     expect(requiredFlags(template)).toEqual(expect.arrayContaining(["--backend", "--project", "--issue-type"]));
     expect(requiredFlags(boardQuickFilter)).toEqual(expect.arrayContaining(["--backend", "--board", "--quick-filter"]));
+    expect(requiredFlags(boardFilter)).toEqual(expect.arrayContaining(["--backend", "--board"]));
   });
 });
