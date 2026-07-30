@@ -104,7 +104,10 @@ interface JiraRemoteLink {
 }
 interface JiraComment {
   id?: string;
-  comment?: string;
+  // The real Jira REST v2 wire field is "body" (confirmed against Atlassian's own
+  // docs/example payloads). jira.js's bundled Models.Comment type mistypes this as
+  // "comment" -- a library type/runtime mismatch, not an ADF-rendering issue.
+  body?: string;
   created?: string;
   updated?: string;
   author?: { displayName?: string };
@@ -625,7 +628,7 @@ function mapPriorityFromJira(name: string | undefined): ReturnType<typeof parseP
 function commentToDomain(c: JiraComment): Comment {
   return {
     id: c.id ?? "",
-    body: c.comment ?? "",
+    body: c.body ?? "",
     author: c.author?.displayName,
     createdAt: c.created,
     updatedAt: c.updated,
