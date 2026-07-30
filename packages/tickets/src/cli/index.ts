@@ -230,6 +230,50 @@ discoverCmd
     );
   });
 
+const queryCmd = program.command("query").description("save and run named raw backend queries (Jira JQL) -- e.g. a board's sprint or backlog view");
+
+queryCmd
+  .command("save <name>")
+  .description("save a raw query under a name; saving under an existing name updates it in place")
+  .requiredOption("-b, --backend <name>", "backend name")
+  .requiredOption("--jql <jql>", "the raw query string (Jira JQL)")
+  .option("--description <text>", "human-readable note about what this query is")
+  .action(async (name: string, opts) => {
+    await withClient((client) => client.call("query.save", { name, backend: opts.backend, query: opts.jql, description: opts.description }));
+  });
+
+queryCmd
+  .command("list")
+  .description("list every saved query")
+  .action(async () => {
+    await withClient((client) => client.call("query.list", {}));
+  });
+
+queryCmd
+  .command("remove <name>")
+  .description("remove a saved query")
+  .action(async (name: string) => {
+    await withClient((client) => client.call("query.remove", { name }));
+  });
+
+queryCmd
+  .command("run <name>")
+  .description("run a saved query by name")
+  .option("--limit <n>", "max results", (v) => Number.parseInt(v, 10))
+  .action(async (name: string, opts) => {
+    await withClient((client) => client.call("query.run", { name, limit: opts.limit }));
+  });
+
+discoverCmd
+  .command("board_quickfilter")
+  .description("resolve a Jira board's quick filter id to its JQL fragment -- board view's quickFilter=, backlog view's customFilter=, are the same id")
+  .requiredOption("-b, --backend <name>", "backend name")
+  .requiredOption("--board <id>", "board id", (v) => Number.parseInt(v, 10))
+  .requiredOption("--quick-filter <id>", "quick filter id", (v) => Number.parseInt(v, 10))
+  .action(async (opts) => {
+    await withClient((client) => client.call("discover.board_quickfilter", { backend: opts.backend, boardId: opts.board, quickFilterId: opts.quickFilter }));
+  });
+
 const daemon = program.command("daemon").description("manage the tickets daemon process");
 
 daemon

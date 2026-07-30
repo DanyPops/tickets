@@ -15,6 +15,7 @@ import { buildRepositories, type BuildRepositories, type Config, createBackendRe
 import type { IssueRepository } from "../ports/repository.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "./focus.js";
 import { Ledger, LEDGER_MIGRATIONS } from "./ledger.js";
+import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "./saved-queries.js";
 import { TICKETS_DAEMON_NAMES } from "./ops.js";
 import { buildApp, type TicketsAppDeps } from "./server.js";
 import { createSyncTask } from "./poller.js";
@@ -50,6 +51,7 @@ export interface BootstrappedDaemon {
   db: Database;
   ledger: Ledger;
   focusStore: FocusStore;
+  queries: SavedQueryStore;
   service: TicketService;
   options: StartDaemonOptions;
 }
@@ -61,9 +63,10 @@ const DEFAULT_BACKEND_REFRESH_INTERVAL_MS = 30_000;
 export async function bootstrap(opts: BootstrapOptions = {}): Promise<BootstrappedDaemon> {
   const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, opts.pathEnv);
   const token = ensureAuthToken(paths.token, "Tickets");
-  const db = openSqliteWithPragmas(paths.database, { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS] });
+  const db = openSqliteWithPragmas(paths.database, { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS] });
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
+  const queries = new SavedQueryStore(db);
   const logger = opts.logger ?? createLogger("tickets-daemon", { levelEnvVar: "TICKETS_LOG_LEVEL" });
   const config = opts.config ?? loadConfig();
   const buildRepos = opts.buildRepositories ?? buildRepositories;
@@ -76,7 +79,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
   // the registry field itself -- createTicketsVehicleRegistry never reads
   // deps.vehicleRegistry, so this ordering is safe (see server.ts's own
   // comment on why the registry is built outside it, not imported into it).
-  const vehicleRegistry = createTicketsVehicleRegistry({ service, ledger, focusStore, token, version, logger, onShutdownRequested } as TicketsAppDeps);
+  const vehicleRegistry = createTicketsVehicleRegistry({ service, ledger, focusStore, queries, token, version, logger, onShutdownRequested } as TicketsAppDeps);
 
   const options: StartDaemonOptions = {
     daemonLabel: "Tickets",
@@ -100,6 +103,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
         service,
         ledger,
         focusStore,
+        queries,
         token,
         version,
         logger,
@@ -111,5 +115,5 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
     },
   };
 
-  return { db, ledger, focusStore, service, options };
+  return { db, ledger, focusStore, queries, service, options };
 }

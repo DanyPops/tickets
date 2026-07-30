@@ -172,4 +172,123 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       await refreshStatus(ctx, client);
     },
   });
+
+  pi.registerCommand("query", {
+    description: "Run a saved query (Jira JQL) and browse its issues -- e.g. a board's sprint or backlog view saved via `tickets query save`",
+    handler: async (args, ctx) => {
+      let client: TicketsRpcClient;
+      try {
+        client = await getClient();
+      } catch (err) {
+        ctx.ui.notify(`tickets daemon unavailable: ${err instanceof Error ? err.message : String(err)}`, "error");
+        return;
+      }
+
+      const { queries } = await client.call("query.list", {});
+      if (queries.length === 0) {
+        ctx.ui.notify('No saved queries yet -- create one with `tickets query save <name> --backend jira --jql "..."`.', "info");
+        return;
+      }
+
+      const requestedName = args?.trim();
+      let name = requestedName;
+      if (!name) {
+        const picked = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+          const container = new Container();
+          container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+          container.addChild(new Text(theme.fg("accent", theme.bold("Saved queries")), 1, 0));
+          const items: SelectItem[] = queries.map((q) => ({ value: q.name, label: q.name, description: q.description ?? `${q.backend}: ${q.query}` }));
+          const selectList = new SelectList(items, Math.min(items.length, 12), {
+            selectedPrefix: (t: string) => theme.fg("accent", t),
+            selectedText: (t: string) => theme.fg("accent", t),
+            description: (t: string) => theme.fg("muted", t),
+            scrollInfo: (t: string) => theme.fg("dim", t),
+            noMatch: (t: string) => theme.fg("warning", t),
+          });
+          selectList.onSelect = (item) => done(item.value);
+          selectList.onCancel = () => done(null);
+          container.addChild(selectList);
+          container.addChild(new Text(theme.fg("dim", "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel"), 1, 0));
+          container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+          return {
+            render: (w: number) => container.render(w),
+            invalidate: () => container.invalidate(),
+            handleInput: (data: string) => {
+              selectList.handleInput(data);
+              tui.requestRender();
+            },
+          };
+        });
+        if (picked === null) return;
+        name = picked;
+      }
+
+      let issues: Issue[];
+      try {
+        ({ issues } = await client.call("query.run", { name, limit: BROWSE_LIMIT }));
+      } catch (err) {
+        ctx.ui.notify(`error running query "${name}": ${err instanceof Error ? err.message : String(err)}`, "error");
+        return;
+      }
+
+      if (issues.length === 0) {
+        ctx.ui.notify(`Saved query "${name}" matched no issues.`, "info");
+        return;
+      }
+
+      const { focus } = await client.call("focus.get", {});
+      const byRef = new Map(issues.map((issue) => [issue.ref, issue] as const));
+
+      const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+        const container = new Container();
+        container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+        container.addChild(new Text(theme.fg("accent", theme.bold(`Query: ${name}`)), 1, 0));
+        const items: SelectItem[] = issues.map((issue) => ({ value: issue.ref, label: issueLabel(issue), description: issueDescription(issue, focus?.ref) }));
+        const selectList = new SelectList(items, Math.min(items.length, 12), {
+          selectedPrefix: (t: string) => theme.fg("accent", t),
+          selectedText: (t: string) => theme.fg("accent", t),
+          description: (t: string) => theme.fg("muted", t),
+          scrollInfo: (t: string) => theme.fg("dim", t),
+          noMatch: (t: string) => theme.fg("warning", t),
+        });
+        selectList.onSelect = (item) => done(item.value);
+        selectList.onCancel = () => done(null);
+        container.addChild(selectList);
+        container.addChild(new Text(theme.fg("dim", "\u2191\u2193 navigate \u2022 enter focus \u2022 o open in browser \u2022 esc cancel"), 1, 0));
+        container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+        return {
+          render: (w: number) => container.render(w),
+          invalidate: () => container.invalidate(),
+          handleInput: (data: string) => {
+            if (data === "o") {
+              const highlighted = selectList.getSelectedItem();
+              const issue = highlighted ? byRef.get(highlighted.value) : undefined;
+              if (issue?.url) {
+                try {
+                  open(issue.url);
+                } catch {
+                  // headless/no-DISPLAY environment -- nothing more to do from inside the dialog.
+                }
+              }
+              return;
+            }
+            selectList.handleInput(data);
+            tui.requestRender();
+          },
+        };
+      });
+
+      if (result === null) return;
+
+      try {
+        const { focus: newFocus } = await client.call("focus.set", { ref: result });
+        ctx.ui.notify(`Focused ${newFocus.ref}: ${newFocus.title}\n${newFocus.url}`, "info");
+      } catch (err) {
+        ctx.ui.notify(`error: ${err instanceof Error ? err.message : String(err)}`, "error");
+        return;
+      }
+
+      await refreshStatus(ctx, client);
+    },
+  });
 }

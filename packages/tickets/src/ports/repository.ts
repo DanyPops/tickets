@@ -59,3 +59,32 @@ export interface TemplateDiscoverable {
 export function hasTemplateDiscovery(repo: IssueRepository): repo is IssueRepository & TemplateDiscoverable {
   return typeof (repo as Partial<TemplateDiscoverable>).discoverTemplate === "function";
 }
+
+/**
+ * Optional capability — runs a raw query string in the backend's own query language
+ * (Jira's JQL). Backs the "Saved query" feature: a saved query is just a name plus a
+ * raw string in whatever language the backend understands, executed verbatim. Only
+ * Jira supports this today (GitHub/GitLab have no equivalent single query language
+ * spanning issues, boards, and backlogs the way Jira's JQL does).
+ */
+export interface RawQueryable {
+  runQuery(query: string, limit?: number): Promise<Issue[]>;
+}
+
+export function hasRawQuery(repo: IssueRepository): repo is IssueRepository & RawQueryable {
+  return typeof (repo as Partial<RawQueryable>).runQuery === "function";
+}
+
+/**
+ * Optional capability — resolves a Jira board's quick filter id to its real JQL
+ * fragment, the one-time step that turns a board/backlog view URL into a saved
+ * query (see RawQueryable above). Jira only; boards/quick filters have no GitHub or
+ * GitLab equivalent.
+ */
+export interface BoardQuickFilterDiscoverable {
+  discoverBoardQuickFilterJql(boardId: number, quickFilterId: number): Promise<string>;
+}
+
+export function hasBoardQuickFilterDiscovery(repo: IssueRepository): repo is IssueRepository & BoardQuickFilterDiscoverable {
+  return typeof (repo as Partial<BoardQuickFilterDiscoverable>).discoverBoardQuickFilterJql === "function";
+}

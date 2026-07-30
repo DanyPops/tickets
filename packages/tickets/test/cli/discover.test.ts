@@ -17,7 +17,7 @@ describe("tickets discover CLI", () => {
 
   it("has one subcommand per discover.* daemon operation", () => {
     const discoverOps = TICKET_OPERATIONS.filter((op) => op.startsWith("discover."));
-    expect(discoverOps).toEqual(["discover.fields", "discover.statuses", "discover.template"]);
+    expect(discoverOps).toEqual(["discover.fields", "discover.statuses", "discover.template", "discover.board_quickfilter"]);
 
     const subcommandNames = (discoverGroup?.commands ?? []).map((c) => c.name());
     for (const op of discoverOps) {
@@ -26,15 +26,17 @@ describe("tickets discover CLI", () => {
     }
   });
 
-  it("fields/statuses require --backend; template requires --backend, --project, --issue-type", () => {
+  it("fields/statuses require --backend; template requires --backend, --project, --issue-type; board_quickfilter requires --backend, --board, --quick-filter", () => {
     const fields = discoverGroup?.commands.find((c) => c.name() === "fields");
     const statuses = discoverGroup?.commands.find((c) => c.name() === "statuses");
     const template = discoverGroup?.commands.find((c) => c.name() === "template");
+    const boardQuickFilter = discoverGroup?.commands.find((c) => c.name() === "board_quickfilter");
 
     const requiredFlags = (cmd: typeof fields) => (cmd?.options ?? []).filter((o) => o.mandatory).map((o) => o.long);
 
     expect(requiredFlags(fields)).toEqual(["--backend"]);
     expect(requiredFlags(statuses)).toEqual(["--backend"]);
     expect(requiredFlags(template)).toEqual(expect.arrayContaining(["--backend", "--project", "--issue-type"]));
+    expect(requiredFlags(boardQuickFilter)).toEqual(expect.arrayContaining(["--backend", "--board", "--quick-filter"]));
   });
 });

@@ -16,11 +16,13 @@ import { parseRef } from "../domain/issue.js";
 import { FocusError, type FocusStore } from "./focus.js";
 import type { Ledger } from "./ledger.js";
 import { TICKET_OPERATIONS, type TicketOpInputs, type TicketOperation, type TicketOpOutputs } from "./ops.js";
+import { SavedQueryNotFoundError, type SavedQueryStore } from "./saved-queries.js";
 
 export interface TicketsAppDeps {
   service: TicketService;
   ledger: Ledger;
   focusStore: FocusStore;
+  queries: SavedQueryStore;
   token: string;
   version: string;
   logger?: Logger;
@@ -89,6 +91,17 @@ export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
   "discover.template": async (deps, input) => ({
     template: (await deps.service.discoverTemplate(input.backend, input.project, input.issueType, input.sampleSize)) ?? null,
   }),
+  "discover.board_quickfilter": async (deps, input) => ({
+    jql: await deps.service.discoverBoardQuickFilterJql(input.backend, input.boardId, input.quickFilterId),
+  }),
+  "query.save": async (deps, input) => ({ query: deps.queries.save(input.name, input.backend, input.query, input.description) }),
+  "query.list": async (deps) => ({ queries: deps.queries.list() }),
+  "query.remove": async (deps, input) => ({ removed: deps.queries.remove(input.name) }),
+  "query.run": async (deps, input) => {
+    const saved = deps.queries.get(input.name);
+    if (!saved) throw new SavedQueryNotFoundError(input.name);
+    return { issues: await deps.service.runQuery(saved.backend, saved.query, input.limit) };
+  },
   "daemon.shutdown": async (deps) => {
     // Deferred so this handler's own response has already been handed back
     // to Bun.serve before the process starts tearing down.
@@ -102,7 +115,7 @@ function isTicketOperation(value: unknown): value is TicketOperation {
 }
 
 function statusFor(error: unknown): number {
-  if (error instanceof IssueNotFoundError) return 404;
+  if (error instanceof IssueNotFoundError || error instanceof SavedQueryNotFoundError) return 404;
   if (error instanceof UnknownBackendError || error instanceof NotSupportedError || error instanceof FocusError) return 400;
   if (error instanceof AuthRequiredError) return 422;
   return 500;

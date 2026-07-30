@@ -105,6 +105,29 @@ const OPERATIONS: readonly OperationSpec[] = [
     properties: { backend: stringProp, project: stringProp, issueType: stringProp, sampleSize: numberProp },
     required: ["backend", "project", "issueType"],
   },
+  {
+    action: "discover.board_quickfilter",
+    description: "Resolves a Jira board's quick filter id to its JQL fragment -- the one-time step to turn a board/backlog view into a saved query.",
+    effect: "read",
+    properties: { backend: stringProp, boardId: numberProp, quickFilterId: numberProp },
+    required: ["backend", "boardId", "quickFilterId"],
+  },
+  {
+    action: "query.save",
+    description: "Saves a raw backend query (Jira JQL) under a name, so it can be run again later without retyping it -- e.g. a board's sprint or backlog view.",
+    effect: "local-write",
+    properties: { name: stringProp, backend: stringProp, query: stringProp, description: stringProp },
+    required: ["name", "backend", "query"],
+  },
+  { action: "query.list", description: "Lists every saved query.", effect: "read", properties: {}, required: [] },
+  { action: "query.remove", description: "Removes a saved query by name.", effect: "local-write", properties: { name: stringProp }, required: ["name"] },
+  {
+    action: "query.run",
+    description: "Runs a saved query by name against its backend and returns the matching issues.",
+    effect: "read",
+    properties: { name: stringProp, limit: numberProp },
+    required: ["name"],
+  },
 ];
 
 /**
