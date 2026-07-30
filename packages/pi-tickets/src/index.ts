@@ -26,9 +26,12 @@ export interface PiTicketsDeps {
   registerVehicle?: typeof registerTicketsVehicle;
 }
 
-export default function (pi: ExtensionAPI, deps: PiTicketsDeps = {}) {
+export default async function (pi: ExtensionAPI, deps: PiTicketsDeps = {}) {
   registerTicketsTui(pi);
   registerTicketsSecretsCommand(pi);
+  // Pi awaits a factory that returns a Promise before continuing startup
+  // (before session_start, before the first turn) -- fire-and-forget here
+  // would race the model's first turn against tool registration completing.
   const registerVehicle = deps.registerVehicle ?? registerTicketsVehicle;
-  void registerVehicle(pi);
+  await registerVehicle(pi);
 }
