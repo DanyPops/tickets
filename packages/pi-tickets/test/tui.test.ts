@@ -24,11 +24,15 @@ function fakeCtx() {
       theme: fakeTheme,
       notify: mock(() => {}),
       setStatus: mock(() => {}),
-      custom: <T>(factory: (tui: unknown, theme: unknown, kb: unknown, done: (v: T) => void) => Component) =>
+      custom: <T>(factory: (tui: unknown, theme: unknown, kb: unknown, done: (v: T) => void) => Component, _options?: unknown) =>
         new Promise<T>((resolve) => {
-          const fakeTui = { requestRender: () => {} };
+          const fakeTui = { terminal: { rows: 40 }, requestRender: () => {} };
           const component = factory(fakeTui, fakeTheme, {}, resolve);
-          // Exposed so the test can drive it as if a user pressed keys.
+          // Exposed so the test can drive it as if a user pressed keys. Each
+          // call (including one nested inside another, e.g. a detail view
+          // pushed from the board) overwrites this -- a test reads it again
+          // after the transition it just triggered, same as reading it once
+          // right after the command handler is called.
           (fakeCtx as unknown as { lastComponent?: Component }).lastComponent = component;
         }),
     },
@@ -352,6 +356,44 @@ describe("registerTicketsTui", () => {
     expect(rendered).toContain("First bug");
     expect(rendered).toContain("esc close");
     component.handleInput("\x1b");
+    await done;
+  });
+
+  it("/board: entering a card pushes an issue detail view with fields and comments, and escape returns to the board", async () => {
+    const pi = fakePi();
+    const client = fakeClient((op, input) => {
+      if (op === "query.list") return { queries: [{ name: "sprint", backend: "jira", query: "...", createdAt: "now", updatedAt: "now" }] };
+      if (op === "query.run") return { issues: ISSUES };
+      if (op === "issue.get") {
+        expect(input).toEqual({ ref: "github:#1" });
+        return { issue: { ...ISSUES[0], description: "Full description here", assignee: "Jane Doe" } };
+      }
+      if (op === "issue.comments") return { comments: [{ id: "1", body: "A real comment", author: "Alice" }] };
+      throw new Error(`unexpected op ${op}`);
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    const done = pi.commands.get("board")?.handler("sprint", ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const board = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
+    board.render(120); // the board's own first render selects "First bug" (github:#1)
+    board.handleInput("\r"); // enter -- opens the detail view for the selected card
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const detail = (fakeCtx as unknown as { lastComponent: Component }).lastComponent;
+    expect(detail).not.toBe(board);
+    const detailRendered = detail.render(120).join("\n");
+    expect(detailRendered).toContain("First bug");
+    expect(detailRendered).toContain("Assignee: Jane Doe");
+    expect(detailRendered).toContain("Full description here");
+    expect(detailRendered).toContain("Alice");
+    expect(detailRendered).toContain("A real comment");
+
+    detail.handleInput("\x1b"); // back to the board
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    board.handleInput("\x1b"); // close the board
     await done;
   });
 
