@@ -48,12 +48,16 @@ function manifest(operations: VehicleManifestOperation[]): VehicleManifest {
   return { name: "tickets", version: "1.0.0", description: "Tickets.", operations };
 }
 
+// Kept as a hand-rolled fake here rather than @danypops/pi-extension-harness
+// (not yet published as of this commit -- once it is, this and the ExtensionAPI
+// stub below become a real follow-up: see the tracked task for adopting it in
+// pi-tickets' own test suite).
 function fakePi() {
   const tools: ToolDefinition[] = [];
   const pi = {
     registerTool: (tool: ToolDefinition) => tools.push(tool),
     getAllTools: () => [],
-    getActiveTools: () => tools.map((t) => t.name),
+    getActiveTools: () => [],
     setActiveTools: () => {},
     on: () => {},
   } as unknown as ExtensionAPI;
