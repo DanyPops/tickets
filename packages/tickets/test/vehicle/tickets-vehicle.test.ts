@@ -72,6 +72,30 @@ describe("createTicketsVehicleRegistry", () => {
     expect(result.issues.map((i) => i.title)).toEqual(["First"]);
   });
 
+  it("issue.list's tool schema exposes project/status/assignee/labels/limit as flat top-level properties, not an opaque filter object -- matching issue.search's own convention", () => {
+    const { registry } = harness();
+    const schema = registry.manifest().operations.find((op) => op.name === "issue.list")?.inputSchema as { properties?: Record<string, unknown> };
+    const properties = Object.keys(schema.properties ?? {});
+    expect(properties).toEqual(expect.arrayContaining(["backend", "project", "status", "assignee", "labels", "limit"]));
+    expect(properties).not.toContain("filter");
+  });
+
+  it("issue.list forwards flat project/status/limit tool args into the real repository's ListFilter, unchanged behavior from the RPC/CLI's own nested-filter contract", async () => {
+    const db = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS] });
+    const ledger = new Ledger(db);
+    const focusStore = new FocusStore(db);
+    const jira = new FakeRepository("jira", [
+      { ref: "jira:PROJ-1", id: "1", key: "PROJ-1", title: "First", status: "todo", priority: "none", url: "https://example/PROJ-1" },
+    ]);
+    const service = new TicketService({ jira });
+    const registry = createTicketsVehicleRegistry({ service, ledger, focusStore, token: "test-token", version: "0.0.0-test" });
+
+    await registry.invoke("issue.list", 1, { backend: "jira", project: "ENG", status: "todo", limit: 5 }, PERMS);
+
+    expect(jira.lastListCall).toEqual({ project: "ENG", status: "todo", limit: 5 });
+    db.close();
+  });
+
   it("issue.get resolves a real issue by ref", async () => {
     const { registry } = harness();
     const result = (await registry.invoke("issue.get", 1, { ref: "github:#1" }, PERMS)) as { issue: { title: string } };
