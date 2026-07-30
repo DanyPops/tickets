@@ -1,5 +1,5 @@
 /**
- * tickets' own contribution to daemon-kit's shared /secrets namespace: the
+ * tickets' own contribution to vehicle-client-pi's shared /secrets namespace: the
  * local OAuth token-store directory every `tickets auth login` writes to
  * (github/gitlab/jira profiles), plus the three static-token env vars
  * tickets' config falls back to. Also declares tickets itself as a
@@ -14,10 +14,10 @@
  * in it regardless of load order.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerSharedSecretsCommand, type SecretsContribution } from "@danypops/daemon-kit/secrets-tui";
-import { createEnvSecretsBackend } from "@danypops/daemon-kit/secrets-backend-env";
-import { createLocalSecretsBackend } from "@danypops/daemon-kit/secrets-backend-local";
-import type { SecretsBackend } from "@danypops/daemon-kit/secrets-backend";
+import { registerSharedSecretsCommand, type SecretsContribution } from "@danypops/vehicle-client-pi/secrets-tui";
+import { createEnvSecretsBackend } from "@danypops/vehicle-client-pi/secrets-backend-env";
+import { createLocalSecretsBackend } from "@danypops/vehicle-client-pi/secrets-backend-local";
+import type { SecretsBackend } from "@danypops/vehicle-client-pi/secrets-backend";
 import { tokenStoreDir } from "@danypops/tickets";
 
 const TICKETS_BACKEND_NAMES = ["github", "gitlab", "jira"];

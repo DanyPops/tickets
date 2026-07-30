@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { openSqliteWithPragmas } from "@danypops/daemon-kit/storage";
+import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { Ledger, LEDGER_MIGRATIONS } from "../../src/daemon/ledger.js";
 import type { Issue } from "../../src/domain/issue.js";
 

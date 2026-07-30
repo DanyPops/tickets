@@ -7,9 +7,9 @@
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { DaemonHandle } from "@danypops/daemon-kit/paths";
-import { ensureAuthToken, readDaemonHandle, resolveDaemonPaths } from "@danypops/daemon-kit/paths";
-import { AuthenticatedRpcClient } from "@danypops/daemon-kit/rpc-client";
+import type { DaemonHandle } from "@danypops/vehicle-server/paths";
+import { ensureAuthToken, readDaemonHandle, resolveDaemonPaths } from "@danypops/vehicle-server/paths";
+import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import { packageRoot } from "../util/package-root.js";
 import { TICKETS_DAEMON_NAMES, type TicketOpInputs, type TicketOperation, type TicketOpOutputs } from "../daemon/ops.js";
 

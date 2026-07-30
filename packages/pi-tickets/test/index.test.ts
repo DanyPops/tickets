@@ -139,7 +139,7 @@ describe("pi-tickets dispatch", () => {
 
 describe("extension registration", () => {
   it("registers exactly one tool named 'tickets', the /tickets command, contributes to the shared /secrets namespace, and its event handlers", async () => {
-    const { __resetSecretsRegistryForTests, listSecretsContributors } = await import("@danypops/daemon-kit/secrets-registry");
+    const { __resetSecretsRegistryForTests, listSecretsContributors } = await import("@danypops/vehicle-client-pi/secrets-registry");
     __resetSecretsRegistryForTests();
     const registered: { name: string }[] = [];
     const commands: string[] = [];

@@ -9,7 +9,7 @@
  * ticket in real life replaces what you were just looking at.
  */
 import type { Database } from "bun:sqlite";
-import type { Migration } from "@danypops/daemon-kit/storage";
+import type { Migration } from "@danypops/vehicle-server/storage";
 
 export const FOCUS_MIGRATIONS: Migration[] = [
   {

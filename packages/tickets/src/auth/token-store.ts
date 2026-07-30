@@ -1,9 +1,9 @@
 /**
  * Local, per-backend persistence for delegated OAuth tokens — separate from
- * daemon-kit's own daemon-auth token (paths.token, which authenticates RPC
+ * vehicle-server's own daemon-auth token (paths.token, which authenticates RPC
  * callers to the daemon). This one holds what the daemon uses to authenticate
  * *to* GitHub/GitLab/Jira on the user's behalf. Same security posture as
- * daemon-kit's ensureAuthToken: 0700 directory, 0600 files, atomic write.
+ * vehicle-server's ensureAuthToken: 0700 directory, 0600 files, atomic write.
  */
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
