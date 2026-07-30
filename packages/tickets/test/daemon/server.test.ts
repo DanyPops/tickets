@@ -5,6 +5,7 @@ import { TicketService } from "../../src/application/service.js";
 import { buildApp } from "../../src/daemon/server.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/daemon/focus.js";
 import { Ledger, LEDGER_MIGRATIONS } from "../../src/daemon/ledger.js";
+import { createTicketsVehicleRegistry } from "../../src/vehicle/tickets-vehicle.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
 const TOKEN = "test-token";
@@ -23,7 +24,8 @@ function makeApp() {
     { ref: "github:#1", id: "1", key: "#1", title: "First", status: "todo", priority: "none", url: "https://github.com/acme/widgets/issues/1" },
   ]);
   const service = new TicketService({ github });
-  const app = buildApp({ service, ledger, focusStore, token: TOKEN, version: "0.0.0-test" });
+  const baseDeps = { service, ledger, focusStore, token: TOKEN, version: "0.0.0-test" };
+  const app = buildApp({ ...baseDeps, vehicleRegistry: createTicketsVehicleRegistry(baseDeps) });
   return { app, ledger, focusStore, service };
 }
 
@@ -175,7 +177,7 @@ describe("daemon HTTP surface", () => {
     const focusStore = new FocusStore(db);
     const service = new TicketService({});
     let calls = 0;
-    const app = buildApp({
+    const baseDeps = {
       service,
       ledger,
       focusStore,
@@ -184,7 +186,8 @@ describe("daemon HTTP surface", () => {
       onShutdownRequested: () => {
         calls++;
       },
-    });
+    };
+    const app = buildApp({ ...baseDeps, vehicleRegistry: createTicketsVehicleRegistry(baseDeps) });
 
     const res = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "daemon.shutdown", input: {} }) }));
     expect(res.status).toBe(200);

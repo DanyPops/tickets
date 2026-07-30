@@ -16,8 +16,9 @@ import type { IssueRepository } from "../ports/repository.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "./focus.js";
 import { Ledger, LEDGER_MIGRATIONS } from "./ledger.js";
 import { TICKETS_DAEMON_NAMES } from "./ops.js";
-import { buildApp } from "./server.js";
+import { buildApp, type TicketsAppDeps } from "./server.js";
 import { createSyncTask } from "./poller.js";
+import { createTicketsVehicleRegistry } from "../vehicle/tickets-vehicle.js";
 
 export interface BootstrapOptions {
   pathEnv?: PathEnvironment;
@@ -69,6 +70,13 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
   const repos = opts.repos ?? (await buildRepos(config));
   const service = new TicketService(repos);
   const version = opts.version ?? "0.0.0-dev";
+  const onShutdownRequested = opts.onShutdownRequested ?? (() => process.kill(process.pid, "SIGTERM"));
+
+  // Built from the same base deps buildApp's TicketsAppDeps describes, minus
+  // the registry field itself -- createTicketsVehicleRegistry never reads
+  // deps.vehicleRegistry, so this ordering is safe (see server.ts's own
+  // comment on why the registry is built outside it, not imported into it).
+  const vehicleRegistry = createTicketsVehicleRegistry({ service, ledger, focusStore, token, version, logger, onShutdownRequested } as TicketsAppDeps);
 
   const options: StartDaemonOptions = {
     daemonLabel: "Tickets",
@@ -95,7 +103,8 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
         token,
         version,
         logger,
-        onShutdownRequested: opts.onShutdownRequested ?? (() => process.kill(process.pid, "SIGTERM")),
+        onShutdownRequested,
+        vehicleRegistry,
       }),
     onShutdown: () => {
       db.close();

@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@danypops/vehicle-core": "^0.1.1",
     "@danypops/vehicle-server": "^0.1.1",
     "@danypops/vehicle-client": "^0.1.1",
     "@danypops/enigma-client": "^0.3.0",

@@ -32,6 +32,7 @@
       "dependencies": {
         "@danypops/enigma-client": "^0.3.0",
         "@danypops/vehicle-client": "^0.1.1",
+        "@danypops/vehicle-core": "^0.1.1",
         "@danypops/vehicle-server": "^0.1.1",
         "@gitbeaker/rest": "^43.8.0",
         "commander": "^12.1.0",
@@ -110,7 +111,7 @@
 
     "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.1.1", "", { "dependencies": { "@danypops/vehicle-core": "^0.1.0", "@danypops/vehicle-server": "^0.1.1" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-kZldXY/sIAHxaqB13xGJ5Lud0QUBtkj8ZBc6Trs0xau7Pe7LqsLGiOgWXj48rwXRP5bTY9kNFITazhoJc1U5Ww=="],
 
-    "@danypops/vehicle-core": ["@danypops/vehicle-core@0.1.0", "", {}, "sha512-E/mQizWNZTBm9ckOwKP0MWU3U7tVYBdN3Snfng2xJObmxNIvP71RSPK4t5erAwtblIwNJDUEdn86HTOiAWTyoQ=="],
+    "@danypops/vehicle-core": ["@danypops/vehicle-core@0.1.1", "", {}, "sha512-aj02iT0V2BpVP4GTI6vWQ+/C56UPzztvYyio3X7fnSXY7IvTaZ5z51Se2G8wmw+4qmS2/n3mx88IvZImaziEeQ=="],
 
     "@danypops/vehicle-server": ["@danypops/vehicle-server@0.1.1", "", { "dependencies": { "@danypops/vehicle-core": "^0.1.0", "pino": "^10.3.1" } }, "sha512-7yOxstICfQ9W77CjwvCrDI93lGxFTl1SeAy8SJXM5MfzGXlov2TlpUTRzbb9Sv+t5W+jNVcOs4iZHsaUGRDgrA=="],
 
