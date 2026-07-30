@@ -14,11 +14,13 @@
  * both belong to a human at a terminal (`tickets auth login`, `tickets
  * daemon stop`), not a `/` command an LLM conversation could trigger.
  */
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
-import { createTicketsClient, type EnsureDaemonOptions, type Issue, openUrl, type TicketFocusState, type TicketsRpcClient } from "@danypops/tickets";
-import { renderKanbanBoard } from "./board-view.js";
+import { type Comment, createTicketsClient, type EnsureDaemonOptions, type Issue, openUrl, type TicketFocusState, type TicketsRpcClient } from "@danypops/tickets";
+import { KanbanBoardComponent } from "./board-view.js";
+import { IssueDetailComponent } from "./issue-detail-view.js";
+import { pushView } from "./navigation.js";
 import { isTicketsVehicleTool } from "./vehicle-client.js";
 
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
@@ -356,48 +358,36 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       }
 
       const boardName = name;
-      await ctx.ui.custom<void>((tui, theme, _kb, done) => {
-        let offsetY = 0;
-        let lines: string[] = [];
-        let renderedWidth = 0;
-        const visibleRows = 20;
-
-        const build = (width: number) => {
-          if (renderedWidth === width) return;
-          renderedWidth = width;
-          lines = renderKanbanBoard(issues, theme, width);
-        };
-
-        return {
-          render: (width: number) => {
-            build(width);
-            const end = Math.min(lines.length, offsetY + visibleRows);
-            const footer = [
-              lines.length > visibleRows ? `\u2191\u2193 scroll \u2022 ${offsetY + 1}-${end}/${lines.length}` : "",
-              "esc close",
-            ].filter(Boolean).join(" \u2022 ");
-            return [
-              theme.fg("accent", theme.bold(`Board: ${boardName}`)),
-              ...lines.slice(offsetY, end),
-              theme.fg("dim", footer),
-            ];
-          },
-          invalidate: () => {
-            renderedWidth = 0;
-          },
-          handleInput: (data: string) => {
-            if (data === "\x1b") {
-              done();
-              return;
+      await pushView<void>(ctx, (tui, theme, _kb, done) =>
+        new KanbanBoardComponent(tui, theme, issues, boardName, {
+          onOpenIssue: (issue) => showIssueDetail(ctx, client, issue.ref),
+          onOpenUrl: (issue) => {
+            if (!issue.url) return;
+            try {
+              open(issue.url);
+            } catch {
+              // headless/no-DISPLAY environment -- nothing more to do from inside the board.
             }
-            if (data === "\r" || data === "\n") return;
-            const maxOffset = Math.max(0, lines.length - visibleRows);
-            if (data === "\x1b[A" || data === "k") offsetY = Math.max(0, offsetY - 1);
-            else if (data === "\x1b[B" || data === "j") offsetY = Math.min(maxOffset, offsetY + 1);
-            tui.requestRender();
           },
-        };
-      });
+          onClose: done,
+        }));
     },
   });
+
+  async function showIssueDetail(ctx: ExtensionCommandContext, client: TicketsRpcClient, ref: string): Promise<void> {
+    let issue: Issue;
+    try {
+      ({ issue } = await client.call("issue.get", { ref }));
+    } catch (err) {
+      ctx.ui.notify(`error loading ${ref}: ${err instanceof Error ? err.message : String(err)}`, "error");
+      return;
+    }
+    let comments: Comment[] = [];
+    try {
+      ({ comments } = await client.call("issue.comments", { ref }));
+    } catch {
+      // Comments unsupported or unreachable for this backend -- show the issue without them rather than failing the whole view.
+    }
+    await pushView<void>(ctx, (tui, theme, _kb, done) => new IssueDetailComponent(tui, theme, issue, comments, done));
+  }
 }

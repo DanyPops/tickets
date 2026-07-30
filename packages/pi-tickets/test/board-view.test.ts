@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import type { Issue } from "@danypops/tickets";
-import { epicBadgeColor, groupIssuesByColumn, MAX_CARDS_PER_COLUMN, renderKanbanBoard } from "../src/board-view.js";
+import { epicBadgeColor, groupIssuesByColumn, KanbanBoardComponent, renderKanbanBoard } from "../src/board-view.js";
 
 /**
  * Real ANSI SGR codes (not bracket tags) so visibleWidth/truncateToWidth --
@@ -13,6 +13,10 @@ const fakeTheme = {
   fg: (_color: string, text: string) => `\x1b[38;5;1m${text}\x1b[39m`,
   bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
 } as unknown as import("@earendil-works/pi-coding-agent").Theme;
+
+function fakeTui(rows = 40) {
+  return { terminal: { rows }, requestRender: mock(() => {}) } as unknown as import("@earendil-works/pi-tui").TUI;
+}
 
 function stripAnsi(text: string): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping real terminal escape sequences is the point
@@ -75,7 +79,7 @@ describe("renderKanbanBoard", () => {
   ];
 
   it("renders all four column headers with their own counts", () => {
-    const rows = renderKanbanBoard(issues, fakeTheme, 120).join("\n");
+    const rows = renderKanbanBoard(issues, fakeTheme, 120).lines.join("\n");
     expect(rows).toContain("TO DO: 1");
     expect(rows).toContain("IN PROGRESS: 1");
     expect(rows).toContain("REVIEW: 0");
@@ -83,7 +87,7 @@ describe("renderKanbanBoard", () => {
   });
 
   it("includes the card's key, epic title, labels, story points, and assignee initials", () => {
-    const rows = renderKanbanBoard(issues, fakeTheme, 120).join("\n");
+    const rows = renderKanbanBoard(issues, fakeTheme, 120).lines.join("\n");
     expect(rows).toContain("First card");
     expect(rows).toContain("Epic One");
     expect(rows).toContain("\u2039red-team\u203a");
@@ -92,16 +96,112 @@ describe("renderKanbanBoard", () => {
     expect(rows).toContain("JD");
   });
 
-  it("caps cards per column and shows a +N more footer instead of an unbounded render", () => {
-    const many = Array.from({ length: MAX_CARDS_PER_COLUMN + 3 }, (_, i) => issue({ ref: `a:${i}`, key: `ENG-${i}`, title: `card ${i}`, status: "todo" }));
-    const rows = renderKanbanBoard(many, fakeTheme, 120).join("\n");
-    expect(rows).toContain("+3 more");
-    expect(rows).not.toContain("card 10"); // 11th card (index 10) is beyond the 8-card cap
+  it("does not cap cards per column -- every issue is rendered so selection can reach any of them", () => {
+    const many = Array.from({ length: 20 }, (_, i) => issue({ ref: `a:${i}`, key: `ENG-${i}`, title: `card ${i}`, status: "todo" }));
+    const board = renderKanbanBoard(many, fakeTheme, 120);
+    expect(board.columns[0]).toHaveLength(20);
+    expect(board.lines.join("\n")).toContain("card 19");
   });
 
   it("every rendered row is padded to the same total width, so columns stay aligned", () => {
-    const rows = renderKanbanBoard(issues, fakeTheme, 100);
+    const rows = renderKanbanBoard(issues, fakeTheme, 100).lines;
     const widths = new Set(rows.map((row) => stripAnsi(row).length));
     expect(widths.size).toBe(1);
+  });
+
+  it("returns a cardRanges row range for every rendered card, in column/index order matching `columns`", () => {
+    const board = renderKanbanBoard(issues, fakeTheme, 120);
+    expect(board.cardRanges[0]).toHaveLength(1); // TO DO has ENG-1
+    expect(board.cardRanges[1]).toHaveLength(1); // IN PROGRESS has ENG-2
+    const range = board.cardRanges[0]![0]!;
+    expect(range.end).toBeGreaterThanOrEqual(range.start);
+    expect(board.lines[range.start]).toContain("First card");
+  });
+});
+
+describe("KanbanBoardComponent", () => {
+  const issues: Issue[] = [
+    issue({ ref: "a:1", key: "ENG-1", title: "Todo one", status: "todo" }),
+    issue({ ref: "a:2", key: "ENG-2", title: "Todo two", status: "todo" }),
+    issue({ ref: "a:3", key: "ENG-3", title: "In progress one", status: "in_progress" }),
+  ];
+
+  it("selects the first non-empty column on construction and highlights that card", () => {
+    const tui = fakeTui();
+    const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });
+    const rendered = board.render(120).join("\n");
+    expect(rendered).toContain("Todo one");
+    expect(rendered).toContain("Board: sprint");
+  });
+
+  it("down moves selection within a column; enter opens the newly selected issue", async () => {
+    const tui = fakeTui();
+    const opened: Issue[] = [];
+    const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", {
+      onOpenIssue: async (issue) => { opened.push(issue); },
+      onClose: () => {},
+    });
+    board.render(120);
+    board.handleInput("\x1b[B"); // down
+    board.render(120);
+    board.handleInput("\r"); // enter
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(opened.map((i) => i.key)).toEqual(["ENG-2"]);
+  });
+
+  it("right moves selection to the next non-empty column, clamping the index", () => {
+    const tui = fakeTui();
+    const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });
+    board.render(120);
+    board.handleInput("\x1b[B"); // down -> ENG-2 (index 1 in TO DO)
+    board.handleInput("\x1b[C"); // right -> IN PROGRESS, only has index 0
+    board.handleInput("\r");
+    const opened: string[] = [];
+    // re-run with an onOpenIssue spy since the earlier board discarded it
+    const board2 = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", {
+      onOpenIssue: async (issue) => { opened.push(issue.key); },
+      onClose: () => {},
+    });
+    board2.render(120);
+    board2.handleInput("\x1b[B");
+    board2.handleInput("\x1b[C");
+    board2.handleInput("\r");
+    expect(opened).toEqual(["ENG-3"]);
+  });
+
+  it("left/right does not move past the edge columns", () => {
+    const tui = fakeTui();
+    const opened: string[] = [];
+    const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", {
+      onOpenIssue: async (issue) => { opened.push(issue.key); },
+      onClose: () => {},
+    });
+    board.render(120);
+    board.handleInput("\x1b[D"); // left from TO DO -- already the first column, no-op
+    board.handleInput("\r");
+    expect(opened).toEqual(["ENG-1"]);
+  });
+
+  it("escape calls onClose", () => {
+    const tui = fakeTui();
+    let closed = false;
+    const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", { onOpenIssue: async () => {}, onClose: () => { closed = true; } });
+    board.render(120);
+    board.handleInput("\x1b");
+    expect(closed).toBe(true);
+  });
+
+  it("'o' opens the selected issue's URL via onOpenUrl", () => {
+    const tui = fakeTui();
+    const withUrl = [{ ...issues[0]!, url: "https://example.invalid/ENG-1" }];
+    const opened: string[] = [];
+    const board = new KanbanBoardComponent(tui, fakeTheme, withUrl, "sprint", {
+      onOpenIssue: async () => {},
+      onOpenUrl: (issue) => { opened.push(issue.url!); },
+      onClose: () => {},
+    });
+    board.render(120);
+    board.handleInput("o");
+    expect(opened).toEqual(["https://example.invalid/ENG-1"]);
   });
 });
