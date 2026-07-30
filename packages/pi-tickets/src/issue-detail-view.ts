@@ -4,18 +4,17 @@
  * just to read it.
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, truncateToWidth, wrapTextWithAnsi, type Component, type TUI } from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type TUI } from "@earendil-works/pi-tui";
+import { buildDetailLines, type DetailField, type DetailSection, type TextMeasure } from "malevich-tui-components";
 import type { Comment, Issue } from "@danypops/tickets";
 
 const DETAIL_RESERVED_ROWS = 4;
 
-interface DetailLine {
-  text: string;
-}
+const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 
 export class IssueDetailComponent implements Component {
   private offsetY = 0;
-  private lines: DetailLine[] = [];
+  private lines: string[] = [];
   private renderedWidth = 0;
 
   constructor(
@@ -50,7 +49,7 @@ export class IssueDetailComponent implements Component {
       border,
       truncateToWidth(theme.fg("accent", theme.bold(`${this.issue.key}  ${this.issue.title}`)), width, ""),
       border,
-      ...this.lines.slice(this.offsetY, end).map((line) => truncateToWidth(` ${line.text}`, width, "")),
+      ...this.lines.slice(this.offsetY, end).map((line) => truncateToWidth(` ${line}`, width, "")),
       truncateToWidth(theme.fg("dim", footer), width, ""),
       border,
     ];
@@ -77,12 +76,10 @@ export class IssueDetailComponent implements Component {
 
   private buildLines(width: number): void {
     const theme = this.theme;
-    const wrap = (text: string, color: "text" | "muted" | "dim" = "text"): DetailLine[] =>
-      (text.length === 0 ? [""] : wrapTextWithAnsi(theme.fg(color, text), width)).map((text) => ({ text }));
-    const field = (label: string, value: string | undefined): DetailLine[] => (value ? wrap(`${label}: ${value}`, "muted") : []);
-
     const issue = this.issue;
-    const fields: DetailLine[] = [
+    const field = (label: string, value: string | undefined): DetailField[] => (value ? [{ label, value }] : []);
+
+    const fields: DetailField[] = [
       ...field("Status", issue.rawStatus ?? issue.status),
       ...field("Priority", issue.priority),
       ...field("Assignee", issue.assignee),
@@ -97,23 +94,26 @@ export class IssueDetailComponent implements Component {
       ...field("URL", issue.url),
     ];
 
-    const description = issue.description?.trim()
-      ? [{ text: "" }, ...wrap("Description:", "muted"), { text: "" }, ...wrap(issue.description)]
-      : [];
+    const sections: DetailSection[] = [];
+    if (issue.description?.trim()) sections.push({ heading: "Description:", body: issue.description });
+    if (this.comments.length > 0) {
+      sections.push({
+        heading: `Comments (${this.comments.length}):`,
+        items: this.comments.map((comment) => ({ byline: `${comment.author ?? "unknown"} \u00b7 ${comment.createdAt ?? ""}`, body: comment.body })),
+      });
+    }
 
-    const comments = this.comments.length > 0
-      ? [
-          { text: "" },
-          ...wrap(`Comments (${this.comments.length}):`, "muted"),
-          ...this.comments.flatMap((comment) => [
-            { text: "" },
-            ...wrap(`${comment.author ?? "unknown"} \u00b7 ${comment.createdAt ?? ""}`, "dim"),
-            ...wrap(comment.body),
-          ]),
-        ]
-      : [];
-
-    this.lines = [...fields, ...description, ...comments];
+    this.lines = buildDetailLines(width, {
+      fields,
+      sections,
+      measure,
+      theme: {
+        field: (s) => theme.fg("muted", s),
+        heading: (s) => theme.fg("muted", s),
+        byline: (s) => theme.fg("dim", s),
+        body: (s) => theme.fg("text", s),
+      },
+    });
     this.offsetY = 0;
   }
 }
