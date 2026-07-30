@@ -18,9 +18,11 @@ export type { FocusStatus, TicketFocusState } from "./daemon/focus.js";
 export {
   createTicketsClient,
   ensureDaemonRunning,
+  resolveVehicleClientTarget,
   ticketsPaths,
   type EnsureDaemonOptions,
   type TicketsRpcClient,
+  type VehicleClientTarget,
 } from "./client/tickets-client.js";
 
 // Delegated OAuth (device flow for GitHub/GitLab, authorization code for Jira)
