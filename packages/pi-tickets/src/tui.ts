@@ -7,6 +7,13 @@
  * straight to a cross-backend search over the pooled ledger -- the
  * quick-search shortcut stays a one-shot command.
  *
+ * The provider picker itself: Tab cycles the highlighted provider (wraps
+ * at the end); 'h'/'l'/'j' instantly pick GitHub/GitLab/Jira without
+ * navigating first (each letter is a real, distinct substring of the
+ * product name -- "Hub"/"Lab"/"Jira" -- not just a first letter, and only
+ * fires for a backend that's actually configured); 's' jumps straight to
+ * the shared /secrets flow and returns to the still-open picker afterward.
+ *
  * Enter sets focus, 'v' opens the full ticket detail view, 'o' opens the
  * issue's real web URL in a browser. A footer status always shows the
  * current focus so it's visible outside the dialog too, refreshed on
@@ -21,8 +28,9 @@
  */
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { type SelectItem, SelectList } from "@earendil-works/pi-tui";
+import { matchesKey, type SelectItem, SelectList } from "@earendil-works/pi-tui";
 import { BorderedSelectPanel } from "malevich-tui-components";
+import { listSecretsContributors, mergeSecretsContributions, runSecretsCommand } from "@danypops/vehicle-client-pi/secrets-tui";
 import { type Comment, createTicketsClient, type EnsureDaemonOptions, type Issue, openUrl, type TicketFocusState, type TicketsRpcClient } from "@danypops/tickets";
 import { KanbanBoardComponent } from "./board-view.js";
 import { IssueDetailComponent } from "./issue-detail-view.js";
@@ -31,6 +39,10 @@ import { isTicketsVehicleTool } from "./vehicle-client.js";
 
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
 const BROWSE_LIMIT = 100;
+/** The down-arrow's own raw sequence -- forwarded to SelectList.handleInput() so Tab reuses its existing wrap-at-bottom cycling instead of reimplementing it. */
+const DOWN_ARROW = "\x1b[B";
+/** First letter that's actually distinct within the real product name (GitHub/GitLab share a G, so "Hub"/"Lab" are what's unique) -- instant-select, not just filter-as-you-type. Only fires for a backend that's actually configured. */
+const PROVIDER_MNEMONICS: Record<string, string> = { h: "github", l: "gitlab", j: "jira" };
 
 type SavedQuerySummary = { name: string; backend: string; query: string; description?: string };
 type BackendCapability = { name: string; supportsRawQuery: boolean };
@@ -41,6 +53,14 @@ export interface TicketsTuiDeps {
   getClient?: (opts?: EnsureDaemonOptions) => Promise<TicketsRpcClient>;
   /** Overridden in tests instead of actually spawning a browser process. */
   openUrl?: (url: string) => void;
+  /** Overridden in tests instead of opening the real, shared /secrets flow. */
+  openSettings?: (ctx: ExtensionCommandContext) => Promise<void>;
+}
+
+/** The same merge the shared `/secrets` command itself performs, invoked directly so 's' inside the provider picker can jump straight there without leaving /tickets. */
+async function openTicketsSettings(ctx: ExtensionCommandContext): Promise<void> {
+  const resolved = await Promise.all(listSecretsContributors().map((c) => c.resolve()));
+  await runSecretsCommand(ctx, mergeSecretsContributions(resolved));
 }
 
 /** Known backend identifiers get their real product name; anything else falls back to a capitalized identifier. */
@@ -68,6 +88,7 @@ function issueDescription(issue: Issue, focusedRef: string | undefined): string 
 export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}): void {
   const getClient = deps.getClient ?? createTicketsClient;
   const open = deps.openUrl ?? openUrl;
+  const openSettings = deps.openSettings ?? openTicketsSettings;
 
   async function refreshStatus(ctx: ExtensionContext, client?: TicketsRpcClient): Promise<void> {
     try {
@@ -137,7 +158,51 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       label: backendDisplayName(b.name),
       description: b.supportsRawQuery ? "Issues, saved queries, and board view" : "Issues",
     }));
-    const picked = await pickFromList(ctx, "Tickets", items, "\u2191\u2193 navigate \u2022 enter select \u2022 esc cancel");
+
+    const picked = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+      const selectList = new SelectList(items, Math.min(items.length, 12), {
+        selectedPrefix: (t: string) => theme.fg("accent", t),
+        selectedText: (t: string) => theme.fg("accent", t),
+        description: (t: string) => theme.fg("muted", t),
+        scrollInfo: (t: string) => theme.fg("dim", t),
+        noMatch: (t: string) => theme.fg("warning", t),
+      });
+      selectList.onSelect = (item) => done(item.value);
+      selectList.onCancel = () => done(null);
+      const panel = new BorderedSelectPanel({
+        title: "Tickets",
+        list: selectList,
+        helpText: "\u2191\u2193/tab navigate \u2022 enter select \u2022 h GitHub \u2022 l GitLab \u2022 j Jira \u2022 s settings \u2022 esc cancel",
+        theme: {
+          border: (s: string) => theme.fg("accent", s),
+          title: (s: string) => theme.fg("accent", theme.bold(s)),
+          help: (s: string) => theme.fg("dim", s),
+        },
+      });
+      return {
+        render: (w: number) => panel.render(w),
+        invalidate: () => panel.invalidate(),
+        handleInput: (data: string) => {
+          if (matchesKey(data, "tab")) {
+            selectList.handleInput(DOWN_ARROW); // reuses SelectList's own wrap-at-bottom cycling
+            tui.requestRender();
+            return;
+          }
+          const mnemonicBackend = PROVIDER_MNEMONICS[data];
+          if (mnemonicBackend && items.some((i) => i.value === mnemonicBackend)) {
+            done(mnemonicBackend);
+            return;
+          }
+          if (data === "s") {
+            void openSettings(ctx).then(() => tui.requestRender());
+            return;
+          }
+          panel.handleInput(data);
+          tui.requestRender();
+        },
+      };
+    });
+
     return picked === null ? null : (backends.find((b) => b.name === picked) ?? null);
   }
 
