@@ -1,6 +1,6 @@
 {
   "name": "@danypops/tickets",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Unified CLI, daemon, and TypeScript library for issue tracking across GitHub, GitLab, and Jira.",
   "type": "module",
   "license": "MIT",
@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "@danypops/vehicle-core": "^0.1.1",
-    "@danypops/vehicle-server": "^0.1.1",
+    "@danypops/vehicle-server": "^0.2.1",
     "@danypops/vehicle-client": "^0.1.1",
     "@danypops/enigma-client": "^0.3.0",
     "@gitbeaker/rest": "^43.8.0",
