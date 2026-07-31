@@ -7,8 +7,11 @@
  * straight to a cross-backend search over the pooled ledger -- the
  * quick-search shortcut stays a one-shot command.
  *
- * The provider picker itself: Tab cycles the highlighted provider (wraps
- * at the end); 'h'/'l'/'j' instantly pick GitHub/GitLab/Jira without
+ * The provider picker itself is a tmux-style horizontal tab bar, not a
+ * vertical list -- one line of provider names with the highlighted one in
+ * reverse video, a line describing what that provider offers, then the
+ * keybinding hint. Left/right and Tab/Shift+Tab flip between tabs
+ * (wrapping); 'h'/'l'/'j' instantly pick GitHub/GitLab/Jira without
  * navigating first (each letter is a real, distinct substring of the
  * product name -- "Hub"/"Lab"/"Jira" -- not just a first letter, and only
  * fires for a backend that's actually configured); 's' jumps straight to
@@ -28,7 +31,7 @@
  */
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, type SelectItem, SelectList } from "@earendil-works/pi-tui";
+import { type KeyId, matchesKey, type SelectItem, SelectList } from "@earendil-works/pi-tui";
 import { BorderedSelectPanel } from "malevich-tui-components";
 import { listSecretsContributors, mergeSecretsContributions, runSecretsCommand } from "@danypops/vehicle-client-pi/secrets-tui";
 import { type Comment, createTicketsClient, type EnsureDaemonOptions, type Issue, openUrl, type TicketFocusState, type TicketsRpcClient } from "@danypops/tickets";
@@ -39,8 +42,6 @@ import { isTicketsVehicleTool } from "./vehicle-client.js";
 
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
 const BROWSE_LIMIT = 100;
-/** The down-arrow's own raw sequence -- forwarded to SelectList.handleInput() so Tab reuses its existing wrap-at-bottom cycling instead of reimplementing it. */
-const DOWN_ARROW = "\x1b[B";
 /** First letter that's actually distinct within the real product name (GitHub/GitLab share a G, so "Hub"/"Lab" are what's unique) -- instant-select, not just filter-as-you-type. Only fires for a backend that's actually configured. */
 const PROVIDER_MNEMONICS: Record<string, string> = { h: "github", l: "gitlab", j: "jira" };
 
@@ -153,52 +154,51 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
     }
     if (backends.length === 1) return backends[0]!;
 
-    const items: SelectItem[] = backends.map((b) => ({
-      value: b.name,
-      label: backendDisplayName(b.name),
-      description: b.supportsRawQuery ? "Issues, saved queries, and board view" : "Issues",
-    }));
-
     const picked = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-      const selectList = new SelectList(items, Math.min(items.length, 12), {
-        selectedPrefix: (t: string) => theme.fg("accent", t),
-        selectedText: (t: string) => theme.fg("accent", t),
-        description: (t: string) => theme.fg("muted", t),
-        scrollInfo: (t: string) => theme.fg("dim", t),
-        noMatch: (t: string) => theme.fg("warning", t),
-      });
-      selectList.onSelect = (item) => done(item.value);
-      selectList.onCancel = () => done(null);
-      const panel = new BorderedSelectPanel({
-        title: "Tickets",
-        list: selectList,
-        helpText: "\u2191\u2193/tab navigate \u2022 enter select \u2022 h GitHub \u2022 l GitLab \u2022 j Jira \u2022 s settings \u2022 esc cancel",
-        theme: {
-          border: (s: string) => theme.fg("accent", s),
-          title: (s: string) => theme.fg("accent", theme.bold(s)),
-          help: (s: string) => theme.fg("dim", s),
-        },
-      });
+      let index = 0;
+      const move = (delta: number) => {
+        index = (index + delta + backends.length) % backends.length;
+        tui.requestRender();
+      };
+      const helpText = "\u2190\u2192/tab flip \u2022 enter select \u2022 h GitHub \u2022 l GitLab \u2022 j Jira \u2022 s settings \u2022 esc cancel";
       return {
-        render: (w: number) => panel.render(w),
-        invalidate: () => panel.invalidate(),
+        render: () => {
+          const tabsLine = backends
+            .map((b, i) => {
+              const label = ` ${backendDisplayName(b.name)} `;
+              return i === index ? theme.inverse(label) : theme.fg("dim", label);
+            })
+            .join(" ");
+          const capability = backends[index]!.supportsRawQuery ? "Issues, saved queries, and board view" : "Issues";
+          return [tabsLine, theme.fg("muted", capability), theme.fg("dim", helpText)];
+        },
+        invalidate: () => {},
         handleInput: (data: string) => {
-          if (matchesKey(data, "tab")) {
-            selectList.handleInput(DOWN_ARROW); // reuses SelectList's own wrap-at-bottom cycling
-            tui.requestRender();
+          if (matchesKey(data, "escape")) {
+            done(null);
             return;
           }
-          const mnemonicBackend = PROVIDER_MNEMONICS[data];
-          if (mnemonicBackend && items.some((i) => i.value === mnemonicBackend)) {
-            done(mnemonicBackend);
+          if (matchesKey(data, "enter")) {
+            done(backends[index]!.name);
             return;
           }
-          if (data === "s") {
+          if (matchesKey(data, "left") || matchesKey(data, "shift+tab")) {
+            move(-1);
+            return;
+          }
+          if (matchesKey(data, "right") || matchesKey(data, "tab")) {
+            move(1);
+            return;
+          }
+          for (const [key, backendName] of Object.entries(PROVIDER_MNEMONICS)) {
+            if (matchesKey(data, key as KeyId) && backends.some((b) => b.name === backendName)) {
+              done(backendName);
+              return;
+            }
+          }
+          if (matchesKey(data, "s")) {
             void openSettings(ctx).then(() => tui.requestRender());
-            return;
           }
-          panel.handleInput(data);
-          tui.requestRender();
         },
       };
     });

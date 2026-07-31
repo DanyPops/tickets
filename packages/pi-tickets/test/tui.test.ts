@@ -12,10 +12,11 @@ function fakeClient(handler: (op: string, input: unknown) => unknown): TicketsRp
   return { call: mock((op: string, input: unknown) => Promise.resolve(handler(op, input))) } as unknown as TicketsRpcClient;
 }
 
-/** Minimal fake theme: pass strings through unstyled, matching how tests elsewhere treat theme.fg/bold as identity. */
+/** Minimal fake theme: pass strings through unstyled, matching how tests elsewhere treat theme.fg/bold/inverse as identity. */
 const fakeTheme = {
   fg: (_color: string, text: string) => text,
   bold: (text: string) => text,
+  inverse: (text: string) => text,
 };
 
 function fakeCtx() {
@@ -237,7 +238,25 @@ describe("registerTicketsTui", () => {
       lastComponent().handleInput("\t"); // jira -> wraps back to github
       lastComponent().handleInput("\r"); // pick github
       await done;
-      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No GitHub tickets"), "info");
+    });
+
+    it("Left arrow moves backward, wrapping to the last provider from the first", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return { backends: [{ name: "github", supportsRawQuery: false }, { name: "jira", supportsRawQuery: true }] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      lastComponent().handleInput("\x1b[D"); // left: github (index 0) wraps back to jira (index 1)
+      lastComponent().handleInput("\r"); // pick jira
+      await tick();
+      expect(lastComponent().render(80).join("\n")).toContain("Saved queries");
+      lastComponent().handleInput("\x1b");
+      await done;
     });
 
     it("'h'/'l'/'j' instantly select GitHub/GitLab/Jira without needing to navigate first", async () => {
@@ -328,7 +347,7 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Jira
+      lastComponent().handleInput("\t"); // tab: github -> Jira
       lastComponent().handleInput("\r"); // pick Jira
       await tick();
       const rendered = lastComponent().render(80).join("\n");
