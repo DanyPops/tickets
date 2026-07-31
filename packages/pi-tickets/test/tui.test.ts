@@ -211,10 +211,11 @@ describe("registerTicketsTui", () => {
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
       lastComponent().handleInput("\t"); // Tab: github -> jira
-      lastComponent().handleInput("\r"); // pick the now-highlighted Jira
+      lastComponent().handleInput("\r"); // descend into Jira's own modes
       await tick();
       expect(lastComponent().render(80).join("\n")).toContain("Saved queries");
-      lastComponent().handleInput("\x1b");
+      lastComponent().handleInput("\x1b"); // back up to the provider tabs
+      lastComponent().handleInput("\x1b"); // cancel from the root
       await done;
     });
 
@@ -252,10 +253,11 @@ describe("registerTicketsTui", () => {
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
       lastComponent().handleInput("\x1b[D"); // left: github (index 0) wraps back to jira (index 1)
-      lastComponent().handleInput("\r"); // pick jira
+      lastComponent().handleInput("\r"); // descend into Jira's own modes
       await tick();
       expect(lastComponent().render(80).join("\n")).toContain("Saved queries");
-      lastComponent().handleInput("\x1b");
+      lastComponent().handleInput("\x1b"); // back up to the provider tabs
+      lastComponent().handleInput("\x1b"); // cancel from the root
       await done;
     });
 
@@ -270,10 +272,11 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("j"); // instantly pick Jira, the only raw-query backend
+      lastComponent().handleInput("j"); // instantly descends into Jira's own modes, the only raw-query backend
       await tick();
       expect(lastComponent().render(80).join("\n")).toContain("Board view");
-      lastComponent().handleInput("\x1b");
+      lastComponent().handleInput("\x1b"); // back up to the provider tabs
+      lastComponent().handleInput("\x1b"); // cancel from the root
       await done;
     });
 
@@ -348,13 +351,41 @@ describe("registerTicketsTui", () => {
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
       lastComponent().handleInput("\t"); // tab: github -> Jira
-      lastComponent().handleInput("\r"); // pick Jira
+      lastComponent().handleInput("\r"); // descend into Jira's own modes
       await tick();
       const rendered = lastComponent().render(80).join("\n");
       expect(rendered).toContain("Saved queries");
       expect(rendered).toContain("Board view");
-      lastComponent().handleInput("\x1b");
+      lastComponent().handleInput("\x1b"); // back up to the provider tabs
+      lastComponent().handleInput("\x1b"); // cancel from the root
       await done;
+    });
+
+    it("escape from a descended mode level climbs back to the provider tabs instead of canceling the whole flow", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return { backends: [{ name: "github", supportsRawQuery: false }, { name: "jira", supportsRawQuery: true }] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      lastComponent().handleInput("j"); // descend into Jira's own modes
+      await tick();
+      expect(lastComponent().render(80).join("\n")).toContain("Saved queries");
+
+      lastComponent().handleInput("\x1b"); // climbs back up, does not resolve or cancel
+      await tick();
+      const backAtRoot = lastComponent().render(80).join("\n");
+      expect(backAtRoot).toContain("GitHub");
+      expect(backAtRoot).toContain("Jira");
+      expect(ctx.ui.notify).not.toHaveBeenCalled();
+
+      lastComponent().handleInput("\x1b"); // a second escape, now at the root, actually cancels
+      await done;
+      expect(ctx.ui.notify).not.toHaveBeenCalled();
     });
   });
 
@@ -511,7 +542,7 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Saved queries
+      lastComponent().handleInput("\t"); // tab: Saved queries
       await tick();
       lastComponent().handleInput("\r");
       await done;
@@ -530,7 +561,7 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Saved queries
+      lastComponent().handleInput("\t"); // tab: Saved queries
       await tick();
       lastComponent().handleInput("\r");
       await done;
@@ -549,7 +580,7 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Saved queries
+      lastComponent().handleInput("\t"); // tab: Saved queries
       await tick();
       lastComponent().handleInput("\r"); // pick Saved queries mode
       await tick();
@@ -580,7 +611,7 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Saved queries
+      lastComponent().handleInput("\t"); // tab: Saved queries
       await tick();
       lastComponent().handleInput("\r"); // pick Saved queries mode
       await tick();
@@ -613,7 +644,7 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Saved queries
+      lastComponent().handleInput("\t"); // tab: Saved queries
       await tick();
       lastComponent().handleInput("\r"); // pick Saved queries mode
       await tick();
@@ -646,7 +677,7 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Saved queries
+      lastComponent().handleInput("\t"); // tab: Saved queries
       await tick();
       lastComponent().handleInput("\r"); // pick Saved queries mode
       await tick();
@@ -669,8 +700,8 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Saved queries
-      lastComponent().handleInput("\x1b[B"); // down again: Board view
+      lastComponent().handleInput("\t"); // tab: Saved queries
+      lastComponent().handleInput("\t"); // tab again: Board view
       await tick();
       lastComponent().handleInput("\r");
       await done;
@@ -693,8 +724,8 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Saved queries
-      lastComponent().handleInput("\x1b[B"); // down again: Board view
+      lastComponent().handleInput("\t"); // tab: Saved queries
+      lastComponent().handleInput("\t"); // tab again: Board view
       await tick();
       lastComponent().handleInput("\r"); // pick Board view mode
       await tick();
@@ -727,8 +758,8 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Saved queries
-      lastComponent().handleInput("\x1b[B"); // down again: Board view
+      lastComponent().handleInput("\t"); // tab: Saved queries
+      lastComponent().handleInput("\t"); // tab again: Board view
       await tick();
       lastComponent().handleInput("\r"); // pick Board view mode
       await tick();
@@ -768,8 +799,8 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\x1b[B"); // down: Saved queries
-      lastComponent().handleInput("\x1b[B"); // down again: Board view
+      lastComponent().handleInput("\t"); // tab: Saved queries
+      lastComponent().handleInput("\t"); // tab again: Board view
       await tick();
       lastComponent().handleInput("\r"); // pick Board view mode
       await tick();

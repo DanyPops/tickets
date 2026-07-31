@@ -7,15 +7,24 @@
  * straight to a cross-backend search over the pooled ledger -- the
  * quick-search shortcut stays a one-shot command.
  *
- * The provider picker itself is a tmux-style horizontal tab bar, not a
- * vertical list -- one line of provider names with the highlighted one in
- * reverse video, a line describing what that provider offers, then the
- * keybinding hint. Left/right and Tab/Shift+Tab flip between tabs
- * (wrapping); 'h'/'l'/'j' instantly pick GitHub/GitLab/Jira without
- * navigating first (each letter is a real, distinct substring of the
- * product name -- "Hub"/"Lab"/"Jira" -- not just a first letter, and only
- * fires for a backend that's actually configured); 's' jumps straight to
- * the shared /secrets flow and returns to the still-open picker afterward.
+ * The provider picker itself is one walkable tmux-style tab bar (Malevich's
+ * TabMenu), not a chain of separate dialogs: the root tabs are the
+ * configured providers, and a provider with a real query language (Jira's
+ * JQL today) has its own child tabs (Issues / Saved queries / Board view)
+ * one Enter-press down -- Escape climbs back up to the provider tabs
+ * instead of canceling the whole flow. A provider with only one real mode
+ * (GitHub/GitLab today) is a leaf: Enter resolves it directly. Left/right
+ * and Tab/Shift+Tab flip between tabs at the current level (wrapping);
+ * 'h'/'l'/'j' jump straight to GitHub/GitLab/Jira and activate them in one
+ * step (each letter is a real, distinct substring of the product name --
+ * "Hub"/"Lab"/"Jira" -- not just a first letter, and only fires for a
+ * backend that's actually configured); 's' jumps straight to the shared
+ * /secrets flow and returns to the still-open picker afterward.
+ *
+ * A level with only one real choice (a single configured backend, say) is
+ * never shown -- pickProviderAndMode compresses that singleton chain down
+ * to its own leaf/branch before ever building the TabMenu, rather than
+ * asking a user to confirm a choice that isn't actually one.
  *
  * Enter sets focus, 'v' opens the full ticket detail view, 'o' opens the
  * issue's real web URL in a browser. A footer status always shows the
@@ -32,7 +41,7 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type KeyId, matchesKey, type SelectItem, SelectList } from "@earendil-works/pi-tui";
-import { BorderedSelectPanel } from "malevich-tui-components";
+import { BorderedSelectPanel, TabMenu, type TabMenuNode } from "malevich-tui-components";
 import { listSecretsContributors, mergeSecretsContributions, runSecretsCommand } from "@danypops/vehicle-client-pi/secrets-tui";
 import { type Comment, createTicketsClient, type EnsureDaemonOptions, type Issue, openUrl, type TicketFocusState, type TicketsRpcClient } from "@danypops/tickets";
 import { KanbanBoardComponent } from "./board-view.js";
@@ -43,11 +52,14 @@ import { isTicketsVehicleTool } from "./vehicle-client.js";
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
 const BROWSE_LIMIT = 100;
 /** First letter that's actually distinct within the real product name (GitHub/GitLab share a G, so "Hub"/"Lab" are what's unique) -- instant-select, not just filter-as-you-type. Only fires for a backend that's actually configured. */
-const PROVIDER_MNEMONICS: Record<string, string> = { h: "github", l: "gitlab", j: "jira" };
+const PROVIDER_MNEMONICS: Record<string, string> = { github: "h", gitlab: "l", jira: "j" };
+/** Malevich's TabMenu takes a plain string keyId; pi-tui's matchesKey narrows it to its own closed KeyId union -- the picker only ever calls this with the fixed small set that's a real KeyId, so the cast is safe (same pattern as board-view.ts's boardKeyMatcher). */
+const providerKeyMatcher = (data: string, keyId: string) => matchesKey(data, keyId as KeyId);
 
 type SavedQuerySummary = { name: string; backend: string; query: string; description?: string };
 type BackendCapability = { name: string; supportsRawQuery: boolean };
 type ProviderMode = "issues" | "query" | "board";
+type ProviderSelection = { backend: string; mode: ProviderMode };
 
 export interface TicketsTuiDeps {
   /** Overridden in tests instead of spawning/reaching a real daemon. */
@@ -146,82 +158,78 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
   }
 
   /** Which configured backend to browse -- skips the picker outright when there's only one configured. Returns null on cancel or when none are configured. */
-  async function pickProvider(ctx: ExtensionCommandContext, client: TicketsRpcClient): Promise<BackendCapability | null> {
+  /** One node per configured backend; a backend with raw-query support gets its own child tabs for Issues/Saved queries/Board view, everything else is a leaf that resolves directly. */
+  function buildProviderTree(backends: BackendCapability[]): TabMenuNode<ProviderSelection>[] {
+    return backends.map((b): TabMenuNode<ProviderSelection> => {
+      const displayName = backendDisplayName(b.name);
+      const mnemonic = PROVIDER_MNEMONICS[b.name];
+      if (!b.supportsRawQuery) {
+        return { label: displayName, mnemonic, description: "Issues", value: { backend: b.name, mode: "issues" } };
+      }
+      return {
+        label: displayName,
+        mnemonic,
+        description: "Issues, saved queries, and board view",
+        children: [
+          { label: "Issues", description: `Browse & search ${displayName} issues`, value: { backend: b.name, mode: "issues" } },
+          { label: "Saved queries", description: "Run a saved JQL query -- e.g. a board's sprint or backlog", value: { backend: b.name, mode: "query" } },
+          { label: "Board view", description: "Kanban board (TO DO / IN PROGRESS / REVIEW / DONE) for a saved query", value: { backend: b.name, mode: "board" } },
+        ],
+      };
+    });
+  }
+
+  /** Descends through every singleton level (a lone backend, or a lone mode) before ever building a TabMenu, so a level with no real choice is never shown. */
+  function autoResolveProviderTree(nodes: TabMenuNode<ProviderSelection>[]): { resolved: ProviderSelection } | { nodes: TabMenuNode<ProviderSelection>[] } {
+    if (nodes.length !== 1) return { nodes };
+    const only = nodes[0]!;
+    if (only.children?.length) return autoResolveProviderTree(only.children);
+    return { resolved: only.value as ProviderSelection };
+  }
+
+  /** Which backend and mode to browse -- one walkable tab bar, not a chain of dialogs. Returns null when nothing is configured or the user cancels. */
+  async function pickProviderAndMode(ctx: ExtensionCommandContext, client: TicketsRpcClient): Promise<ProviderSelection | null> {
     const { backends } = await client.call("backends.list", {});
     if (backends.length === 0) {
       ctx.ui.notify("No backends configured yet -- set up GitHub/GitLab/Jira credentials first.", "info");
       return null;
     }
-    if (backends.length === 1) return backends[0]!;
 
-    const picked = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-      let index = 0;
-      const move = (delta: number) => {
-        index = (index + delta + backends.length) % backends.length;
-        tui.requestRender();
-      };
-      const helpText = "\u2190\u2192/tab flip \u2022 enter select \u2022 h GitHub \u2022 l GitLab \u2022 j Jira \u2022 s settings \u2022 esc cancel";
-      return {
-        render: () => {
-          const tabsLine = backends
-            .map((b, i) => {
-              const label = ` ${backendDisplayName(b.name)} `;
-              return i === index ? theme.inverse(label) : theme.fg("dim", label);
-            })
-            .join(" ");
-          const capability = backends[index]!.supportsRawQuery ? "Issues, saved queries, and board view" : "Issues";
-          return [tabsLine, theme.fg("muted", capability), theme.fg("dim", helpText)];
+    const auto = autoResolveProviderTree(buildProviderTree(backends));
+    if ("resolved" in auto) return auto.resolved;
+
+    return ctx.ui.custom<ProviderSelection | null>((tui, theme, _kb, done) => {
+      const menu = new TabMenu<ProviderSelection>({
+        nodes: auto.nodes,
+        theme: {
+          tab: (s: string) => theme.fg("dim", s),
+          activeTab: (s: string) => theme.inverse(s),
+          breadcrumb: (s: string) => theme.fg("accent", s),
+          description: (s: string) => theme.fg("muted", s),
+          help: (s: string) => theme.fg("dim", s),
         },
-        invalidate: () => {},
+        onSelect: (value) => done(value),
+        onCancel: () => done(null),
+        matchesKey: providerKeyMatcher,
+      });
+      return {
+        render: (w: number) => {
+          const lines = menu.render(w);
+          const last = lines.length - 1;
+          lines[last] = `${lines[last]}${theme.fg("dim", " \u2022 s settings")}`;
+          return lines;
+        },
+        invalidate: () => menu.invalidate(),
         handleInput: (data: string) => {
-          if (matchesKey(data, "escape")) {
-            done(null);
-            return;
-          }
-          if (matchesKey(data, "enter")) {
-            done(backends[index]!.name);
-            return;
-          }
-          if (matchesKey(data, "left") || matchesKey(data, "shift+tab")) {
-            move(-1);
-            return;
-          }
-          if (matchesKey(data, "right") || matchesKey(data, "tab")) {
-            move(1);
-            return;
-          }
-          for (const [key, backendName] of Object.entries(PROVIDER_MNEMONICS)) {
-            if (matchesKey(data, key as KeyId) && backends.some((b) => b.name === backendName)) {
-              done(backendName);
-              return;
-            }
-          }
           if (matchesKey(data, "s")) {
             void openSettings(ctx).then(() => tui.requestRender());
+            return;
           }
+          menu.handleInput(data);
+          tui.requestRender();
         },
       };
     });
-
-    return picked === null ? null : (backends.find((b) => b.name === picked) ?? null);
-  }
-
-  /** Which mode within a provider -- skips the picker when the backend only has one real mode (no raw-query support, e.g. GitHub/GitLab today). */
-  async function pickMode(ctx: ExtensionCommandContext, provider: BackendCapability): Promise<ProviderMode | null> {
-    if (!provider.supportsRawQuery) return "issues";
-
-    const displayName = backendDisplayName(provider.name);
-    const picked = await pickFromList(
-      ctx,
-      displayName,
-      [
-        { value: "issues", label: "Issues", description: `Browse & search ${displayName} issues` },
-        { value: "query", label: "Saved queries", description: "Run a saved JQL query -- e.g. a board's sprint or backlog" },
-        { value: "board", label: "Board view", description: "Kanban board (TO DO / IN PROGRESS / REVIEW / DONE) for a saved query" },
-      ],
-      "\u2191\u2193 navigate \u2022 enter select \u2022 esc cancel",
-    );
-    return picked as ProviderMode | null;
   }
 
   /** Issue-list picker shared by browse&search and saved-query browsing: enter focuses, 'v' views, 'o' opens in browser. */
@@ -428,15 +436,12 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         return;
       }
 
-      const provider = await pickProvider(ctx, client);
-      if (provider === null) return;
+      const selection = await pickProviderAndMode(ctx, client);
+      if (selection === null) return;
 
-      const mode = await pickMode(ctx, provider);
-      if (mode === null) return;
-
-      if (mode === "issues") await browseTickets(ctx, client, "", provider.name);
-      else if (mode === "query") await browseSavedQuery(ctx, client, provider.name);
-      else if (mode === "board") await showBoard(ctx, client, provider.name);
+      if (selection.mode === "issues") await browseTickets(ctx, client, "", selection.backend);
+      else if (selection.mode === "query") await browseSavedQuery(ctx, client, selection.backend);
+      else if (selection.mode === "board") await showBoard(ctx, client, selection.backend);
     },
   });
 
