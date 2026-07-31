@@ -329,6 +329,31 @@ describe("registerTicketsTui", () => {
       expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No saved queries yet"), "info");
     });
 
+    it("the picker leads with the human description and pushes the internal name into the secondary column", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "query.list") return { queries: [{ name: "short-alias", backend: "jira", query: "...", description: "Human-Readable Board Name" }] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      lastComponent().handleInput("\x1b[B"); // down: Saved queries
+      await tick();
+      lastComponent().handleInput("\r"); // pick Saved queries mode
+      await tick();
+      const picker = lastComponent();
+      const rendered = picker.render(80).join("\n");
+      const nameIndex = rendered.indexOf("Human-Readable Board Name");
+      const aliasIndex = rendered.indexOf("(short-alias)");
+      expect(nameIndex).toBeGreaterThanOrEqual(0);
+      expect(aliasIndex).toBeGreaterThan(nameIndex);
+      picker.handleInput("\x1b");
+      await done;
+    });
+
     it("opens a saved-query picker, then browses the selected query's issues", async () => {
       const pi = fakePi();
       const client = fakeClient((op, input) => {

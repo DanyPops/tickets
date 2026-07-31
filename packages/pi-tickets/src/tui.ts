@@ -165,7 +165,14 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
   }
 
   async function pickSavedQuery(ctx: ExtensionCommandContext, queries: SavedQuerySummary[]): Promise<string | null> {
-    const items: SelectItem[] = queries.map((q) => ({ value: q.name, label: q.name, description: q.description ?? `${q.backend}: ${q.query}` }));
+    // The human description is what a person actually recognizes -- lead with it,
+    // and push the internal saved-query name (the value `query run <name>` actually
+    // takes) into the secondary column instead of the other way around.
+    const items: SelectItem[] = queries.map((q) => ({
+      value: q.name,
+      label: q.description ?? q.name,
+      description: q.description ? `(${q.name})` : `${q.backend}: ${q.query}`,
+    }));
     return pickFromList(ctx, "Saved queries", items, "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel");
   }
 
