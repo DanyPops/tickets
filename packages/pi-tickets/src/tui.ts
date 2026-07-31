@@ -1,16 +1,18 @@
 /**
- * Interactive TUI for pi-tickets: `/tickets` opens one entry point with three
- * modes -- browse & search the pooled ledger, run a saved query, or render a
- * saved query as a Kanban board -- across GitHub/GitLab/Jira in one flat
- * list, no backend picker needed. Enter sets focus, 'v' opens the full
- * ticket detail view, 'o' opens the issue's real web URL in a browser. A
- * footer status always shows the current focus so it's visible outside the
- * dialog too, refreshed on session start and after every "tickets" tool
- * call -- including autonomous focus_* calls the LLM makes mid-conversation,
- * so the human and the LLM are always looking at the same focus state.
+ * Interactive TUI for pi-tickets: `/tickets` with no args opens a provider
+ * picker (only the backends the daemon actually has configured), then a
+ * per-provider mode menu -- every backend gets Issues (browse & search);
+ * a backend with a real query language (Jira's JQL today) also gets Saved
+ * queries and Board view. `/tickets <query>` skips both pickers and jumps
+ * straight to a cross-backend search over the pooled ledger -- the
+ * quick-search shortcut stays a one-shot command.
  *
- * `/tickets <query>` skips the mode menu and jumps straight to browse&search
- * with that filter -- the quick-search shortcut stays a one-shot command.
+ * Enter sets focus, 'v' opens the full ticket detail view, 'o' opens the
+ * issue's real web URL in a browser. A footer status always shows the
+ * current focus so it's visible outside the dialog too, refreshed on
+ * session start and after every "tickets" tool call -- including
+ * autonomous focus_* calls the LLM makes mid-conversation, so the human
+ * and the LLM are always looking at the same focus state.
  *
  * Deliberately NOT exposed here: OAuth login and daemon lifecycle control,
  * for the same reason they're excluded from the tool actions in index.ts --
@@ -31,12 +33,20 @@ const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
 const BROWSE_LIMIT = 100;
 
 type SavedQuerySummary = { name: string; backend: string; query: string; description?: string };
+type BackendCapability = { name: string; supportsRawQuery: boolean };
+type ProviderMode = "issues" | "query" | "board";
 
 export interface TicketsTuiDeps {
   /** Overridden in tests instead of spawning/reaching a real daemon. */
   getClient?: (opts?: EnsureDaemonOptions) => Promise<TicketsRpcClient>;
   /** Overridden in tests instead of actually spawning a browser process. */
   openUrl?: (url: string) => void;
+}
+
+/** Known backend identifiers get their real product name; anything else falls back to a capitalized identifier. */
+function backendDisplayName(backend: string): string {
+  const known: Record<string, string> = { github: "GitHub", gitlab: "GitLab", jira: "Jira" };
+  return known[backend] ?? backend.charAt(0).toUpperCase() + backend.slice(1);
 }
 
 function focusStatusText(theme: Theme, focus: TicketFocusState | null): string | undefined {
@@ -113,6 +123,42 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
     });
   }
 
+  /** Which configured backend to browse -- skips the picker outright when there's only one configured. Returns null on cancel or when none are configured. */
+  async function pickProvider(ctx: ExtensionCommandContext, client: TicketsRpcClient): Promise<BackendCapability | null> {
+    const { backends } = await client.call("backends.list", {});
+    if (backends.length === 0) {
+      ctx.ui.notify("No backends configured yet -- set up GitHub/GitLab/Jira credentials first.", "info");
+      return null;
+    }
+    if (backends.length === 1) return backends[0]!;
+
+    const items: SelectItem[] = backends.map((b) => ({
+      value: b.name,
+      label: backendDisplayName(b.name),
+      description: b.supportsRawQuery ? "Issues, saved queries, and board view" : "Issues",
+    }));
+    const picked = await pickFromList(ctx, "Tickets", items, "\u2191\u2193 navigate \u2022 enter select \u2022 esc cancel");
+    return picked === null ? null : (backends.find((b) => b.name === picked) ?? null);
+  }
+
+  /** Which mode within a provider -- skips the picker when the backend only has one real mode (no raw-query support, e.g. GitHub/GitLab today). */
+  async function pickMode(ctx: ExtensionCommandContext, provider: BackendCapability): Promise<ProviderMode | null> {
+    if (!provider.supportsRawQuery) return "issues";
+
+    const displayName = backendDisplayName(provider.name);
+    const picked = await pickFromList(
+      ctx,
+      displayName,
+      [
+        { value: "issues", label: "Issues", description: `Browse & search ${displayName} issues` },
+        { value: "query", label: "Saved queries", description: "Run a saved JQL query -- e.g. a board's sprint or backlog" },
+        { value: "board", label: "Board view", description: "Kanban board (TO DO / IN PROGRESS / REVIEW / DONE) for a saved query" },
+      ],
+      "\u2191\u2193 navigate \u2022 enter select \u2022 esc cancel",
+    );
+    return picked as ProviderMode | null;
+  }
+
   /** Issue-list picker shared by browse&search and saved-query browsing: enter focuses, 'v' views, 'o' opens in browser. */
   async function pickIssue(ctx: ExtensionCommandContext, client: TicketsRpcClient, title: string, items: SelectItem[], byRef: Map<string, Issue>): Promise<string | null> {
     return ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
@@ -176,10 +222,11 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
     return pickFromList(ctx, "Saved queries", items, "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel");
   }
 
-  async function browseTickets(ctx: ExtensionCommandContext, client: TicketsRpcClient, query: string): Promise<void> {
+  /** backend=undefined searches the pooled ledger across every configured backend (the `/tickets <query>` shortcut); a real value scopes to just that provider's own issues. */
+  async function browseTickets(ctx: ExtensionCommandContext, client: TicketsRpcClient, query: string, backend?: string): Promise<void> {
     const [{ focus }, { issues }] = await Promise.all([
       client.call("focus.get", {}),
-      client.call("ledger.search", { query, limit: BROWSE_LIMIT }),
+      client.call("ledger.search", { query, limit: BROWSE_LIMIT, backend }),
     ]);
 
     const items: SelectItem[] = [];
@@ -187,17 +234,18 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
     for (const issue of issues) items.push({ value: issue.ref, label: issueLabel(issue), description: issueDescription(issue, focus?.ref) });
 
     if (items.length === 0) {
+      const scope = backend ? `${backendDisplayName(backend)} tickets` : "pooled tickets";
       ctx.ui.notify(
         query
-          ? `No pooled tickets matching "${query}" yet (the ledger only has what's synced so far).`
-          : "No tickets pooled yet — the ledger fills in as the daemon syncs, or after issue.get/list/search calls.",
+          ? `No ${scope} matching "${query}" yet (the ledger only has what's synced so far).`
+          : `No ${scope} pooled yet — the ledger fills in as the daemon syncs, or after issue.get/list/search calls.`,
         "info",
       );
       return;
     }
 
     const byRef = new Map(issues.map((issue) => [issue.ref, issue] as const));
-    const title = focus ? `Tickets — focused: ${focus.ref}` : "Tickets";
+    const title = focus ? `Tickets — focused: ${focus.ref}` : backend ? `${backendDisplayName(backend)} issues` : "Tickets";
     const result = await pickIssue(ctx, client, title, items, byRef);
     if (result === null) return;
 
@@ -217,10 +265,11 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
     await refreshStatus(ctx, client);
   }
 
-  async function browseSavedQuery(ctx: ExtensionCommandContext, client: TicketsRpcClient): Promise<void> {
-    const { queries } = await client.call("query.list", {});
+  async function browseSavedQuery(ctx: ExtensionCommandContext, client: TicketsRpcClient, backend: string): Promise<void> {
+    const { queries: allQueries } = await client.call("query.list", {});
+    const queries = allQueries.filter((q) => q.backend === backend);
     if (queries.length === 0) {
-      ctx.ui.notify('No saved queries yet -- create one with `tickets query save <name> --backend jira --jql "..."`.', "info");
+      ctx.ui.notify(`No saved queries yet for ${backendDisplayName(backend)} -- create one with \`tickets query save <name> --backend ${backend} --jql "..."\`.`, "info");
       return;
     }
 
@@ -258,10 +307,11 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
     await refreshStatus(ctx, client);
   }
 
-  async function showBoard(ctx: ExtensionCommandContext, client: TicketsRpcClient): Promise<void> {
-    const { queries } = await client.call("query.list", {});
+  async function showBoard(ctx: ExtensionCommandContext, client: TicketsRpcClient, backend: string): Promise<void> {
+    const { queries: allQueries } = await client.call("query.list", {});
+    const queries = allQueries.filter((q) => q.backend === backend);
     if (queries.length === 0) {
-      ctx.ui.notify('No saved queries yet -- create one with `tickets query save <name> --backend jira --jql "..."`.', "info");
+      ctx.ui.notify(`No saved queries yet for ${backendDisplayName(backend)} -- create one with \`tickets query save <name> --backend ${backend} --jql "..."\`.`, "info");
       return;
     }
 
@@ -297,7 +347,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
   }
 
   pi.registerCommand("tickets", {
-    description: "Browse pooled tickets across GitHub/GitLab/Jira, run a saved query, or view a Kanban board",
+    description: "Pick a connected provider (GitHub, GitLab, Jira) and browse its issues -- saved queries and Kanban board view for providers with a real query language",
     handler: async (args, ctx) => {
       let client: TicketsRpcClient;
       try {
@@ -313,21 +363,15 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         return;
       }
 
-      const mode = await pickFromList(
-        ctx,
-        "Tickets",
-        [
-          { value: "browse", label: "Browse & search", description: "All pooled tickets across GitHub/GitLab/Jira" },
-          { value: "query", label: "Saved queries", description: "Run a saved JQL query -- e.g. a board's sprint or backlog" },
-          { value: "board", label: "Board view", description: "Kanban board (TO DO / IN PROGRESS / REVIEW / DONE) for a saved query" },
-        ],
-        "\u2191\u2193 navigate \u2022 enter select \u2022 esc cancel",
-      );
+      const provider = await pickProvider(ctx, client);
+      if (provider === null) return;
+
+      const mode = await pickMode(ctx, provider);
       if (mode === null) return;
 
-      if (mode === "browse") await browseTickets(ctx, client, "");
-      else if (mode === "query") await browseSavedQuery(ctx, client);
-      else if (mode === "board") await showBoard(ctx, client);
+      if (mode === "issues") await browseTickets(ctx, client, "", provider.name);
+      else if (mode === "query") await browseSavedQuery(ctx, client, provider.name);
+      else if (mode === "board") await showBoard(ctx, client, provider.name);
     },
   });
 

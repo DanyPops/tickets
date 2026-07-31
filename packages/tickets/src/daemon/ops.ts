@@ -47,7 +47,7 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "issue.children": { ref: string };
   "issue.comments": { ref: string };
   "issue.comment_add": { ref: string; body: string };
-  "ledger.search": { query: string; limit?: number };
+  "ledger.search": { query: string; limit?: number; backend?: string };
   "ledger.stats": Record<string, never>;
   "focus.set": { ref: string };
   "focus.get": Record<string, never>;
@@ -67,7 +67,7 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
 }
 
 export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
-  "backends.list": { backends: string[] };
+  "backends.list": { backends: { name: string; supportsRawQuery: boolean }[] };
   "issue.list": { issues: Issue[] };
   "issue.get": { issue: Issue };
   "issue.create": { issue: Issue };

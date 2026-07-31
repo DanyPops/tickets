@@ -29,10 +29,10 @@ function fakeCtx() {
           const fakeTui = { terminal: { rows: 40 }, requestRender: () => {} };
           const component = factory(fakeTui, fakeTheme, {}, resolve);
           // Exposed so the test can drive it as if a user pressed keys. Each
-          // call (including one nested inside another, e.g. a mode menu
-          // handing off to a browse dialog, or a detail view pushed from
-          // the board) overwrites this -- a test reads it again after the
-          // transition it just triggered.
+          // call (including one nested inside another, e.g. a provider or
+          // mode menu handing off to a browse dialog, or a detail view
+          // pushed from the board) overwrites this -- a test reads it again
+          // after the transition it just triggered.
           (fakeCtx as unknown as { lastComponent?: Component }).lastComponent = component;
         }),
     },
@@ -65,6 +65,11 @@ const ISSUES = [
   { ref: "github:#1", id: "1", key: "#1", title: "First bug", status: "todo", priority: "high", url: "https://github.com/a/b/issues/1" },
   { ref: "jira:PROJ-1", id: "PROJ-1", key: "PROJ-1", title: "Second bug", status: "in_progress", priority: "medium", url: "https://a.atlassian.net/browse/PROJ-1" },
 ];
+
+/** A single backend without raw-query support (GitHub/GitLab's real shape today) -- pickProvider and pickMode both auto-skip, landing straight on Issues. */
+const ONE_PLAIN_BACKEND = { op: "backends.list", result: { backends: [{ name: "github", supportsRawQuery: false }] } };
+/** A single backend with raw-query support (Jira's real shape today) -- pickProvider auto-skips, but pickMode still shows Issues/Saved queries/Board view. */
+const ONE_RAW_QUERY_BACKEND = { op: "backends.list", result: { backends: [{ name: "jira", supportsRawQuery: true }] } };
 
 describe("registerTicketsTui", () => {
   it("registers only the /tickets and /secrets-contributing surface -- no separate /query or /board commands", () => {
@@ -124,15 +129,15 @@ describe("registerTicketsTui", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("daemon unavailable"), "error");
   });
 
-  it("/tickets <query> skips the mode menu and searches the ledger directly", async () => {
+  it("/tickets <query> skips both the provider and mode pickers and searches every configured backend directly", async () => {
     const pi = fakePi();
     const client = fakeClient((op, input) => {
       if (op === "focus.get") return { focus: null };
       if (op === "ledger.search") {
-        expect(input).toEqual({ query: "bug", limit: 100 });
+        expect(input).toEqual({ query: "bug", limit: 100, backend: undefined });
         return { issues: [] };
       }
-      throw new Error(`unexpected op ${op}`);
+      throw new Error(`unexpected op ${op}: /tickets <query> must not call backends.list`);
     });
     registerTicketsTui(pi as never, { getClient: async () => client });
 
@@ -141,34 +146,24 @@ describe("registerTicketsTui", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining('matching "bug"'), "info");
   });
 
-  it("/tickets with no args opens a mode menu offering Browse & search, Saved queries, and Board view", async () => {
-    const pi = fakePi();
-    const client = fakeClient((op) => {
-      if (op === "focus.get") return { focus: null };
-      if (op === "ledger.search") return { issues: [] };
-      throw new Error(`unexpected op ${op}`);
-    });
-    registerTicketsTui(pi as never, { getClient: async () => client });
-
-    const ctx = fakeCtx();
-    const done = pi.commands.get("tickets")?.handler(undefined, ctx);
-    await tick();
-    const menu = lastComponent();
-    const rendered = menu.render(80).join("\n");
-    expect(rendered).toContain("Browse & search");
-    expect(rendered).toContain("Saved queries");
-    expect(rendered).toContain("Board view");
-    menu.handleInput("\x1b");
-    await done;
-    expect(ctx.ui.notify).not.toHaveBeenCalled();
-  });
-
-  describe("Browse & search mode", () => {
-    it("no pooled issues and no focus notifies instead of opening the issue picker", async () => {
+  describe("provider selection", () => {
+    it("no backends configured notifies instead of opening any picker", async () => {
       const pi = fakePi();
       const client = fakeClient((op) => {
-        if (op === "focus.get") return { focus: null };
-        if (op === "ledger.search") return { issues: [] };
+        if (op === "backends.list") return { backends: [] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      await pi.commands.get("tickets")?.handler(undefined, ctx);
+      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No backends configured"), "info");
+    });
+
+    it("exactly one configured backend skips the provider picker entirely", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
         throw new Error(`unexpected op ${op}`);
       });
       registerTicketsTui(pi as never, { getClient: async () => client });
@@ -176,17 +171,99 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\r"); // first item: Browse & search
+      // With one backend the first dialog is already the mode menu (Issues/Saved queries/Board view), not a provider list.
+      const rendered = lastComponent().render(80).join("\n");
+      expect(rendered).toContain("Issues");
+      expect(rendered).toContain("Saved queries");
+      expect(rendered).toContain("Board view");
+      lastComponent().handleInput("\x1b");
       await done;
-      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No tickets pooled yet"), "info");
+    });
+
+    it("more than one configured backend shows a provider picker naming each real product", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return { backends: [{ name: "github", supportsRawQuery: false }, { name: "jira", supportsRawQuery: true }] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      const rendered = lastComponent().render(80).join("\n");
+      expect(rendered).toContain("GitHub");
+      expect(rendered).toContain("Jira");
+      lastComponent().handleInput("\x1b");
+      await done;
+    });
+
+    it("picking a backend without raw-query support skips the mode menu and browses that backend's issues directly", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op, input) => {
+        if (op === "backends.list") return { backends: [{ name: "github", supportsRawQuery: false }, { name: "jira", supportsRawQuery: true }] };
+        if (op === "focus.get") return { focus: null };
+        if (op === "ledger.search") {
+          expect(input).toEqual({ query: "", limit: 100, backend: "github" });
+          return { issues: [] };
+        }
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      lastComponent().handleInput("\r"); // pick GitHub (first item, no raw-query support)
+      await done;
+      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No GitHub tickets"), "info");
+    });
+
+    it("picking a backend with raw-query support still shows the Issues/Saved queries/Board view mode menu", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return { backends: [{ name: "github", supportsRawQuery: false }, { name: "jira", supportsRawQuery: true }] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      lastComponent().handleInput("\x1b[B"); // down: Jira
+      lastComponent().handleInput("\r"); // pick Jira
+      await tick();
+      const rendered = lastComponent().render(80).join("\n");
+      expect(rendered).toContain("Saved queries");
+      expect(rendered).toContain("Board view");
+      lastComponent().handleInput("\x1b");
+      await done;
+    });
+  });
+
+  describe("Issues mode", () => {
+    it("no pooled issues and no focus notifies instead of opening the issue picker", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return ONE_PLAIN_BACKEND.result;
+        if (op === "focus.get") return { focus: null };
+        if (op === "ledger.search") return { issues: [] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      await pi.commands.get("tickets")?.handler(undefined, ctx);
+      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No GitHub tickets"), "info");
     });
 
     it("pressing enter on the first item focuses it and notifies with the real URL", async () => {
       const pi = fakePi();
       const client = fakeClient((op, input) => {
+        if (op === "backends.list") return ONE_PLAIN_BACKEND.result;
         if (op === "focus.get") return { focus: null };
         if (op === "ledger.search") {
-          expect(input).toEqual({ query: "", limit: 100 });
+          expect(input).toEqual({ query: "", limit: 100, backend: "github" });
           return { issues: ISSUES };
         }
         if (op === "focus.set") {
@@ -200,8 +277,6 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\r"); // pick Browse & search
-      await tick();
       const browser = lastComponent();
       expect(browser.render(80).join("\n")).toContain("github:#1");
       browser.handleInput("\r"); // enter — selects the first (and only non-clear) item
@@ -212,6 +287,7 @@ describe("registerTicketsTui", () => {
     it("prepends a clear-focus row when a focus already exists, selectable and routed to focus.clear", async () => {
       const pi = fakePi();
       const client = fakeClient((op, input) => {
+        if (op === "backends.list") return ONE_PLAIN_BACKEND.result;
         if (op === "focus.get") return { focus: { ref: "github:#1", title: "First bug", url: "https://x", status: "active", updatedAt: "now" } };
         if (op === "ledger.search") return { issues: ISSUES };
         if (op === "focus.clear") {
@@ -225,8 +301,6 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\r"); // pick Browse & search
-      await tick();
       const browser = lastComponent();
       expect(browser.render(80).join("\n")).toContain("Clear current focus");
       browser.handleInput("\r"); // first row is the clear-focus item
@@ -237,6 +311,7 @@ describe("registerTicketsTui", () => {
     it("pressing escape in the issue picker cancels without calling focus.set or focus.clear", async () => {
       const pi = fakePi();
       const client = fakeClient((op) => {
+        if (op === "backends.list") return ONE_PLAIN_BACKEND.result;
         if (op === "focus.get") return { focus: null };
         if (op === "ledger.search") return { issues: ISSUES };
         throw new Error(`unexpected op ${op}: escape should not trigger any further RPC call`);
@@ -246,8 +321,6 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      lastComponent().handleInput("\r"); // pick Browse & search
-      await tick();
       lastComponent().handleInput("\x1b"); // escape
       await done;
       expect(ctx.ui.notify).not.toHaveBeenCalled();
@@ -256,6 +329,7 @@ describe("registerTicketsTui", () => {
     it("pressing 'o' opens the highlighted issue's real URL without closing the dialog", async () => {
       const pi = fakePi();
       const client = fakeClient((op) => {
+        if (op === "backends.list") return ONE_PLAIN_BACKEND.result;
         if (op === "focus.get") return { focus: null };
         if (op === "ledger.search") return { issues: ISSUES };
         throw new Error(`unexpected op ${op}: 'o' must not trigger focus.set/focus.clear`);
@@ -265,8 +339,6 @@ describe("registerTicketsTui", () => {
 
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
-      await tick();
-      lastComponent().handleInput("\r"); // pick Browse & search
       await tick();
       const browser = lastComponent();
       browser.handleInput("o"); // highlighted item defaults to the first row (github:#1)
@@ -278,6 +350,7 @@ describe("registerTicketsTui", () => {
     it("pressing 'v' pushes an issue detail view for the highlighted issue without closing the dialog", async () => {
       const pi = fakePi();
       const client = fakeClient((op, input) => {
+        if (op === "backends.list") return ONE_PLAIN_BACKEND.result;
         if (op === "focus.get") return { focus: null };
         if (op === "ledger.search") return { issues: ISSUES };
         if (op === "issue.get") {
@@ -291,8 +364,6 @@ describe("registerTicketsTui", () => {
 
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
-      await tick();
-      lastComponent().handleInput("\r"); // pick Browse & search
       await tick();
       const list = lastComponent();
       list.handleInput("v"); // highlighted item defaults to the first row (github:#1)
@@ -311,9 +382,10 @@ describe("registerTicketsTui", () => {
   });
 
   describe("Saved queries mode", () => {
-    it("no saved queries notifies instead of opening the picker", async () => {
+    it("no saved queries for this backend notifies instead of opening the picker", async () => {
       const pi = fakePi();
       const client = fakeClient((op) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
         if (op === "query.list") return { queries: [] };
         throw new Error(`unexpected op ${op}`);
       });
@@ -326,12 +398,32 @@ describe("registerTicketsTui", () => {
       await tick();
       lastComponent().handleInput("\r");
       await done;
-      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No saved queries yet"), "info");
+      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No saved queries yet for Jira"), "info");
+    });
+
+    it("filters out saved queries belonging to a different backend", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
+        if (op === "query.list") return { queries: [{ name: "gh-triage", backend: "github", query: "..." }] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      lastComponent().handleInput("\x1b[B"); // down: Saved queries
+      await tick();
+      lastComponent().handleInput("\r");
+      await done;
+      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No saved queries yet for Jira"), "info");
     });
 
     it("the picker leads with the human description and pushes the internal name into the secondary column", async () => {
       const pi = fakePi();
       const client = fakeClient((op) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
         if (op === "query.list") return { queries: [{ name: "short-alias", backend: "jira", query: "...", description: "Human-Readable Board Name" }] };
         throw new Error(`unexpected op ${op}`);
       });
@@ -357,6 +449,7 @@ describe("registerTicketsTui", () => {
     it("opens a saved-query picker, then browses the selected query's issues", async () => {
       const pi = fakePi();
       const client = fakeClient((op, input) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
         if (op === "query.list") return { queries: [{ name: "bmptemp-sprint", backend: "jira", query: "...", description: "QE Scrum Board - Active Sprint" }] };
         if (op === "query.run") {
           expect(input).toEqual({ name: "bmptemp-sprint", limit: 100 });
@@ -387,6 +480,7 @@ describe("registerTicketsTui", () => {
     it("pressing 'v' pushes an issue detail view for the highlighted issue without closing the browser", async () => {
       const pi = fakePi();
       const client = fakeClient((op, input) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
         if (op === "query.list") return { queries: [{ name: "sprint", backend: "jira", query: "..." }] };
         if (op === "query.run") return { issues: ISSUES };
         if (op === "focus.get") return { focus: null };
@@ -425,6 +519,7 @@ describe("registerTicketsTui", () => {
     it("surfaces a query.run failure via notify instead of throwing", async () => {
       const pi = fakePi();
       const client = fakeClient((op) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
         if (op === "query.list") return { queries: [{ name: "broken", backend: "jira", query: "nonsense" }] };
         if (op === "query.run") throw new Error("jira: invalid JQL");
         throw new Error(`unexpected op ${op}`);
@@ -445,9 +540,10 @@ describe("registerTicketsTui", () => {
   });
 
   describe("Board view mode", () => {
-    it("no saved queries notifies instead of opening the picker", async () => {
+    it("no saved queries for this backend notifies instead of opening the picker", async () => {
       const pi = fakePi();
       const client = fakeClient((op) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
         if (op === "query.list") return { queries: [] };
         throw new Error(`unexpected op ${op}`);
       });
@@ -461,12 +557,13 @@ describe("registerTicketsTui", () => {
       await tick();
       lastComponent().handleInput("\r");
       await done;
-      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No saved queries yet"), "info");
+      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No saved queries yet for Jira"), "info");
     });
 
     it("runs the selected saved query and renders a Kanban board grouped by status, closable with escape", async () => {
       const pi = fakePi();
       const client = fakeClient((op, input) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
         if (op === "query.list") return { queries: [{ name: "sprint", backend: "jira", query: "..." }] };
         if (op === "query.run") {
           expect(input).toEqual({ name: "sprint", limit: 100 });
@@ -498,6 +595,7 @@ describe("registerTicketsTui", () => {
     it("entering a card pushes an issue detail view with fields and comments, and escape returns to the board", async () => {
       const pi = fakePi();
       const client = fakeClient((op, input) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
         if (op === "query.list") return { queries: [{ name: "sprint", backend: "jira", query: "..." }] };
         if (op === "query.run") return { issues: ISSUES };
         if (op === "issue.get") {
@@ -543,6 +641,7 @@ describe("registerTicketsTui", () => {
     it("surfaces a query.run failure via notify instead of throwing", async () => {
       const pi = fakePi();
       const client = fakeClient((op) => {
+        if (op === "backends.list") return ONE_RAW_QUERY_BACKEND.result;
         if (op === "query.list") return { queries: [{ name: "broken", backend: "jira", query: "nonsense" }] };
         if (op === "query.run") throw new Error("jira: invalid JQL");
         throw new Error(`unexpected op ${op}`);

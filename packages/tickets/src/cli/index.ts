@@ -144,8 +144,9 @@ ledger
   .command("search <query>")
   .description("search the local ledger (works even if the backend is currently unreachable)")
   .option("--limit <n>", "max results", (v) => Number.parseInt(v, 10))
+  .option("--backend <name>", "scope the search to one configured backend")
   .action(async (query: string, opts) => {
-    await withClient((client) => client.call("ledger.search", { query, limit: opts.limit }));
+    await withClient((client) => client.call("ledger.search", { query, limit: opts.limit, backend: opts.backend }));
   });
 
 ledger
