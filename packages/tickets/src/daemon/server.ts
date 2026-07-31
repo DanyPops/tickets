@@ -59,7 +59,7 @@ export type Handler<Op extends TicketOperation> = (
  * newer surface.
  */
 export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
-  "backends.list": async (deps) => ({ backends: deps.service.backends() }),
+  "backends.list": async (deps) => ({ backends: deps.service.backendCapabilities() }),
   "issue.list": async (deps, input) => ({ issues: await deps.service.list(input.backend, input.filter) }),
   "issue.get": async (deps, input) => ({ issue: await deps.service.get(input.ref) }),
   "issue.create": async (deps, input) => ({ issue: await deps.service.create(input.backend, input.input) }),
@@ -68,7 +68,7 @@ export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
   "issue.children": async (deps, input) => ({ issues: await deps.service.children(input.ref) }),
   "issue.comments": async (deps, input) => ({ comments: await deps.service.comments(input.ref) }),
   "issue.comment_add": async (deps, input) => ({ comment: await deps.service.addComment(input.ref, input.body) }),
-  "ledger.search": async (deps, input) => ({ issues: deps.ledger.search(input.query, input.limit) }),
+  "ledger.search": async (deps, input) => ({ issues: deps.ledger.search(input.query, input.limit, input.backend) }),
   "ledger.stats": async (deps) => ({ backends: deps.ledger.stats() }),
   "focus.set": async (deps, input) => {
     // Ledger-first: focusing a ticket already pooled locally needs no live

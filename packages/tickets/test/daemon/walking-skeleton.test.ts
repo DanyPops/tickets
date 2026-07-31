@@ -64,7 +64,7 @@ describe("tickets daemon walking skeleton", () => {
     expect(await client.operations()).toContain("issue.get");
 
     const backends = await client.call("backends.list", {});
-    expect(backends.backends).toEqual(["github"]);
+    expect(backends.backends).toEqual([{ name: "github", supportsRawQuery: true }]);
 
     const got = await client.call("issue.get", { ref: "github:#1" });
     expect(got.issue.title).toBe("Skeleton issue");
@@ -171,13 +171,13 @@ describe("tickets daemon walking skeleton", () => {
     );
 
     const before = await client.call("backends.list", {});
-    expect(before.backends).toEqual(["github"]);
+    expect(before.backends).toEqual([{ name: "github", supportsRawQuery: true }]);
 
     // Give the refresh task at least one tick.
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     const after = await client.call("backends.list", {});
-    expect(after.backends.sort()).toEqual(["github", "gitlab"]);
+    expect(after.backends.map((b) => b.name).sort()).toEqual(["github", "gitlab"]);
 
     const got = await client.call("issue.get", { ref: "gitlab:1" });
     expect(got.issue.title).toBe("Newly configured");

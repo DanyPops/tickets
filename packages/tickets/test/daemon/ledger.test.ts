@@ -52,6 +52,16 @@ describe("Ledger", () => {
     expect(ledger.search("Fix", 10)).toHaveLength(2);
   });
 
+  it("search scopes to one backend when given, ignoring title matches on other backends", () => {
+    const ledger = makeLedger();
+    ledger.upsertMany("github", [issue("#1", "Fix login bug")]);
+    ledger.upsertMany("jira", [{ ...issue("PROJ-1", "Fix login bug"), ref: "jira:PROJ-1" }]);
+    expect(ledger.search("Fix", 10)).toHaveLength(2);
+    const scoped = ledger.search("Fix", 10, "jira");
+    expect(scoped).toHaveLength(1);
+    expect(scoped[0]?.ref).toBe("jira:PROJ-1");
+  });
+
   it("search limit is hard-capped even when a caller asks for more", () => {
     const ledger = makeLedger();
     const many = Array.from({ length: 10 }, (_, i) => issue(`#${i}`, `Item ${i}`));

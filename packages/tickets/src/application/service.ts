@@ -39,6 +39,11 @@ export class TicketService {
     return Object.keys(this.repos);
   }
 
+  /** Every configured backend's name plus which optional capabilities its own repository actually implements -- lets a driving adapter (the CLI, pi-tickets) branch on real capability instead of a hardcoded backend name. */
+  backendCapabilities(): { name: string; supportsRawQuery: boolean }[] {
+    return Object.values(this.repos).map((repo) => ({ name: repo.name, supportsRawQuery: hasRawQuery(repo) }));
+  }
+
   /**
    * Swaps the live backend set atomically. A backend newly configured in
    * Enigma (or removed) becomes usable on the next call without

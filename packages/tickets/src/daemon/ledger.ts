@@ -98,9 +98,15 @@ export class Ledger {
     return row ? rowToIssue(row) : undefined;
   }
 
-  /** Bounded LIKE search over title, newest-synced first. Explicit limit, capped hard. */
-  search(query: string, limit = DEFAULT_SEARCH_LIMIT): Issue[] {
+  /** Bounded LIKE search over title, newest-synced first, optionally scoped to one backend. Explicit limit, capped hard. */
+  search(query: string, limit = DEFAULT_SEARCH_LIMIT, backend?: string): Issue[] {
     const bounded = Math.min(Math.max(limit, 1), MAX_SEARCH_LIMIT);
+    if (backend) {
+      const rows = this.db
+        .query("SELECT * FROM issues WHERE title LIKE ? AND backend = ? ORDER BY synced_at DESC LIMIT ?")
+        .all(`%${query}%`, backend, bounded) as IssueRow[];
+      return rows.map(rowToIssue);
+    }
     const rows = this.db
       .query("SELECT * FROM issues WHERE title LIKE ? ORDER BY synced_at DESC LIMIT ?")
       .all(`%${query}%`, bounded) as IssueRow[];

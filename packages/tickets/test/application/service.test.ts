@@ -1,6 +1,30 @@
 import { describe, expect, it } from "bun:test";
 import { NotSupportedError, TicketService, UnknownBackendError } from "../../src/application/service.js";
+import type { IssueRepository } from "../../src/ports/repository.js";
 import { FakeRepository } from "../support/fake-repository.js";
+
+/** A minimal IssueRepository with none of the optional capabilities -- proves backendCapabilities() reflects what a repo actually implements, not a hardcoded backend name. */
+class BareRepository implements IssueRepository {
+  constructor(readonly name: string) {}
+  async list() {
+    return [];
+  }
+  async get(key: string): Promise<never> {
+    throw new Error(`not found: ${key}`);
+  }
+  async create(): Promise<never> {
+    throw new Error("not implemented");
+  }
+  async update(): Promise<never> {
+    throw new Error("not implemented");
+  }
+  async search() {
+    return [];
+  }
+  async listChildren() {
+    return [];
+  }
+}
 
 function makeService() {
   const github = new FakeRepository("github", [
@@ -16,6 +40,15 @@ function makeService() {
 describe("TicketService", () => {
   it("lists backends", () => {
     expect(makeService().backends().sort()).toEqual(["github", "jira"]);
+  });
+
+  it("reports each backend's real runQuery capability, not a hardcoded backend name", () => {
+    const svc = new TicketService({ github: new BareRepository("github"), jira: new FakeRepository("jira", []) });
+    const capabilities = svc.backendCapabilities().sort((a, b) => a.name.localeCompare(b.name));
+    expect(capabilities).toEqual([
+      { name: "github", supportsRawQuery: false },
+      { name: "jira", supportsRawQuery: true },
+    ]);
   });
 
   it("routes get() by parsing the ref's backend prefix", async () => {
