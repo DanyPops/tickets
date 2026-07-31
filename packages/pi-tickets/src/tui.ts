@@ -1,16 +1,19 @@
 /**
- * Interactive TUI for pi-tickets: `/tickets [query]` opens a browsable list
- * of every issue the daemon's ledger has pooled across all configured
- * backends (GitHub/GitLab/Jira in one flat list, no backend picker needed),
- * lets you set focus with Enter, open the issue's real web URL in a browser
- * with 'o', or clear the current focus via a special first row. A footer
- * status always shows the current focus so it's visible outside the dialog
- * too, refreshed on session start and after every "tickets" tool call —
- * including autonomous focus_* calls the LLM makes mid-conversation, so the
- * human and the LLM are always looking at the same focus state.
+ * Interactive TUI for pi-tickets: `/tickets` opens one entry point with three
+ * modes -- browse & search the pooled ledger, run a saved query, or render a
+ * saved query as a Kanban board -- across GitHub/GitLab/Jira in one flat
+ * list, no backend picker needed. Enter sets focus, 'v' opens the full
+ * ticket detail view, 'o' opens the issue's real web URL in a browser. A
+ * footer status always shows the current focus so it's visible outside the
+ * dialog too, refreshed on session start and after every "tickets" tool
+ * call -- including autonomous focus_* calls the LLM makes mid-conversation,
+ * so the human and the LLM are always looking at the same focus state.
+ *
+ * `/tickets <query>` skips the mode menu and jumps straight to browse&search
+ * with that filter -- the quick-search shortcut stays a one-shot command.
  *
  * Deliberately NOT exposed here: OAuth login and daemon lifecycle control,
- * for the same reason they're excluded from the tool actions in index.ts —
+ * for the same reason they're excluded from the tool actions in index.ts --
  * both belong to a human at a terminal (`tickets auth login`, `tickets
  * daemon stop`), not a `/` command an LLM conversation could trigger.
  */
@@ -26,6 +29,8 @@ import { isTicketsVehicleTool } from "./vehicle-client.js";
 
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
 const BROWSE_LIMIT = 100;
+
+type SavedQuerySummary = { name: string; backend: string; query: string; description?: string };
 
 export interface TicketsTuiDeps {
   /** Overridden in tests instead of spawning/reaching a real daemon. */
@@ -75,8 +80,217 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
     await refreshStatus(ctx);
   });
 
+  /** Generic bordered picker: a list of items, enter picks, escape cancels. No per-item side keys. */
+  async function pickFromList(ctx: ExtensionCommandContext, title: string, items: SelectItem[], helpText: string): Promise<string | null> {
+    return ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+      const selectList = new SelectList(items, Math.min(items.length, 12), {
+        selectedPrefix: (t: string) => theme.fg("accent", t),
+        selectedText: (t: string) => theme.fg("accent", t),
+        description: (t: string) => theme.fg("muted", t),
+        scrollInfo: (t: string) => theme.fg("dim", t),
+        noMatch: (t: string) => theme.fg("warning", t),
+      });
+      selectList.onSelect = (item) => done(item.value);
+      selectList.onCancel = () => done(null);
+      const panel = new BorderedSelectPanel({
+        title,
+        list: selectList,
+        helpText,
+        theme: {
+          border: (s: string) => theme.fg("accent", s),
+          title: (s: string) => theme.fg("accent", theme.bold(s)),
+          help: (s: string) => theme.fg("dim", s),
+        },
+      });
+      return {
+        render: (w: number) => panel.render(w),
+        invalidate: () => panel.invalidate(),
+        handleInput: (data: string) => {
+          panel.handleInput(data);
+          tui.requestRender();
+        },
+      };
+    });
+  }
+
+  /** Issue-list picker shared by browse&search and saved-query browsing: enter focuses, 'v' views, 'o' opens in browser. */
+  async function pickIssue(ctx: ExtensionCommandContext, client: TicketsRpcClient, title: string, items: SelectItem[], byRef: Map<string, Issue>): Promise<string | null> {
+    return ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+      const selectList = new SelectList(items, Math.min(items.length, 12), {
+        selectedPrefix: (t: string) => theme.fg("accent", t),
+        selectedText: (t: string) => theme.fg("accent", t),
+        description: (t: string) => theme.fg("muted", t),
+        scrollInfo: (t: string) => theme.fg("dim", t),
+        noMatch: (t: string) => theme.fg("warning", t),
+      });
+      selectList.onSelect = (item) => done(item.value);
+      selectList.onCancel = () => done(null);
+      const panel = new BorderedSelectPanel({
+        title,
+        list: selectList,
+        helpText: "\u2191\u2193 navigate \u2022 enter focus \u2022 v view \u2022 o open in browser \u2022 esc cancel",
+        theme: {
+          border: (s: string) => theme.fg("accent", s),
+          title: (s: string) => theme.fg("accent", theme.bold(s)),
+          help: (s: string) => theme.fg("dim", s),
+        },
+      });
+      return {
+        render: (w: number) => panel.render(w),
+        invalidate: () => panel.invalidate(),
+        handleInput: (data: string) => {
+          if (data === "o") {
+            const highlighted = selectList.getSelectedItem();
+            const issue = highlighted ? byRef.get(highlighted.value) : undefined;
+            if (issue?.url) {
+              try {
+                open(issue.url);
+              } catch {
+                // headless/no-DISPLAY environment — nothing more to do from inside the dialog.
+              }
+            }
+            return;
+          }
+          if (data === "v") {
+            const highlighted = selectList.getSelectedItem();
+            const issue = highlighted ? byRef.get(highlighted.value) : undefined;
+            if (issue) void showIssueDetail(ctx, client, issue.ref).then(() => tui.requestRender());
+            return;
+          }
+          panel.handleInput(data);
+          tui.requestRender();
+        },
+      };
+    });
+  }
+
+  async function pickSavedQuery(ctx: ExtensionCommandContext, queries: SavedQuerySummary[]): Promise<string | null> {
+    const items: SelectItem[] = queries.map((q) => ({ value: q.name, label: q.name, description: q.description ?? `${q.backend}: ${q.query}` }));
+    return pickFromList(ctx, "Saved queries", items, "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel");
+  }
+
+  async function browseTickets(ctx: ExtensionCommandContext, client: TicketsRpcClient, query: string): Promise<void> {
+    const [{ focus }, { issues }] = await Promise.all([
+      client.call("focus.get", {}),
+      client.call("ledger.search", { query, limit: BROWSE_LIMIT }),
+    ]);
+
+    const items: SelectItem[] = [];
+    if (focus) items.push({ value: CLEAR_FOCUS_VALUE, label: "✕ Clear current focus", description: `${focus.ref} — ${focus.title}` });
+    for (const issue of issues) items.push({ value: issue.ref, label: issueLabel(issue), description: issueDescription(issue, focus?.ref) });
+
+    if (items.length === 0) {
+      ctx.ui.notify(
+        query
+          ? `No pooled tickets matching "${query}" yet (the ledger only has what's synced so far).`
+          : "No tickets pooled yet — the ledger fills in as the daemon syncs, or after issue.get/list/search calls.",
+        "info",
+      );
+      return;
+    }
+
+    const byRef = new Map(issues.map((issue) => [issue.ref, issue] as const));
+    const title = focus ? `Tickets — focused: ${focus.ref}` : "Tickets";
+    const result = await pickIssue(ctx, client, title, items, byRef);
+    if (result === null) return;
+
+    try {
+      if (result === CLEAR_FOCUS_VALUE) {
+        await client.call("focus.clear", {});
+        ctx.ui.notify("Focus cleared", "info");
+      } else {
+        const { focus: newFocus } = await client.call("focus.set", { ref: result });
+        ctx.ui.notify(`Focused ${newFocus.ref}: ${newFocus.title}\n${newFocus.url}`, "info");
+      }
+    } catch (err) {
+      ctx.ui.notify(`error: ${err instanceof Error ? err.message : String(err)}`, "error");
+      return;
+    }
+
+    await refreshStatus(ctx, client);
+  }
+
+  async function browseSavedQuery(ctx: ExtensionCommandContext, client: TicketsRpcClient): Promise<void> {
+    const { queries } = await client.call("query.list", {});
+    if (queries.length === 0) {
+      ctx.ui.notify('No saved queries yet -- create one with `tickets query save <name> --backend jira --jql "..."`.', "info");
+      return;
+    }
+
+    const name = await pickSavedQuery(ctx, queries);
+    if (name === null) return;
+
+    let issues: Issue[];
+    try {
+      ({ issues } = await client.call("query.run", { name, limit: BROWSE_LIMIT }));
+    } catch (err) {
+      ctx.ui.notify(`error running query "${name}": ${err instanceof Error ? err.message : String(err)}`, "error");
+      return;
+    }
+
+    if (issues.length === 0) {
+      ctx.ui.notify(`Saved query "${name}" matched no issues.`, "info");
+      return;
+    }
+
+    const { focus } = await client.call("focus.get", {});
+    const byRef = new Map(issues.map((issue) => [issue.ref, issue] as const));
+    const items: SelectItem[] = issues.map((issue) => ({ value: issue.ref, label: issueLabel(issue), description: issueDescription(issue, focus?.ref) }));
+
+    const result = await pickIssue(ctx, client, `Query: ${name}`, items, byRef);
+    if (result === null) return;
+
+    try {
+      const { focus: newFocus } = await client.call("focus.set", { ref: result });
+      ctx.ui.notify(`Focused ${newFocus.ref}: ${newFocus.title}\n${newFocus.url}`, "info");
+    } catch (err) {
+      ctx.ui.notify(`error: ${err instanceof Error ? err.message : String(err)}`, "error");
+      return;
+    }
+
+    await refreshStatus(ctx, client);
+  }
+
+  async function showBoard(ctx: ExtensionCommandContext, client: TicketsRpcClient): Promise<void> {
+    const { queries } = await client.call("query.list", {});
+    if (queries.length === 0) {
+      ctx.ui.notify('No saved queries yet -- create one with `tickets query save <name> --backend jira --jql "..."`.', "info");
+      return;
+    }
+
+    const name = await pickSavedQuery(ctx, queries);
+    if (name === null) return;
+
+    let issues: Issue[];
+    try {
+      ({ issues } = await client.call("query.run", { name, limit: BROWSE_LIMIT }));
+    } catch (err) {
+      ctx.ui.notify(`error running query "${name}": ${err instanceof Error ? err.message : String(err)}`, "error");
+      return;
+    }
+
+    if (issues.length === 0) {
+      ctx.ui.notify(`Saved query "${name}" matched no issues.`, "info");
+      return;
+    }
+
+    await pushView<void>(ctx, (tui, theme, _kb, done) =>
+      new KanbanBoardComponent(tui, theme, issues, name, {
+        onOpenIssue: (issue) => showIssueDetail(ctx, client, issue.ref),
+        onOpenUrl: (issue) => {
+          if (!issue.url) return;
+          try {
+            open(issue.url);
+          } catch {
+            // headless/no-DISPLAY environment -- nothing more to do from inside the board.
+          }
+        },
+        onClose: done,
+      }));
+  }
+
   pi.registerCommand("tickets", {
-    description: "Browse pooled tickets across GitHub/GitLab/Jira and set focus",
+    description: "Browse pooled tickets across GitHub/GitLab/Jira, run a saved query, or view a Kanban board",
     handler: async (args, ctx) => {
       let client: TicketsRpcClient;
       try {
@@ -87,319 +301,26 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       }
 
       const query = args?.trim() ?? "";
-      const [{ focus }, { issues }] = await Promise.all([
-        client.call("focus.get", {}),
-        client.call("ledger.search", { query, limit: BROWSE_LIMIT }),
-      ]);
-
-      const items: SelectItem[] = [];
-      if (focus) {
-        items.push({ value: CLEAR_FOCUS_VALUE, label: "✕ Clear current focus", description: `${focus.ref} — ${focus.title}` });
-      }
-      for (const issue of issues) {
-        items.push({ value: issue.ref, label: issueLabel(issue), description: issueDescription(issue, focus?.ref) });
-      }
-
-      if (items.length === 0) {
-        ctx.ui.notify(
-          query
-            ? `No pooled tickets matching "${query}" yet (the ledger only has what's synced so far).`
-            : "No tickets pooled yet — the ledger fills in as the daemon syncs, or after issue.get/list/search calls.",
-          "info",
-        );
+      if (query) {
+        await browseTickets(ctx, client, query);
         return;
       }
 
-      const byRef = new Map(issues.map((issue) => [issue.ref, issue] as const));
+      const mode = await pickFromList(
+        ctx,
+        "Tickets",
+        [
+          { value: "browse", label: "Browse & search", description: "All pooled tickets across GitHub/GitLab/Jira" },
+          { value: "query", label: "Saved queries", description: "Run a saved JQL query -- e.g. a board's sprint or backlog" },
+          { value: "board", label: "Board view", description: "Kanban board (TO DO / IN PROGRESS / REVIEW / DONE) for a saved query" },
+        ],
+        "\u2191\u2193 navigate \u2022 enter select \u2022 esc cancel",
+      );
+      if (mode === null) return;
 
-      const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-        const title = focus ? `Tickets — focused: ${focus.ref}` : "Tickets";
-
-        // Built from the callback's own `theme` param, not the package's
-        // getSelectListTheme() helper -- that reads a module-global theme
-        // singleton that jiti-loaded extensions can't rely on being
-        // initialized (same caveat the docs call out for DynamicBorder).
-        const selectList = new SelectList(items, Math.min(items.length, 12), {
-          selectedPrefix: (t: string) => theme.fg("accent", t),
-          selectedText: (t: string) => theme.fg("accent", t),
-          description: (t: string) => theme.fg("muted", t),
-          scrollInfo: (t: string) => theme.fg("dim", t),
-          noMatch: (t: string) => theme.fg("warning", t),
-        });
-        selectList.onSelect = (item) => done(item.value);
-        selectList.onCancel = () => done(null);
-
-        const panel = new BorderedSelectPanel({
-          title,
-          list: selectList,
-          helpText: "↑↓ navigate • enter focus • v view • o open in browser • esc cancel",
-          theme: {
-            border: (s: string) => theme.fg("accent", s),
-            title: (s: string) => theme.fg("accent", theme.bold(s)),
-            help: (s: string) => theme.fg("dim", s),
-          },
-        });
-
-        return {
-          render: (w: number) => panel.render(w),
-          invalidate: () => panel.invalidate(),
-          handleInput: (data: string) => {
-            if (data === "o") {
-              const highlighted = selectList.getSelectedItem();
-              const issue = highlighted ? byRef.get(highlighted.value) : undefined;
-              if (issue?.url) {
-                try {
-                  open(issue.url);
-                } catch {
-                  // headless/no-DISPLAY environment — nothing more to do from inside the dialog.
-                }
-              }
-              return;
-            }
-            if (data === "v") {
-              const highlighted = selectList.getSelectedItem();
-              const issue = highlighted ? byRef.get(highlighted.value) : undefined;
-              if (issue) void showIssueDetail(ctx, client, issue.ref).then(() => tui.requestRender());
-              return;
-            }
-            panel.handleInput(data);
-            tui.requestRender();
-          },
-        };
-      });
-
-      if (result === null) return;
-
-      try {
-        if (result === CLEAR_FOCUS_VALUE) {
-          await client.call("focus.clear", {});
-          ctx.ui.notify("Focus cleared", "info");
-        } else {
-          const { focus: newFocus } = await client.call("focus.set", { ref: result });
-          ctx.ui.notify(`Focused ${newFocus.ref}: ${newFocus.title}\n${newFocus.url}`, "info");
-        }
-      } catch (err) {
-        ctx.ui.notify(`error: ${err instanceof Error ? err.message : String(err)}`, "error");
-        return;
-      }
-
-      await refreshStatus(ctx, client);
-    },
-  });
-
-  pi.registerCommand("query", {
-    description: "Run a saved query (Jira JQL) and browse its issues -- e.g. a board's sprint or backlog view saved via `tickets query save`",
-    handler: async (args, ctx) => {
-      let client: TicketsRpcClient;
-      try {
-        client = await getClient();
-      } catch (err) {
-        ctx.ui.notify(`tickets daemon unavailable: ${err instanceof Error ? err.message : String(err)}`, "error");
-        return;
-      }
-
-      const { queries } = await client.call("query.list", {});
-      if (queries.length === 0) {
-        ctx.ui.notify('No saved queries yet -- create one with `tickets query save <name> --backend jira --jql "..."`.', "info");
-        return;
-      }
-
-      const requestedName = args?.trim();
-      let name = requestedName;
-      if (!name) {
-        const picked = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-          const items: SelectItem[] = queries.map((q) => ({ value: q.name, label: q.name, description: q.description ?? `${q.backend}: ${q.query}` }));
-          const selectList = new SelectList(items, Math.min(items.length, 12), {
-            selectedPrefix: (t: string) => theme.fg("accent", t),
-            selectedText: (t: string) => theme.fg("accent", t),
-            description: (t: string) => theme.fg("muted", t),
-            scrollInfo: (t: string) => theme.fg("dim", t),
-            noMatch: (t: string) => theme.fg("warning", t),
-          });
-          selectList.onSelect = (item) => done(item.value);
-          selectList.onCancel = () => done(null);
-          const panel = new BorderedSelectPanel({
-            title: "Saved queries",
-            list: selectList,
-            helpText: "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel",
-            theme: {
-              border: (s: string) => theme.fg("accent", s),
-              title: (s: string) => theme.fg("accent", theme.bold(s)),
-              help: (s: string) => theme.fg("dim", s),
-            },
-          });
-          return {
-            render: (w: number) => panel.render(w),
-            invalidate: () => panel.invalidate(),
-            handleInput: (data: string) => {
-              panel.handleInput(data);
-              tui.requestRender();
-            },
-          };
-        });
-        if (picked === null) return;
-        name = picked;
-      }
-
-      let issues: Issue[];
-      try {
-        ({ issues } = await client.call("query.run", { name, limit: BROWSE_LIMIT }));
-      } catch (err) {
-        ctx.ui.notify(`error running query "${name}": ${err instanceof Error ? err.message : String(err)}`, "error");
-        return;
-      }
-
-      if (issues.length === 0) {
-        ctx.ui.notify(`Saved query "${name}" matched no issues.`, "info");
-        return;
-      }
-
-      const { focus } = await client.call("focus.get", {});
-      const byRef = new Map(issues.map((issue) => [issue.ref, issue] as const));
-
-      const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-        const items: SelectItem[] = issues.map((issue) => ({ value: issue.ref, label: issueLabel(issue), description: issueDescription(issue, focus?.ref) }));
-        const selectList = new SelectList(items, Math.min(items.length, 12), {
-          selectedPrefix: (t: string) => theme.fg("accent", t),
-          selectedText: (t: string) => theme.fg("accent", t),
-          description: (t: string) => theme.fg("muted", t),
-          scrollInfo: (t: string) => theme.fg("dim", t),
-          noMatch: (t: string) => theme.fg("warning", t),
-        });
-        selectList.onSelect = (item) => done(item.value);
-        selectList.onCancel = () => done(null);
-        const panel = new BorderedSelectPanel({
-          title: `Query: ${name}`,
-          list: selectList,
-          helpText: "\u2191\u2193 navigate \u2022 enter focus \u2022 v view \u2022 o open in browser \u2022 esc cancel",
-          theme: {
-            border: (s: string) => theme.fg("accent", s),
-            title: (s: string) => theme.fg("accent", theme.bold(s)),
-            help: (s: string) => theme.fg("dim", s),
-          },
-        });
-        return {
-          render: (w: number) => panel.render(w),
-          invalidate: () => panel.invalidate(),
-          handleInput: (data: string) => {
-            if (data === "o") {
-              const highlighted = selectList.getSelectedItem();
-              const issue = highlighted ? byRef.get(highlighted.value) : undefined;
-              if (issue?.url) {
-                try {
-                  open(issue.url);
-                } catch {
-                  // headless/no-DISPLAY environment -- nothing more to do from inside the dialog.
-                }
-              }
-              return;
-            }
-            if (data === "v") {
-              const highlighted = selectList.getSelectedItem();
-              const issue = highlighted ? byRef.get(highlighted.value) : undefined;
-              if (issue) void showIssueDetail(ctx, client, issue.ref).then(() => tui.requestRender());
-              return;
-            }
-            panel.handleInput(data);
-            tui.requestRender();
-          },
-        };
-      });
-
-      if (result === null) return;
-
-      try {
-        const { focus: newFocus } = await client.call("focus.set", { ref: result });
-        ctx.ui.notify(`Focused ${newFocus.ref}: ${newFocus.title}\n${newFocus.url}`, "info");
-      } catch (err) {
-        ctx.ui.notify(`error: ${err instanceof Error ? err.message : String(err)}`, "error");
-        return;
-      }
-
-      await refreshStatus(ctx, client);
-    },
-  });
-
-  pi.registerCommand("board", {
-    description: "Run a saved query and render it as a color-coded Kanban board (TO DO / IN PROGRESS / REVIEW / DONE) instead of a flat list -- a terminal alternative to opening the Jira board",
-    handler: async (args, ctx) => {
-      let client: TicketsRpcClient;
-      try {
-        client = await getClient();
-      } catch (err) {
-        ctx.ui.notify(`tickets daemon unavailable: ${err instanceof Error ? err.message : String(err)}`, "error");
-        return;
-      }
-
-      const { queries } = await client.call("query.list", {});
-      if (queries.length === 0) {
-        ctx.ui.notify('No saved queries yet -- create one with `tickets query save <name> --backend jira --jql "..."`.', "info");
-        return;
-      }
-
-      let name = args?.trim();
-      if (!name) {
-        const picked = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-          const items: SelectItem[] = queries.map((q) => ({ value: q.name, label: q.name, description: q.description ?? `${q.backend}: ${q.query}` }));
-          const selectList = new SelectList(items, Math.min(items.length, 12), {
-            selectedPrefix: (t: string) => theme.fg("accent", t),
-            selectedText: (t: string) => theme.fg("accent", t),
-            description: (t: string) => theme.fg("muted", t),
-            scrollInfo: (t: string) => theme.fg("dim", t),
-            noMatch: (t: string) => theme.fg("warning", t),
-          });
-          selectList.onSelect = (item) => done(item.value);
-          selectList.onCancel = () => done(null);
-          const panel = new BorderedSelectPanel({
-            title: "Saved queries",
-            list: selectList,
-            helpText: "\u2191\u2193 navigate \u2022 enter run \u2022 esc cancel",
-            theme: {
-              border: (s: string) => theme.fg("accent", s),
-              title: (s: string) => theme.fg("accent", theme.bold(s)),
-              help: (s: string) => theme.fg("dim", s),
-            },
-          });
-          return {
-            render: (w: number) => panel.render(w),
-            invalidate: () => panel.invalidate(),
-            handleInput: (data: string) => {
-              panel.handleInput(data);
-              tui.requestRender();
-            },
-          };
-        });
-        if (picked === null) return;
-        name = picked;
-      }
-
-      let issues: Issue[];
-      try {
-        ({ issues } = await client.call("query.run", { name, limit: BROWSE_LIMIT }));
-      } catch (err) {
-        ctx.ui.notify(`error running query "${name}": ${err instanceof Error ? err.message : String(err)}`, "error");
-        return;
-      }
-
-      if (issues.length === 0) {
-        ctx.ui.notify(`Saved query "${name}" matched no issues.`, "info");
-        return;
-      }
-
-      const boardName = name;
-      await pushView<void>(ctx, (tui, theme, _kb, done) =>
-        new KanbanBoardComponent(tui, theme, issues, boardName, {
-          onOpenIssue: (issue) => showIssueDetail(ctx, client, issue.ref),
-          onOpenUrl: (issue) => {
-            if (!issue.url) return;
-            try {
-              open(issue.url);
-            } catch {
-              // headless/no-DISPLAY environment -- nothing more to do from inside the board.
-            }
-          },
-          onClose: done,
-        }));
+      if (mode === "browse") await browseTickets(ctx, client, "");
+      else if (mode === "query") await browseSavedQuery(ctx, client);
+      else if (mode === "board") await showBoard(ctx, client);
     },
   });
 
