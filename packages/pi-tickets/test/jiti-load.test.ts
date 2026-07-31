@@ -27,7 +27,7 @@ describe("pi-tickets loaded under every Pi extension load path", () => {
 });
 
 describe("pi-tickets loaded via the production jiti path", () => {
-	it("registers the /tickets, /query, /board, and /secrets commands and every promptSnippet-bearing tool", async () => {
+	it("registers the /tickets and /secrets commands and every promptSnippet-bearing tool", async () => {
 		// The shared secrets-contributor registry lives on globalThis (see
 		// secrets-registry.ts) -- reset it first so this test doesn't see
 		// "secrets" as already claimed by whichever test ran earlier in this
@@ -39,7 +39,7 @@ describe("pi-tickets loaded via the production jiti path", () => {
 		const h = createExtensionHarness(factory);
 		await h.boot();
 		try {
-			expect(h.commands).toEqual(["tickets", "query", "board", "secrets"]);
+			expect(h.commands).toEqual(["tickets", "secrets"]);
 			// Whether any tools registered depends on whether a real tickets
 			// daemon happens to be reachable on this machine (registerTicketsVehicle
 			// degrades silently otherwise) -- but any tool that DID register must
