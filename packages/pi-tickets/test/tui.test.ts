@@ -198,6 +198,104 @@ describe("registerTicketsTui", () => {
       await done;
     });
 
+    it("Tab moves the highlighted provider to the next item", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return { backends: [{ name: "github", supportsRawQuery: false }, { name: "jira", supportsRawQuery: true }] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      lastComponent().handleInput("\t"); // Tab: github -> jira
+      lastComponent().handleInput("\r"); // pick the now-highlighted Jira
+      await tick();
+      expect(lastComponent().render(80).join("\n")).toContain("Saved queries");
+      lastComponent().handleInput("\x1b");
+      await done;
+    });
+
+    it("Tab wraps back to the first provider after the last one", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op, input) => {
+        if (op === "backends.list") return { backends: [{ name: "github", supportsRawQuery: false }, { name: "jira", supportsRawQuery: true }] };
+        if (op === "focus.get") return { focus: null };
+        if (op === "ledger.search") {
+          expect(input).toEqual({ query: "", limit: 100, backend: "github" });
+          return { issues: [] };
+        }
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      lastComponent().handleInput("\t"); // github -> jira
+      lastComponent().handleInput("\t"); // jira -> wraps back to github
+      lastComponent().handleInput("\r"); // pick github
+      await done;
+      expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("No GitHub tickets"), "info");
+    });
+
+    it("'h'/'l'/'j' instantly select GitHub/GitLab/Jira without needing to navigate first", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return { backends: [{ name: "github", supportsRawQuery: false }, { name: "gitlab", supportsRawQuery: false }, { name: "jira", supportsRawQuery: true }] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      lastComponent().handleInput("j"); // instantly pick Jira, the only raw-query backend
+      await tick();
+      expect(lastComponent().render(80).join("\n")).toContain("Board view");
+      lastComponent().handleInput("\x1b");
+      await done;
+    });
+
+    it("a mnemonic for a backend that isn't configured is a no-op, not a crash", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return { backends: [{ name: "github", supportsRawQuery: false }, { name: "jira", supportsRawQuery: true }] };
+        throw new Error(`unexpected op ${op}: 'l' (GitLab) must not act when GitLab isn't configured`);
+      });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      lastComponent().handleInput("l"); // GitLab isn't among the configured backends
+      lastComponent().handleInput("\x1b");
+      await done;
+      expect(ctx.ui.notify).not.toHaveBeenCalled();
+    });
+
+    it("'s' opens settings via the injected dependency and returns to the still-open provider picker", async () => {
+      const pi = fakePi();
+      const client = fakeClient((op) => {
+        if (op === "backends.list") return { backends: [{ name: "github", supportsRawQuery: false }, { name: "jira", supportsRawQuery: true }] };
+        throw new Error(`unexpected op ${op}`);
+      });
+      let opened = false;
+      registerTicketsTui(pi as never, { getClient: async () => client, openSettings: async () => { opened = true; } });
+
+      const ctx = fakeCtx();
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      const picker = lastComponent();
+      picker.handleInput("s");
+      await tick();
+      expect(opened).toBe(true);
+      expect(lastComponent()).toBe(picker); // settings didn't tear down or replace the picker
+      picker.handleInput("\x1b");
+      await done;
+    });
+
     it("picking a backend without raw-query support skips the mode menu and browses that backend's issues directly", async () => {
       const pi = fakePi();
       const client = fakeClient((op, input) => {
