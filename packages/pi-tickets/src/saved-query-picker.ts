@@ -5,11 +5,12 @@
  * the empty-state message, and the picker itself; not what happens after
  * a name is chosen, which differs per caller.
  */
+
+import type { TicketsRpcClient } from "@danypops/tickets";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, SelectItem, TUI } from "@earendil-works/pi-tui";
 import { SelectList } from "@earendil-works/pi-tui";
 import { BorderedSelectPanel } from "malevich-tui-components";
-import type { TicketsRpcClient } from "@danypops/tickets";
 import { panelTheme } from "./issue-list-view.js";
 
 export type SavedQuerySummary = { name: string; backend: string; query: string; description?: string };

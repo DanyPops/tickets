@@ -8,11 +8,12 @@
  * opens the real URL; 'r' reloads from source.
  *
  */
+
+import type { Issue, TicketFocusState, TicketsRpcClient } from "@danypops/tickets";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, SelectItem, TUI } from "@earendil-works/pi-tui";
 import { SelectList } from "@earendil-works/pi-tui";
 import { BorderedSelectPanel, type BorderedSelectPanelTheme } from "malevich-tui-components";
-import type { Issue, TicketFocusState, TicketsRpcClient } from "@danypops/tickets";
 
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
 
@@ -97,9 +98,14 @@ export class IssueListComponent implements Component {
   private buildPanel(): void {
     const items: SelectItem[] = [];
     if (this.opts.showClearFocus && this.focus) {
-      items.push({ value: CLEAR_FOCUS_VALUE, label: "\u2715 Clear current focus", description: `${this.focus.ref} \u2014 ${this.focus.title}` });
+      items.push({
+        value: CLEAR_FOCUS_VALUE,
+        label: "\u2715 Clear current focus",
+        description: `${this.focus.ref} \u2014 ${this.focus.title}`,
+      });
     }
-    for (const issue of this.issues) items.push({ value: issue.ref, label: issueLabel(issue), description: issueDescription(issue, this.focus?.ref) });
+    for (const issue of this.issues)
+      items.push({ value: issue.ref, label: issueLabel(issue), description: issueDescription(issue, this.focus?.ref) });
 
     const selectList = new SelectList(items, Math.min(items.length, 12), {
       selectedPrefix: (t: string) => this.theme.fg("accent", t),
