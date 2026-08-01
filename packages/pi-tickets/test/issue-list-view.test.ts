@@ -69,13 +69,22 @@ describe("IssueListComponent", () => {
   it("framed defaults to true (drawn with its own top/bottom rule) and false omits it, for nesting inside a host's own border", async () => {
     const client = fakeClient((op) => (op === "focus.get" ? { focus: null } : { issues: ISSUES }));
     const framed = new IssueListComponent(fakeTui(), fakeTheme, fakeCtx(), client, {
-      title: "T", showClearFocus: false, loadIssues: async () => ISSUES, emptyMessage: () => "x", onOpenIssue: async () => {},
+      title: "T",
+      showClearFocus: false,
+      loadIssues: async () => ISSUES,
+      emptyMessage: () => "x",
+      onOpenIssue: async () => {},
     });
     await tick();
     expect(framed.render(20)[0]).toBe("\u2500".repeat(20));
 
     const unframed = new IssueListComponent(fakeTui(), fakeTheme, fakeCtx(), client, {
-      title: "T", showClearFocus: false, loadIssues: async () => ISSUES, emptyMessage: () => "x", onOpenIssue: async () => {}, framed: false,
+      title: "T",
+      showClearFocus: false,
+      loadIssues: async () => ISSUES,
+      emptyMessage: () => "x",
+      onOpenIssue: async () => {},
+      framed: false,
     });
     await tick();
     expect(unframed.render(20)[0]).not.toBe("\u2500".repeat(20));
@@ -88,13 +97,24 @@ describe("IssueListComponent", () => {
     let cleared = false;
     let focused: string | undefined;
     const client = fakeClient((op, input) => {
-      if (op === "focus.get") return { focus: { ref: "github:#1", title: "First bug", url: "https://x", status: "active", updatedAt: "now" } };
-      if (op === "focus.clear") { cleared = true; return { cleared: true }; }
-      if (op === "focus.set") { focused = (input as { ref: string }).ref; return { focus: { ref: focused, title: "x", url: "https://y", status: "active", updatedAt: "now" } }; }
+      if (op === "focus.get")
+        return { focus: { ref: "github:#1", title: "First bug", url: "https://x", status: "active", updatedAt: "now" } };
+      if (op === "focus.clear") {
+        cleared = true;
+        return { cleared: true };
+      }
+      if (op === "focus.set") {
+        focused = (input as { ref: string }).ref;
+        return { focus: { ref: focused, title: "x", url: "https://y", status: "active", updatedAt: "now" } };
+      }
       return { issues: ISSUES };
     });
     const list = new IssueListComponent(fakeTui(), fakeTheme, ctx, client, {
-      title: "T", showClearFocus: true, loadIssues: async () => ISSUES, emptyMessage: () => "x", onOpenIssue: async () => {},
+      title: "T",
+      showClearFocus: true,
+      loadIssues: async () => ISSUES,
+      emptyMessage: () => "x",
+      onOpenIssue: async () => {},
     });
     await tick();
     expect(list.render(80).join("\n")).toContain("Clear current focus");
@@ -108,8 +128,14 @@ describe("IssueListComponent", () => {
     const client = fakeClient((op) => (op === "focus.get" ? { focus: null } : { issues: ISSUES }));
     const opened: string[] = [];
     const list = new IssueListComponent(fakeTui(), fakeTheme, fakeCtx(), client, {
-      title: "T", showClearFocus: false, loadIssues: async () => ISSUES, emptyMessage: () => "x",
-      onOpenIssue: async () => {}, onOpenUrl: (issue) => { if (issue.url) opened.push(issue.url); },
+      title: "T",
+      showClearFocus: false,
+      loadIssues: async () => ISSUES,
+      emptyMessage: () => "x",
+      onOpenIssue: async () => {},
+      onOpenUrl: (issue) => {
+        if (issue.url) opened.push(issue.url);
+      },
     });
     await tick();
     list.handleInput("o");
@@ -120,8 +146,13 @@ describe("IssueListComponent", () => {
     const client = fakeClient((op) => (op === "focus.get" ? { focus: null } : { issues: ISSUES }));
     const viewed: string[] = [];
     const list = new IssueListComponent(fakeTui(), fakeTheme, fakeCtx(), client, {
-      title: "T", showClearFocus: false, loadIssues: async () => ISSUES, emptyMessage: () => "x",
-      onOpenIssue: async (issue) => { viewed.push(issue.ref); },
+      title: "T",
+      showClearFocus: false,
+      loadIssues: async () => ISSUES,
+      emptyMessage: () => "x",
+      onOpenIssue: async (issue) => {
+        viewed.push(issue.ref);
+      },
     });
     await tick();
     list.handleInput("v");
@@ -133,7 +164,10 @@ describe("IssueListComponent", () => {
     let calls = 0;
     const client = fakeClient((op) => (op === "focus.get" ? { focus: null } : { issues: (calls++, calls === 1 ? [] : ISSUES) }));
     const list = new IssueListComponent(fakeTui(), fakeTheme, fakeCtx(), client, {
-      title: "T", showClearFocus: false, loadIssues: async () => ((await client.call("ledger.search", { query: "" })) as { issues: Issue[] }).issues, emptyMessage: () => "empty",
+      title: "T",
+      showClearFocus: false,
+      loadIssues: async () => ((await client.call("ledger.search", { query: "" })) as { issues: Issue[] }).issues,
+      emptyMessage: () => "empty",
       onOpenIssue: async () => {},
     });
     await tick();

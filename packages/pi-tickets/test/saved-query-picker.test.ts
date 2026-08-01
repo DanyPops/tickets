@@ -37,7 +37,10 @@ describe("SavedQueryPickerComponent", () => {
   });
 
   it("filters queries down to the given backend", async () => {
-    const client = fakeClient([{ name: "gh", backend: "github", query: "..." }, { name: "sprint", backend: "jira", query: "..." }]);
+    const client = fakeClient([
+      { name: "gh", backend: "github", query: "..." },
+      { name: "sprint", backend: "jira", query: "..." },
+    ]);
     const picker = new SavedQueryPickerComponent(fakeTui(), fakeTheme, client, "jira", "Jira", () => {});
     await tick();
     const rendered = picker.render(80).join("\n");
@@ -48,7 +51,9 @@ describe("SavedQueryPickerComponent", () => {
   it("invokes onPick with the selected query's name on enter", async () => {
     const client = fakeClient([{ name: "sprint", backend: "jira", query: "..." }]);
     let picked: string | undefined;
-    const picker = new SavedQueryPickerComponent(fakeTui(), fakeTheme, client, "jira", "Jira", (name) => { picked = name; });
+    const picker = new SavedQueryPickerComponent(fakeTui(), fakeTheme, client, "jira", "Jira", (name) => {
+      picked = name;
+    });
     await tick();
     picker.handleInput("\r");
     expect(picked).toBe("sprint");

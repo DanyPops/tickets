@@ -6,10 +6,11 @@
  * capturesEscape), the same content-swap-in-place pattern
  * BoardTabComponent uses for its own pick/board split.
  */
+
+import type { Issue, TicketsRpcClient } from "@danypops/tickets";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { matchesKey } from "@earendil-works/pi-tui";
-import type { Issue, TicketsRpcClient } from "@danypops/tickets";
 import { IssueListComponent } from "./issue-list-view.js";
 import { SavedQueryPickerComponent } from "./saved-query-picker.js";
 
@@ -32,7 +33,9 @@ export class SavedQueryTabComponent implements Component {
     private readonly client: TicketsRpcClient,
     private readonly opts: SavedQueryTabOptions,
   ) {
-    this.picker = new SavedQueryPickerComponent(tui, theme, client, opts.backend, opts.backendDisplayName, (name) => this.browseQuery(name));
+    this.picker = new SavedQueryPickerComponent(tui, theme, client, opts.backend, opts.backendDisplayName, (name) =>
+      this.browseQuery(name),
+    );
   }
 
   /** While browsing a query's results, escape belongs to this tab (back to the picker), not the host's own tab-jump/close handling. */
