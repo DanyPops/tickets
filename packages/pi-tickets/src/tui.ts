@@ -47,6 +47,7 @@ import {
   type TicketFocusState,
   type TicketsRpcClient,
 } from "@danypops/tickets";
+import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-status-refresh";
 import { listSecretsContributors, mergeSecretsContributions, runSecretsCommand } from "@danypops/vehicle-client-pi/secrets-tui";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, type TUI } from "@earendil-works/pi-tui";
@@ -57,7 +58,7 @@ import { IssueListComponent } from "./issue-list-view.js";
 import { tabBarTheme } from "./menu-theme.js";
 import { pushView } from "./navigation.js";
 import { SavedQueryTabComponent } from "./saved-query-view.js";
-import { isTicketsVehicleTool } from "./vehicle-client.js";
+import { TICKETS_TOOL_PREFIXES } from "./vehicle-client.js";
 
 const BROWSE_LIMIT = 100;
 /** First letter that's actually distinct within the real product name (GitHub/GitLab share a G, so "Hub"/"Lab" are what's unique); Jira's own three sub-tabs also all start with J, so each gets its own letter too. 's' (settings) is reserved globally -- never assigned here. */
@@ -116,14 +117,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
     }
   }
 
-  pi.on("session_start", async (_event, ctx) => {
-    await refreshStatus(ctx);
-  });
-
-  pi.on("tool_execution_end", async (event, ctx) => {
-    if (!isTicketsVehicleTool(event.toolName)) return;
-    await refreshStatus(ctx);
-  });
+  registerVehicleStatusRefresh(pi, { ownToolPrefixes: TICKETS_TOOL_PREFIXES, refresh: (ctx) => refreshStatus(ctx) });
 
   async function showIssueDetail(ctx: ExtensionCommandContext, client: TicketsRpcClient, ref: string): Promise<void> {
     let issue: Issue;
