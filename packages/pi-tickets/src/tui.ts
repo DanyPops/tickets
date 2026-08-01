@@ -197,6 +197,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
           onOpenIssue,
           onOpenUrl: openIssueUrl,
           onFocusChanged,
+          framed: false, // hosted as a tab inside the persistent panel's own Envelope
         });
         return [{ key: b.name, label: displayName, mnemonic: TAB_MNEMONICS[b.name], content }];
       }
@@ -209,6 +210,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         onOpenIssue,
         onOpenUrl: openIssueUrl,
         onFocusChanged,
+        framed: false, // hosted as a tab inside the persistent panel's own Envelope
       });
       const savedQueries = new SavedQueryTabComponent(tui, theme, ctx, client, {
         backend: b.name,

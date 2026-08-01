@@ -54,6 +54,7 @@ export class SavedQueryTabComponent implements Component {
       onOpenIssue: this.opts.onOpenIssue,
       onOpenUrl: this.opts.onOpenUrl,
       onFocusChanged: this.opts.onFocusChanged,
+      framed: false, // hosted as a tab inside the persistent panel's own Envelope
     });
     this.tui.requestRender();
   }

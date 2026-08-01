@@ -47,6 +47,8 @@ export interface IssueListOptions {
   onOpenUrl?: (issue: Issue) => void;
   /** Fires after a successful focus.set/focus.clear, so a host can refresh its own status line. */
   onFocusChanged?: () => void;
+  /** Defaults to true. False when hosted as a tab inside the persistent panel, already framed by its own Envelope -- true for the standalone quick-search view, which has no other border. */
+  framed?: boolean;
 }
 
 export class IssueListComponent implements Component {
@@ -113,6 +115,7 @@ export class IssueListComponent implements Component {
       list: selectList,
       helpText: "\u2191\u2193 navigate \u2022 enter focus \u2022 v view \u2022 o open in browser \u2022 r refresh",
       theme: panelTheme(this.theme),
+      framed: this.opts.framed ?? true,
     });
   }
 

@@ -7,13 +7,13 @@
     },
     "packages/pi-tickets": {
       "name": "@danypops/pi-tickets",
-      "version": "0.14.0",
+      "version": "0.15.0",
       "dependencies": {
         "@danypops/tickets": "^0.6.0",
         "@danypops/vehicle-client": "^0.1.1",
         "@danypops/vehicle-client-pi": "^0.1.5",
         "@danypops/vehicle-core": "^0.1.1",
-        "malevich-tui-components": "0.15.0",
+        "malevich-tui-components": "0.16.0",
         "typebox": "^1.1.34",
       },
       "devDependencies": {
@@ -373,7 +373,7 @@
 
     "lru-cache": ["lru-cache@11.5.2", "", {}, ""],
 
-    "malevich-tui-components": ["malevich-tui-components@0.15.0", "", {}, "sha512-ZHD91SNTwe6mRojR7p76RmXzvLgda6gerIrLTNcxl3QEZPjUNLCu3/BQjMMCMx8REZ9BXx5GB5XS0FGmgOQYdw=="],
+    "malevich-tui-components": ["malevich-tui-components@0.16.0", "", {}, "sha512-oCuwbA6ccRQ9zNtmnet9YT8/baDoB9Dp0/wFFQL9tPOMAUPEKiVHcN3DsKCAcDKbwUrZ6U6Npx777HrhyA1xqg=="],
 
     "marked": ["marked@18.0.5", "", { "bin": "bin/marked.js" }, ""],
 
