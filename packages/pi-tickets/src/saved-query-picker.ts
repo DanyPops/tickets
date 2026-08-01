@@ -58,6 +58,9 @@ export class SavedQueryPickerComponent implements Component {
       list: selectList,
       helpText: "\u2191\u2193 navigate \u2022 enter run \u2022 esc back",
       theme: panelTheme(this.theme),
+      // Always hosted as a tab inside the persistent panel's own Envelope --
+      // never used standalone, so no framed option to thread through.
+      framed: false,
     });
   }
 
