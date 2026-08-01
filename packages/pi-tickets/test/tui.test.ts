@@ -30,25 +30,47 @@ function fakeClient(overrides: Partial<Record<string, OpHandler>> = {}): Tickets
   } as unknown as TicketsRpcClient;
 }
 
-/** Minimal fake theme: pass strings through unstyled, matching how tests elsewhere treat theme.fg/bold/inverse as identity. */
+/** Minimal fake theme: pass strings through unstyled, matching how tests elsewhere treat theme.fg/bold/inverse/bg as identity. */
 const fakeTheme = {
   fg: (_color: string, text: string) => text,
+  bg: (_color: string, text: string) => text,
   bold: (text: string) => text,
   inverse: (text: string) => text,
   underline: (text: string) => text,
 };
 
-function fakeCtx() {
+// A theme that wraps text in genuine ANSI SGR codes, the way every real pi
+// theme does -- unlike fakeTheme's identity passthrough, which can never
+// exercise a bug that only shows up once content actually contains escape
+// sequences (confirmed live in pi-packed's identical panel: Envelope's
+// default measure counts ANSI escape bytes as visible characters, so a
+// more-styled row got padded as if it were longer than it really is).
+const ANSI_CODE = "\u001b[38;5;208m";
+const ANSI_RESET = "\u001b[0m";
+// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching a real ANSI escape sequence, not an accidental control character.
+const ANSI_ESCAPE_PATTERN = /\u001b\[[0-9;]*m/g;
+const realishTheme = {
+  fg: (_color: string, text: string) => `${ANSI_CODE}${text}${ANSI_RESET}`,
+  bg: (_color: string, text: string) => `${ANSI_CODE}${text}${ANSI_RESET}`,
+  bold: (text: string) => `${ANSI_CODE}${text}${ANSI_RESET}`,
+  inverse: (text: string) => `${ANSI_CODE}${text}${ANSI_RESET}`,
+  underline: (text: string) => `${ANSI_CODE}${text}${ANSI_RESET}`,
+};
+function stripAnsi(s: string): string {
+  return s.replace(ANSI_ESCAPE_PATTERN, "");
+}
+
+function fakeCtx(theme: typeof fakeTheme = fakeTheme) {
   return {
     ui: {
-      theme: fakeTheme,
+      theme,
       notify: mock(() => {}),
       setStatus: mock(() => {}),
       custom: mock(
         <T>(factory: (tui: unknown, theme: unknown, kb: unknown, done: (v: T) => void) => Component, _options?: unknown) =>
           new Promise<T>((resolve) => {
             const fakeTui = { terminal: { rows: 40 }, requestRender: () => {} };
-            const component = factory(fakeTui, fakeTheme, {}, resolve);
+            const component = factory(fakeTui, theme, {}, resolve);
             // Exposed so the test can drive it as if a user pressed keys. Each
             // call (including one nested inside another, e.g. the panel handing
             // off to a pushed detail view) overwrites this -- a test reads it
@@ -229,6 +251,29 @@ describe("registerTicketsTui", () => {
       expect(rendered).toContain("Jira Queries");
       expect(rendered).toContain("Jira Board");
       lastComponent().handleInput(ESCAPE); // home (GitHub) -- closes directly
+      await done;
+    });
+
+    it("keeps every rendered line at the exact same real (ANSI-stripped) width under genuine theme styling, not a plain fake theme", async () => {
+      // The actual regression test for a real bug (confirmed live in
+      // pi-packed's identical panel): every other test in this file uses
+      // fakeTheme's identity passthrough, which can never exercise a bug
+      // that only shows up once content contains real ANSI escape codes --
+      // exactly why Envelope needs an explicit ANSI-aware measure, not its
+      // own default (raw .length).
+      const pi = fakePi();
+      const client = fakeClient({ "backends.list": () => MIXED_BACKENDS, "ledger.search": () => ({ issues: ISSUES }) });
+      registerTicketsTui(pi as never, { getClient: async () => client });
+
+      const ctx = fakeCtx(realishTheme);
+      const done = pi.commands.get("tickets")?.handler(undefined, ctx);
+      await tick();
+      const rendered = lastComponent().render(80);
+
+      const widths = new Set(rendered.map((line) => stripAnsi(line).length));
+      expect(widths).toEqual(new Set([80])); // every line, every column -- not a mix of widths
+
+      lastComponent().handleInput(ESCAPE);
       await done;
     });
 
@@ -810,34 +855,64 @@ describe("registerTicketsTui", () => {
     });
   });
 
-  describe("mnemonic keybindings never collide with a tab's own action keys", () => {
-    it("the panel's tab mnemonics (h/l/i/q/b), settings (s), and every Issues tab's own v/o/r are all distinct", () => {
-      // Mirrors the real reachable-at-once set: the panel's own top-level
-      // dispatcher (mnemonics + settings) plus whichever single tab's own
-      // content is active -- an Issues tab is the leaf every backend has at
-      // least one of, and the only one with its own single-letter actions.
-      const root: MnemonicContext = {
-        name: "panel",
-        bindings: [
-          { key: "h", description: "jump: GitHub" },
-          { key: "l", description: "jump: GitLab" },
-          { key: "i", description: "jump: Jira Issues" },
-          { key: "q", description: "jump: Jira Queries" },
-          { key: "b", description: "jump: Jira Board" },
-          { key: "s", description: "open settings" },
-        ],
-        children: [
-          {
-            name: "an Issues tab",
-            bindings: [
-              { key: "v", description: "view issue detail" } satisfies KeyBinding,
-              { key: "o", description: "open in browser" },
-              { key: "r", description: "reload" },
-            ],
-          },
-        ],
+  describe("the panel's real keybindings (mnemonic conflict detection)", () => {
+    // Mirrors the real reachable-at-once set: the panel's own top-level
+    // dispatcher (mnemonics + settings) plus whichever single tab's own
+    // content is active. Issues, a Saved-queries tab while browsing (it
+    // swaps in the exact same IssueListComponent -- see saved-query-view.ts),
+    // and a Board tab (its own 'o', see board-view.ts's handleInput) are
+    // SIBLING leaves -- never simultaneously active, so freely allowed to
+    // reuse a key among themselves; only shared-with-root collisions count.
+    const PANEL_MNEMONIC_TREE: MnemonicContext = {
+      name: "panel",
+      bindings: [
+        { key: "h", description: "jump: GitHub" },
+        { key: "l", description: "jump: GitLab" },
+        { key: "i", description: "jump: Jira Issues" },
+        { key: "q", description: "jump: Jira Queries" },
+        { key: "b", description: "jump: Jira Board" },
+        { key: "s", description: "open settings" },
+      ],
+      children: [
+        {
+          name: "an Issues tab",
+          bindings: [
+            { key: "v", description: "view issue detail" } satisfies KeyBinding,
+            { key: "o", description: "open in browser" },
+            { key: "r", description: "reload" },
+          ],
+        },
+        {
+          name: "a Saved-queries tab while browsing",
+          bindings: [
+            { key: "v", description: "view issue detail" },
+            { key: "o", description: "open in browser" },
+            { key: "r", description: "reload" },
+          ],
+        },
+        {
+          name: "a Board tab while showing a board",
+          bindings: [{ key: "o", description: "open in browser" }],
+        },
+      ],
+    };
+
+    it("has zero real conflicts anywhere in the tree", () => {
+      expect(() => assertNoMnemonicConflicts(PANEL_MNEMONIC_TREE)).not.toThrow();
+    });
+
+    // A deliberately introduced conflict, to prove the check above isn't
+    // vacuously passing on an empty or trivial tree.
+    it("genuinely detects a conflict when one is deliberately introduced", () => {
+      const broken: MnemonicContext = {
+        ...PANEL_MNEMONIC_TREE,
+        children: PANEL_MNEMONIC_TREE.children!.map((child) =>
+          child.name === "a Board tab while showing a board"
+            ? { ...child, bindings: [...child.bindings, { key: "h", description: "a fake conflicting GitHub-jump binding" }] }
+            : child,
+        ),
       };
-      expect(() => assertNoMnemonicConflicts(root)).not.toThrow();
+      expect(() => assertNoMnemonicConflicts(broken)).toThrow();
     });
   });
 });

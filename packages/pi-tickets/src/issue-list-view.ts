@@ -13,7 +13,7 @@ import type { Issue, TicketFocusState, TicketsRpcClient } from "@danypops/ticket
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, SelectItem, TUI } from "@earendil-works/pi-tui";
 import { SelectList } from "@earendil-works/pi-tui";
-import { BorderedSelectPanel, type BorderedSelectPanelTheme } from "malevich-tui-components";
+import { BorderedSelectPanel, type BorderedSelectPanelTheme, Spinner } from "malevich-tui-components";
 
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
 
@@ -61,6 +61,7 @@ export class IssueListComponent implements Component {
   private panel: BorderedSelectPanel | undefined;
   private selectList: SelectList | undefined;
   private readonly query: string;
+  private readonly spinner = new Spinner();
 
   constructor(
     private readonly tui: TUI,
@@ -80,6 +81,7 @@ export class IssueListComponent implements Component {
   async load(): Promise<void> {
     this.loading = true;
     this.error = undefined;
+    this.spinner.start(() => this.tui.requestRender());
     this.tui.requestRender();
     try {
       const [{ focus }, issues] = await Promise.all([this.client.call("focus.get", {}), this.opts.loadIssues(this.query)]);
@@ -91,6 +93,7 @@ export class IssueListComponent implements Component {
       this.error = err instanceof Error ? err.message : String(err);
     } finally {
       this.loading = false;
+      this.spinner.stop();
       this.tui.requestRender();
     }
   }
@@ -143,7 +146,7 @@ export class IssueListComponent implements Component {
   }
 
   render(width: number): string[] {
-    if (this.loading) return [this.theme.fg("muted", "Loading\u2026")];
+    if (this.loading) return [this.theme.fg("muted", `${this.spinner.glyph()} Loading\u2026`)];
     if (this.error) return [this.theme.fg("error", this.error)];
     if (!this.panel) return [];
     if (this.issues.length === 0 && !(this.opts.showClearFocus && this.focus)) {

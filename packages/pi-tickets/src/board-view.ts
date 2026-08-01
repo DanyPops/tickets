@@ -14,7 +14,15 @@
 import type { Issue, Status, TicketsRpcClient } from "@danypops/tickets";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { type Component, type KeyId, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { Board, type BoardColumn, type BoardTheme, formatBadgeCount, type KeyMatcher, type TextMeasure } from "malevich-tui-components";
+import {
+  Board,
+  type BoardColumn,
+  type BoardTheme,
+  formatBadgeCount,
+  type KeyMatcher,
+  Spinner,
+  type TextMeasure,
+} from "malevich-tui-components";
 import { SavedQueryPickerComponent } from "./saved-query-picker.js";
 
 const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
@@ -223,6 +231,7 @@ export class BoardTabComponent implements Component {
   private loadingBoard = false;
   private lastEmptyQuery: string | undefined;
   private lastError: string | undefined;
+  private readonly spinner = new Spinner();
 
   constructor(
     private readonly tui: TUI,
@@ -258,17 +267,20 @@ export class BoardTabComponent implements Component {
     this.loadingBoard = true;
     this.lastEmptyQuery = undefined;
     this.lastError = undefined;
+    this.spinner.start(() => this.tui.requestRender());
     this.tui.requestRender();
     let issues: Issue[];
     try {
       ({ issues } = await this.client.call("query.run", { name, limit: 100 }));
     } catch (err) {
       this.loadingBoard = false;
+      this.spinner.stop();
       this.lastError = `error running query "${name}": ${err instanceof Error ? err.message : String(err)}`;
       this.tui.requestRender();
       return;
     }
     this.loadingBoard = false;
+    this.spinner.stop();
     if (issues.length === 0) {
       this.lastEmptyQuery = name;
       this.tui.requestRender();
@@ -287,7 +299,7 @@ export class BoardTabComponent implements Component {
 
   render(width: number): string[] {
     if (this.board) return this.board.render(width);
-    if (this.loadingBoard) return [this.theme.fg("muted", "Loading\u2026")];
+    if (this.loadingBoard) return [this.theme.fg("muted", `${this.spinner.glyph()} Loading\u2026`)];
     const lines = this.picker.render(width);
     if (this.lastError) lines.push(this.theme.fg("error", this.lastError));
     else if (this.lastEmptyQuery) lines.push(this.theme.fg("warning", `Saved query "${this.lastEmptyQuery}" matched no issues.`));

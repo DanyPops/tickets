@@ -53,6 +53,20 @@ describe("IssueListComponent", () => {
     expect(list.render(80).join("\n")).toContain("github:#1");
   });
 
+  it("shows an animated spinner glyph while loading, not just a static message", async () => {
+    const client = fakeClient((op) => (op === "focus.get" ? { focus: null } : { issues: ISSUES }));
+    const list = new IssueListComponent(fakeTui(), fakeTheme, fakeCtx(), client, {
+      title: "GitHub issues",
+      showClearFocus: true,
+      loadIssues: async () => ISSUES,
+      emptyMessage: () => "nothing here",
+      onOpenIssue: async () => {},
+    });
+    const loadingLine = list.render(80).join("\n");
+    expect(loadingLine).not.toBe("Loading\u2026"); // a real glyph prefixes it, not the bare word
+    await tick();
+  });
+
   it("renders the empty message inline instead of a panel when nothing loads and there's no focus to clear", async () => {
     const client = fakeClient((op) => (op === "focus.get" ? { focus: null } : { issues: [] }));
     const list = new IssueListComponent(fakeTui(), fakeTheme, fakeCtx(), client, {

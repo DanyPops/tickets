@@ -15,6 +15,10 @@ function fakeClient(queries: { name: string; backend: string; query: string; des
   return { call: mock(() => Promise.resolve({ queries })) } as unknown as TicketsRpcClient;
 }
 
+function fakeFailingClient(message: string): TicketsRpcClient {
+  return { call: mock(() => Promise.reject(new Error(message))) } as unknown as TicketsRpcClient;
+}
+
 function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -46,6 +50,13 @@ describe("SavedQueryPickerComponent", () => {
     const rendered = picker.render(80).join("\n");
     expect(rendered).toContain("sprint");
     expect(rendered).not.toContain("gh");
+  });
+
+  it("surfaces a query.list failure inline instead of leaving the spinner running forever", async () => {
+    const client = fakeFailingClient("jira: unreachable");
+    const picker = new SavedQueryPickerComponent(fakeTui(), fakeTheme, client, "jira", "Jira", () => {});
+    await tick();
+    expect(picker.render(80).join("\n")).toContain("jira: unreachable");
   });
 
   it("invokes onPick with the selected query's name on enter", async () => {

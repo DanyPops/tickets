@@ -50,8 +50,8 @@ import {
 import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-status-refresh";
 import { listSecretsContributors, mergeSecretsContributions, runSecretsCommand } from "@danypops/vehicle-client-pi/secrets-tui";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, type TUI } from "@earendil-works/pi-tui";
-import { Envelope, TabbedContainer, type TabbedContainerTab } from "malevich-tui-components";
+import { matchesKey, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Envelope, TabbedContainer, type TabbedContainerTab, type TextMeasure } from "malevich-tui-components";
 import { BoardTabComponent } from "./board-view.js";
 import { IssueDetailComponent } from "./issue-detail-view.js";
 import { IssueListComponent } from "./issue-list-view.js";
@@ -273,11 +273,20 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         matchesKey: (data, keyId) => matchesKey(data, keyId as Parameters<typeof matchesKey>[1]),
       });
 
+      // measure must be explicit: Envelope's own default is ASCII-only (raw
+      // .length, blind to ANSI escape codes) and every tab's own content is
+      // styled through theme.fg/theme.bold/theme.underline -- without this,
+      // Envelope pads each line against its own escape-code-inflated "length"
+      // instead of its real visible width, so the right border lands at a
+      // different column on every line depending on how much styling it
+      // carries (confirmed live in pi-packed's own identical panel).
+      const measure: TextMeasure = { visibleWidth, truncateToWidth };
       const envelope = new Envelope({
         title: "tickets",
         borderStyle: "rounded",
         style: (s) => theme.fg("border", s),
         titleStyle: (s) => theme.bold(theme.fg("accent", s)),
+        measure,
       });
 
       return {

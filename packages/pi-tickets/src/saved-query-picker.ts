@@ -10,15 +10,17 @@ import type { TicketsRpcClient } from "@danypops/tickets";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component, SelectItem, TUI } from "@earendil-works/pi-tui";
 import { SelectList } from "@earendil-works/pi-tui";
-import { BorderedSelectPanel } from "malevich-tui-components";
+import { BorderedSelectPanel, Spinner } from "malevich-tui-components";
 import { panelTheme } from "./issue-list-view.js";
 
 export type SavedQuerySummary = { name: string; backend: string; query: string; description?: string };
 
 export class SavedQueryPickerComponent implements Component {
   private loading = true;
+  private error: string | undefined;
   private queries: SavedQuerySummary[] = [];
   private panel: BorderedSelectPanel | undefined;
+  private readonly spinner = new Spinner();
 
   constructor(
     private readonly tui: TUI,
@@ -28,12 +30,23 @@ export class SavedQueryPickerComponent implements Component {
     private readonly backendDisplayName: string,
     onPick: (name: string) => void,
   ) {
-    void client.call("query.list", {}).then(({ queries: all }) => {
-      this.queries = all.filter((q) => q.backend === backend);
-      this.loading = false;
-      this.buildPanel(onPick);
-      this.tui.requestRender();
-    });
+    this.spinner.start(() => this.tui.requestRender());
+    void client
+      .call("query.list", {})
+      .then(({ queries: all }) => {
+        this.queries = all.filter((q) => q.backend === backend);
+        this.buildPanel(onPick);
+      })
+      .catch((err) => {
+        // Without this, an in-flight Spinner interval would tick forever with
+        // nothing left to stop it -- a real leak, not just a stuck "Loading…".
+        this.error = err instanceof Error ? err.message : String(err);
+      })
+      .finally(() => {
+        this.loading = false;
+        this.spinner.stop();
+        this.tui.requestRender();
+      });
   }
 
   private buildPanel(onPick: (name: string) => void): void {
@@ -70,7 +83,8 @@ export class SavedQueryPickerComponent implements Component {
   }
 
   render(width: number): string[] {
-    if (this.loading) return [this.theme.fg("muted", "Loading\u2026")];
+    if (this.loading) return [this.theme.fg("muted", `${this.spinner.glyph()} Loading\u2026`)];
+    if (this.error) return [this.theme.fg("error", this.error)];
     if (this.queries.length === 0) {
       return [
         this.theme.fg(
