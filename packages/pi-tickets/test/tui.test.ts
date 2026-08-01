@@ -35,6 +35,7 @@ const fakeTheme = {
   fg: (_color: string, text: string) => text,
   bold: (text: string) => text,
   inverse: (text: string) => text,
+  underline: (text: string) => text,
 };
 
 function fakeCtx() {
