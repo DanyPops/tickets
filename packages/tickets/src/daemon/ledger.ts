@@ -122,9 +122,10 @@ export class Ledger {
   }
 
   stats(): { backend: string; count: number }[] {
-    const rows = this.db
-      .query("SELECT backend, COUNT(*) as count FROM issues GROUP BY backend ORDER BY backend")
-      .all() as { backend: string; count: number }[];
+    const rows = this.db.query("SELECT backend, COUNT(*) as count FROM issues GROUP BY backend ORDER BY backend").all() as {
+      backend: string;
+      count: number;
+    }[];
     return rows;
   }
 }

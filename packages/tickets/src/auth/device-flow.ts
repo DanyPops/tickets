@@ -54,11 +54,7 @@ export interface DeviceFlowToken {
   refreshToken?: string;
 }
 
-async function postForm(
-  fetchImpl: FetchLike,
-  url: string,
-  params: Record<string, string>,
-): Promise<Record<string, unknown>> {
+async function postForm(fetchImpl: FetchLike, url: string, params: Record<string, string>): Promise<Record<string, unknown>> {
   const res = await fetchImpl(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -80,8 +76,7 @@ export async function requestDeviceAuthorization(config: DeviceFlowConfig): Prom
     deviceCode: body.device_code,
     userCode: body.user_code,
     verificationUri: String(body.verification_uri ?? ""),
-    verificationUriComplete:
-      typeof body.verification_uri_complete === "string" ? body.verification_uri_complete : undefined,
+    verificationUriComplete: typeof body.verification_uri_complete === "string" ? body.verification_uri_complete : undefined,
     expiresInSeconds: Number(body.expires_in ?? 900),
     intervalSeconds: Number(body.interval ?? 5),
   };
@@ -130,8 +125,7 @@ export async function pollForToken(
       accessToken: body.access_token,
       tokenType: String(body.token_type ?? "Bearer"),
       scope: typeof body.scope === "string" ? body.scope : undefined,
-      expiresAt:
-        typeof body.expires_in === "number" ? new Date(Date.now() + body.expires_in * 1000).toISOString() : undefined,
+      expiresAt: typeof body.expires_in === "number" ? new Date(Date.now() + body.expires_in * 1000).toISOString() : undefined,
       refreshToken: typeof body.refresh_token === "string" ? body.refresh_token : undefined,
     };
   }

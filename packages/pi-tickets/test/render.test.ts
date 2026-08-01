@@ -1,8 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { renderResultText } from "../src/render.js";
 
 /** Identity theme, matching the fake used in tui.test.ts -- asserts on content, not color codes. */
-const fakeTheme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as any;
+const fakeTheme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
 
 describe("renderResultText", () => {
   it("comment_add shows a clear confirmation with the real body, not a raw JSON dump with an empty body", () => {
@@ -21,7 +22,12 @@ describe("renderResultText", () => {
   });
 
   it("comments lists each comment's author and a truncated body", () => {
-    const result = { comments: [{ id: "1", body: "first", author: "A" }, { id: "2", body: "second", author: "B" }] };
+    const result = {
+      comments: [
+        { id: "1", body: "first", author: "A" },
+        { id: "2", body: "second", author: "B" },
+      ],
+    };
     const text = renderResultText("comments", result, false, fakeTheme);
     expect(text).toContain("2 comment(s)");
     expect(text).toContain("A: first");

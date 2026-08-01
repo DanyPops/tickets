@@ -92,7 +92,9 @@ export function startCallbackServer(expectedState: string, port = 0): CallbackSe
       rejectCode?.(new JiraOAuthError("callback missing authorization code"));
       return;
     }
-    res.writeHead(200, { "Content-Type": "text/html" }).end("<html><body>Authorized. You can close this tab and return to the terminal.</body></html>");
+    res
+      .writeHead(200, { "Content-Type": "text/html" })
+      .end("<html><body>Authorized. You can close this tab and return to the terminal.</body></html>");
     resolveCode?.({ code, redirectUri: redirectUriFor() });
   });
 
@@ -118,12 +120,7 @@ export function startCallbackServer(expectedState: string, port = 0): CallbackSe
   };
 }
 
-export function buildAuthorizeUrl(opts: {
-  clientId: string;
-  redirectUri: string;
-  scope: string;
-  state: string;
-}): string {
+export function buildAuthorizeUrl(opts: { clientId: string; redirectUri: string; scope: string; state: string }): string {
   const url = new URL(ATLASSIAN_AUTHORIZE_URL);
   url.searchParams.set("audience", "api.atlassian.com");
   url.searchParams.set("client_id", opts.clientId);

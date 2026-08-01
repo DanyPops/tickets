@@ -23,12 +23,13 @@
  * previews, created/updated confirmations, focus status) instead of
  * falling back to vehicle-client-pi's generic renderer.
  */
+
+import { resolveVehicleClientTarget, type VehicleClientTarget } from "@danypops/tickets";
+import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
+import { type RegisteredPiVehicle, registerVehicleTools } from "@danypops/vehicle-client-pi";
+import type { VehicleClient, VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import type { VehicleClient, VehicleOperationDescriptor } from "@danypops/vehicle-core";
-import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
-import { registerVehicleTools, type RegisteredPiVehicle } from "@danypops/vehicle-client-pi";
-import { resolveVehicleClientTarget, type VehicleClientTarget } from "@danypops/tickets";
 import { renderResultText } from "./render.js";
 
 /**
@@ -69,7 +70,7 @@ export function isTicketsVehicleTool(toolName: string): boolean {
 function renderTicketsCall(operationName: string, args: unknown, theme: Theme) {
   const input = args as { ref?: string } | undefined;
   let text = theme.fg("toolTitle", theme.bold("tickets ")) + theme.fg("muted", legacyActionFor(operationName));
-  if (input?.ref) text += " " + theme.fg("accent", input.ref);
+  if (input?.ref) text += ` ${theme.fg("accent", input.ref)}`;
   return new Text(text, 0, 0);
 }
 

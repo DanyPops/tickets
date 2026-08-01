@@ -13,29 +13,33 @@
  * up claiming the real command registration, and all three still show up
  * in it regardless of load order.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerSharedSecretsCommand, type SecretsContribution } from "@danypops/vehicle-client-pi/secrets-tui";
+
+import { tokenStoreDir } from "@danypops/tickets";
+import type { SecretsBackend } from "@danypops/vehicle-client-pi/secrets-backend";
 import { createEnvSecretsBackend } from "@danypops/vehicle-client-pi/secrets-backend-env";
 import { createLocalSecretsBackend } from "@danypops/vehicle-client-pi/secrets-backend-local";
-import type { SecretsBackend } from "@danypops/vehicle-client-pi/secrets-backend";
-import { tokenStoreDir } from "@danypops/tickets";
+import { registerSharedSecretsCommand, type SecretsContribution } from "@danypops/vehicle-client-pi/secrets-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const TICKETS_BACKEND_NAMES = ["github", "gitlab", "jira"];
 
 export function buildTicketsSecretsBackends(env: NodeJS.ProcessEnv = process.env): SecretsBackend[] {
-	return [
-		createLocalSecretsBackend({ dir: tokenStoreDir({ env }) }),
-		createEnvSecretsBackend({ github: "GITHUB_TOKEN", gitlab: "GITLAB_TOKEN", jira: "JIRA_API_TOKEN" }, env),
-	];
+  return [
+    createLocalSecretsBackend({ dir: tokenStoreDir({ env }) }),
+    createEnvSecretsBackend({ github: "GITHUB_TOKEN", gitlab: "GITLAB_TOKEN", jira: "JIRA_API_TOKEN" }, env),
+  ];
 }
 
 export function buildTicketsSecretsContribution(env: NodeJS.ProcessEnv = process.env): SecretsContribution {
-	return {
-		backends: buildTicketsSecretsBackends(env),
-		servicesRegistry: { list: async () => [{ name: "tickets", backends: TICKETS_BACKEND_NAMES }] },
-	};
+  return {
+    backends: buildTicketsSecretsBackends(env),
+    servicesRegistry: { list: async () => [{ name: "tickets", backends: TICKETS_BACKEND_NAMES }] },
+  };
 }
 
-export function registerTicketsSecretsCommand(pi: ExtensionAPI, buildContribution: typeof buildTicketsSecretsContribution = buildTicketsSecretsContribution): void {
-	registerSharedSecretsCommand(pi, { source: "tickets", resolve: () => buildContribution() });
+export function registerTicketsSecretsCommand(
+  pi: ExtensionAPI,
+  buildContribution: typeof buildTicketsSecretsContribution = buildTicketsSecretsContribution,
+): void {
+  registerSharedSecretsCommand(pi, { source: "tickets", resolve: () => buildContribution() });
 }

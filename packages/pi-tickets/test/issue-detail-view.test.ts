@@ -69,14 +69,20 @@ describe("IssueDetailComponent", () => {
 
   it("escape calls close", () => {
     let closed = false;
-    const view = new IssueDetailComponent(fakeTui(), fakeTheme, issue(), [], () => { closed = true; });
+    const view = new IssueDetailComponent(fakeTui(), fakeTheme, issue(), [], () => {
+      closed = true;
+    });
     view.render(100);
     view.handleInput("\x1b");
     expect(closed).toBe(true);
   });
 
   it("down/up scroll within bounds; scrolling is reflected in the footer position", () => {
-    const longComments: Comment[] = Array.from({ length: 30 }, (_, i) => ({ id: String(i), body: `Comment body ${i}`, author: `User ${i}` }));
+    const longComments: Comment[] = Array.from({ length: 30 }, (_, i) => ({
+      id: String(i),
+      body: `Comment body ${i}`,
+      author: `User ${i}`,
+    }));
     const view = new IssueDetailComponent(fakeTui(15), fakeTheme, issue(), longComments, () => {});
     const before = view.render(100).join("\n");
     expect(before).toContain("1-");

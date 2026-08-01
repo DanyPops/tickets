@@ -68,7 +68,7 @@ describe("manifest", () => {
   it("fields and statuses manifests for the same backend are independent (different kind)", () => {
     withTempDir((dir) => {
       save("fields", "jira", dir, discover("jira", { Sprint: "customfield_10020" }));
-      save("statuses", "jira", dir, discover("jira", { "ON_QA": "in_review" }));
+      save("statuses", "jira", dir, discover("jira", { ON_QA: "in_review" }));
       expect(load("fields", "jira", dir).mappings).toEqual({ Sprint: "customfield_10020" });
       expect(load("statuses", "jira", dir).mappings).toEqual({ ON_QA: "in_review" });
     });

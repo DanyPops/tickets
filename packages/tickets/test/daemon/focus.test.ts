@@ -1,8 +1,8 @@
+import type { Database } from "bun:sqlite";
 import { afterEach, describe, expect, it } from "bun:test";
-import { Database } from "bun:sqlite";
 import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
-import { LEDGER_MIGRATIONS } from "../../src/daemon/ledger.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/daemon/focus.js";
+import { LEDGER_MIGRATIONS } from "../../src/daemon/ledger.js";
 
 let db: Database | undefined;
 

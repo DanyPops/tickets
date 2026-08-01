@@ -10,11 +10,11 @@
  * generic (malevich's Board component); only card content and the
  * terminal-row-aware scroll window are Jira/pi-specific.
  */
+
+import type { Issue, Status } from "@danypops/tickets";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type KeyId, type TUI } from "@earendil-works/pi-tui";
-import type { Issue, Status, TicketsRpcClient } from "@danypops/tickets";
-import { Board, formatBadgeCount, type BoardColumn, type BoardTheme, type KeyMatcher, type TextMeasure } from "malevich-tui-components";
-import { SavedQueryPickerComponent } from "./saved-query-picker.js";
+import { type Component, type KeyId, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Board, type BoardColumn, type BoardTheme, formatBadgeCount, type KeyMatcher, type TextMeasure } from "malevich-tui-components";
 
 const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 /** malevich's KeyMatcher takes a plain string keyId; pi-tui's matchesKey narrows it to its own closed KeyId union -- Board only ever calls this with the fixed small set ('up'/'down'/'left'/'right'/'enter'/'escape') that's a real KeyId, so the cast is safe. */
@@ -88,7 +88,13 @@ export function renderCard(issue: Issue, theme: Theme, width: number, selected: 
   }
 
   const points = Number(issue.customFields?.["Story Points"]);
-  const meta = [issue.key, Number.isFinite(points) && points > 0 ? `\u2022${formatBadgeCount(points)}` : undefined, issue.assignee ? initials(issue.assignee) : undefined].filter(Boolean).join("  ");
+  const meta = [
+    issue.key,
+    Number.isFinite(points) && points > 0 ? `\u2022${formatBadgeCount(points)}` : undefined,
+    issue.assignee ? initials(issue.assignee) : undefined,
+  ]
+    .filter(Boolean)
+    .join("  ");
   lines.push(theme.fg("dim", `  ${meta}`));
 
   return lines;
@@ -156,7 +162,9 @@ export class KanbanBoardComponent implements Component {
     const footer = [
       lines.length > visibleRows ? `\u2191/\u2193 scroll \u2022 ${this.offsetY + 1}-${end}/${lines.length}` : "",
       "\u2190/\u2192/\u2191/\u2193 navigate \u2022 enter open \u2022 o browser \u2022 esc close",
-    ].filter(Boolean).join(" \u2022 ");
+    ]
+      .filter(Boolean)
+      .join(" \u2022 ");
     const border = this.theme.fg("accent", "\u2500".repeat(Math.max(1, width)));
     return [
       border,
@@ -190,100 +198,5 @@ export class KanbanBoardComponent implements Component {
     if (range.start < this.offsetY) this.offsetY = range.start;
     else if (range.end > this.offsetY + visibleRows - 1) this.offsetY = range.end - visibleRows + 1;
     this.offsetY = Math.max(0, Math.min(this.offsetY, Math.max(0, totalLines - visibleRows)));
-  }
-}
-
-export interface BoardTabOptions {
-  backend: string;
-  backendDisplayName: string;
-  onOpenIssue: (issue: Issue) => Promise<void>;
-  onOpenUrl?: (issue: Issue) => void;
-}
-
-/**
- * A backend's "Board view" tab: starts on SavedQueryPickerComponent, and
- * once a query is chosen, swaps its own content in place for a live
- * KanbanBoardComponent over that query's results -- KanbanBoardComponent's
- * own escape-closes (onClose) just returns this tab to the picker instead
- * of leaving the tab entirely, mirroring SavedQueryTabComponent's
- * pick/browse split.
- */
-export class BoardTabComponent implements Component {
-  private readonly picker: SavedQueryPickerComponent;
-  private board: KanbanBoardComponent | undefined;
-  private loadingBoard = false;
-  private lastEmptyQuery: string | undefined;
-  private lastError: string | undefined;
-
-  constructor(
-    private readonly tui: TUI,
-    private readonly theme: Theme,
-    private readonly client: TicketsRpcClient,
-    private readonly opts: BoardTabOptions,
-  ) {
-    this.picker = new SavedQueryPickerComponent(tui, theme, client, opts.backend, opts.backendDisplayName, (name) => void this.loadBoard(name));
-  }
-
-  /** While showing the actual board, both escape (KanbanBoardComponent's own onClose, wired below to return to the picker) and left/right (its own column navigation) belong to this tab, not the host's own tab-jump/cycle handling. */
-  capturesEscape(): boolean {
-    return this.board !== undefined;
-  }
-
-  capturesHorizontalArrows(): boolean {
-    return this.board !== undefined;
-  }
-
-  invalidate(): void {
-    this.picker.invalidate();
-    this.board?.invalidate();
-  }
-
-  private async loadBoard(name: string): Promise<void> {
-    this.loadingBoard = true;
-    this.lastEmptyQuery = undefined;
-    this.lastError = undefined;
-    this.tui.requestRender();
-    let issues: Issue[];
-    try {
-      ({ issues } = await this.client.call("query.run", { name, limit: 100 }));
-    } catch (err) {
-      this.loadingBoard = false;
-      this.lastError = `error running query "${name}": ${err instanceof Error ? err.message : String(err)}`;
-      this.tui.requestRender();
-      return;
-    }
-    this.loadingBoard = false;
-    if (issues.length === 0) {
-      this.lastEmptyQuery = name;
-      this.tui.requestRender();
-      return;
-    }
-    this.board = new KanbanBoardComponent(this.tui, this.theme, issues, name, {
-      onOpenIssue: this.opts.onOpenIssue,
-      onOpenUrl: this.opts.onOpenUrl,
-      onClose: () => {
-        this.board = undefined;
-        this.tui.requestRender();
-      },
-    });
-    this.tui.requestRender();
-  }
-
-  render(width: number): string[] {
-    if (this.board) return this.board.render(width);
-    if (this.loadingBoard) return [this.theme.fg("muted", "Loading\u2026")];
-    const lines = this.picker.render(width);
-    if (this.lastError) lines.push(this.theme.fg("error", this.lastError));
-    else if (this.lastEmptyQuery) lines.push(this.theme.fg("warning", `Saved query "${this.lastEmptyQuery}" matched no issues.`));
-    return lines;
-  }
-
-  handleInput(data: string): void {
-    if (this.board) {
-      this.board.handleInput(data);
-      return;
-    }
-    if (this.loadingBoard) return;
-    this.picker.handleInput(data);
   }
 }

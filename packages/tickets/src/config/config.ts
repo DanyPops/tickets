@@ -6,16 +6,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { type TryEnigmaCredential, tryEnigmaCredential } from "@danypops/enigma-client";
 import type { MaintenanceTask } from "@danypops/vehicle-server/daemon";
 import type { Logger } from "@danypops/vehicle-server/logging";
+import { parse as parseYaml } from "yaml";
 import { GitHubRepository } from "../adapters/github.js";
 import { GitLabRepository } from "../adapters/gitlab.js";
 import { JiraRepository } from "../adapters/jira.js";
-import type { IssueRepository } from "../ports/repository.js";
 import type { TicketService } from "../application/service.js";
 import { isTokenFresh, loadToken } from "../auth/token-store.js";
-import { type TryEnigmaCredential, tryEnigmaCredential } from "@danypops/enigma-client";
+import type { IssueRepository } from "../ports/repository.js";
 
 export interface BackendConfig {
   /** Adapter type: "github" | "gitlab" | "jira". Falls back to the config key when omitted. */

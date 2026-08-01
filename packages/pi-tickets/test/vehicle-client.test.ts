@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { VehicleClient, VehicleInvocationOptions, VehicleManifest, VehicleManifestOperation } from "@danypops/vehicle-core";
-import { registerTicketsVehicle, isTicketsVehicleTool, type TicketsVehicleDeps } from "../src/vehicle-client.js";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { isTicketsVehicleTool, registerTicketsVehicle, type TicketsVehicleDeps } from "../src/vehicle-client.js";
 
 const limits = { defaultTimeoutMs: 1_000, maxTimeoutMs: 5_000, maxRequestBytes: 1_024, maxResponseBytes: 1_024 };
 

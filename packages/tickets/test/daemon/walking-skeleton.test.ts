@@ -9,12 +9,12 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readDaemonHandle } from "@danypops/vehicle-server/paths";
 import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { startDaemon } from "@danypops/vehicle-server/daemon";
+import { readDaemonHandle } from "@danypops/vehicle-server/paths";
 import { bootstrap } from "../../src/daemon/bootstrap.js";
-import type { TicketOpInputs, TicketOperation, TicketOpOutputs } from "../../src/daemon/ops.js";
+import type { TicketOperation, TicketOpInputs, TicketOpOutputs } from "../../src/daemon/ops.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
 let daemon: RunningDaemon | undefined;
@@ -33,7 +33,15 @@ describe("tickets daemon walking skeleton", () => {
     const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
 
     const github = new FakeRepository("github", [
-      { ref: "github:#1", id: "1", key: "#1", title: "Skeleton issue", status: "todo", priority: "none", url: "https://github.com/acme/widgets/issues/1" },
+      {
+        ref: "github:#1",
+        id: "1",
+        key: "#1",
+        title: "Skeleton issue",
+        status: "todo",
+        priority: "none",
+        url: "https://github.com/acme/widgets/issues/1",
+      },
     ]);
 
     const { options, ledger, db } = await bootstrap({

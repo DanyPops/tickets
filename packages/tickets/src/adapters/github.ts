@@ -18,10 +18,10 @@
  * indeterminate duration). Both plugins are explicitly disabled below, and
  * every call carries a hard timeout matching the old hand-rolled HttpClient's.
  */
-import { Octokit } from "octokit";
+
 import { RequestError } from "@octokit/request-error";
-import type { Comment, CreateInput, Issue, ListFilter, Status, UpdateInput } from "../domain/issue.js";
-import { parsePriority } from "../domain/issue.js";
+import { Octokit } from "octokit";
+import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../domain/issue.js";
 import { ApiError, AuthRequiredError, IssueNotFoundError } from "./errors.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;

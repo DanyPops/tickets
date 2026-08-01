@@ -33,11 +33,14 @@ export function renderResultText(action: string, result: unknown, isError: boole
       const comment = (result as { comment?: Comment } | undefined)?.comment;
       if (!comment) break;
       const who = comment.author ? theme.fg("muted", ` by ${comment.author}`) : "";
-      const preview = comment.body ? `\n${theme.fg("dim", truncate(comment.body, 200))}` : theme.fg("warning", "\n(empty body — comment may not have posted correctly)");
+      const preview = comment.body
+        ? `\n${theme.fg("dim", truncate(comment.body, 200))}`
+        : theme.fg("warning", "\n(empty body — comment may not have posted correctly)");
       return `${theme.fg("success", "💬 Comment added")}${who}${preview}`;
     }
     case "comments": {
-      const comments = (result as { comments?: Comment[] } | undefined)?.comments ?? (Array.isArray(result) ? (result as Comment[]) : undefined);
+      const comments =
+        (result as { comments?: Comment[] } | undefined)?.comments ?? (Array.isArray(result) ? (result as Comment[]) : undefined);
       if (!comments) break;
       if (comments.length === 0) return theme.fg("muted", "No comments");
       const lines = comments.map((c) => `${theme.fg("accent", c.author ?? "unknown")}: ${truncate(c.body, 120)}`);

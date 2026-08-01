@@ -1,10 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  installTicketsService,
-  renderSystemdUnit,
-  systemctlTickets,
-  systemdUnitPath,
-} from "../../src/cli/systemd-service.js";
+import { installTicketsService, renderSystemdUnit, systemctlTickets, systemdUnitPath } from "../../src/cli/systemd-service.js";
 
 describe("renderSystemdUnit", () => {
   it("points ExecStart at the exact bun binary and daemon entry path given, with an always-restart policy", () => {

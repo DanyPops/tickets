@@ -19,7 +19,13 @@ describe("loginWithGitLabDeviceFlow", () => {
     const fetchImpl = (async (url: string) => {
       if (url === "https://gitlab.example.com/oauth/authorize_device") {
         return new Response(
-          JSON.stringify({ device_code: "dc", user_code: "0A44L90H", verification_uri: "https://gitlab.example.com/oauth/device", expires_in: 300, interval: 5 }),
+          JSON.stringify({
+            device_code: "dc",
+            user_code: "0A44L90H",
+            verification_uri: "https://gitlab.example.com/oauth/device",
+            expires_in: 300,
+            interval: 5,
+          }),
           { status: 200 },
         );
       }

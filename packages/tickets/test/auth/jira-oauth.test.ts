@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { buildAuthorizeUrl, fetchAccessibleResources, JiraOAuthError, loginWithJiraAuthorizationCode, startCallbackServer } from "../../src/auth/jira-oauth.js";
+import {
+  buildAuthorizeUrl,
+  fetchAccessibleResources,
+  JiraOAuthError,
+  loginWithJiraAuthorizationCode,
+  startCallbackServer,
+} from "../../src/auth/jira-oauth.js";
 
 describe("buildAuthorizeUrl", () => {
   it("includes audience=api.atlassian.com and response_type=code (no PKCE params — Atlassian doesn't support it)", () => {
@@ -72,7 +78,7 @@ describe("fetchAccessibleResources", () => {
   it("sends the access token as a Bearer header and returns the parsed site list", async () => {
     let seenAuth = "";
     const fetchImpl = (async (_url: string, init?: RequestInit) => {
-      seenAuth = (init?.headers as Record<string, string>).Authorization ?? "";
+      seenAuth = (init!.headers as Record<string, string>).Authorization ?? "";
       return new Response(
         JSON.stringify([{ id: "cloud-1", name: "Acme", url: "https://acme.atlassian.net", scopes: ["read:jira-work"] }]),
         { status: 200 },
@@ -93,16 +99,14 @@ describe("loginWithJiraAuthorizationCode (end to end against a fake token endpoi
         const body = JSON.parse(String(init?.body)) as { code: string; grant_type: string };
         expect(body.grant_type).toBe("authorization_code");
         expect(body.code).toBe("real-code");
-        return new Response(
-          JSON.stringify({ access_token: "access_xyz", refresh_token: "refresh_xyz", expires_in: 3600 }),
-          { status: 200 },
-        );
+        return new Response(JSON.stringify({ access_token: "access_xyz", refresh_token: "refresh_xyz", expires_in: 3600 }), {
+          status: 200,
+        });
       }
       if (href.includes("accessible-resources")) {
-        return new Response(
-          JSON.stringify([{ id: "cloud-42", name: "Acme", url: "https://acme.atlassian.net", scopes: [] }]),
-          { status: 200 },
-        );
+        return new Response(JSON.stringify([{ id: "cloud-42", name: "Acme", url: "https://acme.atlassian.net", scopes: [] }]), {
+          status: 200,
+        });
       }
       throw new Error(`unexpected fetch: ${href}`);
     }) as typeof fetch;

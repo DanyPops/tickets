@@ -1,5 +1,5 @@
-import type { CreateInput, Issue, ListFilter, UpdateInput } from "../../src/domain/issue.js";
 import { IssueNotFoundError } from "../../src/adapters/errors.js";
+import type { CreateInput, Issue, ListFilter, UpdateInput } from "../../src/domain/issue.js";
 import type { CommentCapable, IssueRepository } from "../../src/ports/repository.js";
 
 /** In-memory IssueRepository test double — no network, deterministic, used across test suites. */
