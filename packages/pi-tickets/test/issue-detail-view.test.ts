@@ -23,6 +23,22 @@ describe("IssueDetailComponent", () => {
     expect(lines.at(-1)).toBe("\u2500".repeat(80));
   });
 
+  it("never renders more lines than the terminal has, even with far more content than fits -- the closing border always stays on screen", () => {
+    // Below the visible-rows MAX cap, so this genuinely exercises
+    // DETAIL_RESERVED_ROWS rather than being masked by the ceiling.
+    const longComments: Comment[] = Array.from({ length: 30 }, (_, i) => ({
+      id: String(i),
+      body: `Comment body ${i}`,
+      author: `User ${i}`,
+    }));
+    const view = new IssueDetailComponent(fakeTui(20), fakeTheme, issue(), longComments, () => {});
+
+    const lines = view.render(100);
+
+    expect(lines.length).toBeLessThanOrEqual(20);
+    expect(lines.at(-1)).toBe("\u2500".repeat(100));
+  });
+
   it("renders the key, title, and every populated field", () => {
     const view = new IssueDetailComponent(
       fakeTui(),

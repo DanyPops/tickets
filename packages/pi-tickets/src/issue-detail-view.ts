@@ -9,7 +9,21 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { buildDetailLines, type DetailField, type DetailSection, type TextMeasure } from "malevich-tui-components";
 
-const DETAIL_RESERVED_ROWS = 4;
+/**
+ * Same clamped-viewport technique papyrus's own detail views use (a proven
+ * MIN/MAX floor+ceiling around terminal.rows minus a reserved-chrome
+ * count) -- min avoids an unusably short scroll window on a tiny terminal,
+ * max avoids an unwieldy one on a huge terminal. RESERVED_ROWS=8 matches
+ * papyrus's own equivalent standalone detail view (border/title/border/
+ * content/footer/border is 5 lines; the other 3 cover Pi's own outer UI
+ * chrome around a pushed overlay) -- this component was previously
+ * under-reserving at 4, the same class of bug board-view.ts's own Board
+ * (nested even deeper) hit visibly: the footer/closing border silently
+ * ran past the terminal's own visible rows instead of showing.
+ */
+const DETAIL_MIN_VISIBLE_ROWS = 6;
+const DETAIL_MAX_VISIBLE_ROWS = 24;
+const DETAIL_RESERVED_ROWS = 8;
 
 const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 
@@ -74,7 +88,7 @@ export class IssueDetailComponent implements Component {
   }
 
   private visibleRows(): number {
-    return Math.max(6, this.tui.terminal.rows - DETAIL_RESERVED_ROWS);
+    return Math.max(DETAIL_MIN_VISIBLE_ROWS, Math.min(DETAIL_MAX_VISIBLE_ROWS, this.tui.terminal.rows - DETAIL_RESERVED_ROWS));
   }
 
   private buildLines(width: number): void {

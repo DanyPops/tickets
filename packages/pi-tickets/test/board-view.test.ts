@@ -117,6 +117,41 @@ describe("KanbanBoardComponent", () => {
     expect(lines.at(-1)).toBe("\u2500".repeat(80));
   });
 
+  it("never renders more lines than the terminal has, even with many more cards than fit -- the closing border always stays on screen", () => {
+    // The real regression this test exists for (screenshot-reported): with
+    // enough cards to overflow, the footer/closing border silently ran past
+    // the terminal's own row count instead of showing at all, because
+    // visibleRows() didn't reserve nearly enough rows for the chrome this
+    // component actually sits inside (the persistent panel's own Envelope,
+    // its outer provider tab bar, and the raw-query backend's own submenu
+    // tab bar -- see BOARD_RESERVED_ROWS's own comment in board-view.ts).
+    const many: Issue[] = Array.from({ length: 40 }, (_, i) =>
+      issue({ ref: `a:${i}`, key: `ENG-${i}`, title: `Card ${i}`, status: "todo" }),
+    );
+    // Below the visible-rows MAX cap, so this genuinely exercises
+    // BOARD_RESERVED_ROWS rather than being masked by the ceiling.
+    const tui = fakeTui(20);
+    const board = new KanbanBoardComponent(tui, fakeTheme, many, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });
+
+    const lines = board.render(80).map(stripAnsi);
+
+    expect(lines.length).toBeLessThanOrEqual(20);
+    expect(lines.at(-1)).toBe("\u2500".repeat(80)); // the closing border, genuinely the last line
+  });
+
+  it("caps the visible window on a very tall terminal instead of growing without bound", () => {
+    const many: Issue[] = Array.from({ length: 60 }, (_, i) =>
+      issue({ ref: `a:${i}`, key: `ENG-${i}`, title: `Card ${i}`, status: "todo" }),
+    );
+    const tui = fakeTui(200);
+    const board = new KanbanBoardComponent(tui, fakeTheme, many, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });
+
+    const lines = board.render(80).map(stripAnsi);
+
+    expect(lines.length).toBeLessThan(200);
+    expect(lines.at(-1)).toBe("\u2500".repeat(80));
+  });
+
   it("selects the first non-empty column on construction and highlights that card", () => {
     const tui = fakeTui();
     const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });

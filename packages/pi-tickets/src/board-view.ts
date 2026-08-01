@@ -115,8 +115,26 @@ function initials(name: string): string {
   return parts.length === 1 ? parts[0]!.slice(0, 2).toUpperCase() : `${parts[0]![0]}${parts.at(-1)![0]}`.toUpperCase();
 }
 
-/** Rows reserved for the top/title/border-under-title/footer/bottom-border lines -- render() subtracts this from the terminal's own row count to get the scrollable window height. */
-const BOARD_RESERVED_ROWS = 4;
+/**
+ * Same clamped-viewport technique papyrus's own detail views use (a proven
+ * MIN/MAX floor+ceiling around terminal.rows minus a reserved-chrome
+ * count) -- min avoids an unusably short scroll window on a tiny terminal,
+ * max avoids an unwieldy one on a huge one.
+ *
+ * RESERVED_ROWS breakdown: 8 matches the reserved count issue-detail-view.ts
+ * uses for an equivalent STANDALONE overlay (this component's own 5 lines --
+ * border/title/border/footer/border -- plus Pi's own outer UI chrome around
+ * a pushed overlay), PLUS 4 more for chrome this component sits inside that
+ * a standalone view doesn't: the persistent panel's own Envelope border (2),
+ * the outer provider tab bar (1), and the raw-query backend's own submenu
+ * tab bar (1) -- see tui.ts/backend-tab-group.ts. Previously only 4 total,
+ * a real live bug: the footer and closing border silently ran past the
+ * terminal's own visible rows instead of showing at all once a board had
+ * more cards than fit.
+ */
+const BOARD_MIN_VISIBLE_ROWS = 6;
+const BOARD_MAX_VISIBLE_ROWS = 24;
+const BOARD_RESERVED_ROWS = 12;
 
 export interface KanbanBoardOptions {
   /** Called when the user presses enter on a selected card; the component awaits this before re-rendering, so a caller can push a detail view and return here on close. */
@@ -196,7 +214,7 @@ export class KanbanBoardComponent implements Component {
   }
 
   private visibleRows(): number {
-    return Math.max(6, this.tui.terminal.rows - BOARD_RESERVED_ROWS);
+    return Math.max(BOARD_MIN_VISIBLE_ROWS, Math.min(BOARD_MAX_VISIBLE_ROWS, this.tui.terminal.rows - BOARD_RESERVED_ROWS));
   }
 
   private scrollSelectionIntoView(totalLines: number): void {
