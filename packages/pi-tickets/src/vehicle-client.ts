@@ -25,6 +25,7 @@
  */
 
 import { resolveVehicleClientTarget, type VehicleClientTarget } from "@danypops/tickets";
+import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import {
   type RegisteredPiVehicle,
@@ -100,7 +101,15 @@ export async function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehi
 
   const createClient = deps.createClient ?? ((t: VehicleClientTarget) => new RemoteVehicleClient({ baseUrl: t.baseUrl, token: t.token }));
   try {
-    const client = createClient(target);
+    // Re-resolves resolveTarget()/createClient fresh on every reconnect attempt rather than
+    // closing over the `target` captured above: the daemon rebinds a new random port on every
+    // restart, and a bare client built once has no way to notice its baseUrl died, breaking
+    // every tickets tool call for the rest of the Pi session until a full extension reload.
+    const client = createReconnectingVehicleClient(async () => {
+      const resolved = resolveTarget();
+      if (!resolved) throw new Error("Tickets daemon is not running");
+      return createClient(resolved);
+    });
     const options: RegisterVehicleToolsOptions = {
       permissions: ["tickets:read", "tickets:write"],
       principal: { id: "pi-tickets" },
