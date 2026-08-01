@@ -237,7 +237,7 @@ describe("registerTicketsTui", () => {
   });
 
   describe("the panel's tab bar", () => {
-    it("shows one tab per plain backend, and three (Issues/Queries/Board) for one with raw-query support", async () => {
+    it("shows one tab per plain backend, and one submenu tab (grouping Issues/Queries/Board) for one with raw-query support", async () => {
       const pi = fakePi();
       const client = fakeClient({ "backends.list": () => MIXED_BACKENDS });
       registerTicketsTui(pi as never, { getClient: async () => client });
@@ -245,12 +245,23 @@ describe("registerTicketsTui", () => {
       const ctx = fakeCtx();
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
-      const rendered = lastComponent().render(80).join("\n");
-      expect(rendered).toContain("GitHub");
-      expect(rendered).toContain("Jira Issues");
-      expect(rendered).toContain("Jira Queries");
-      expect(rendered).toContain("Jira Board");
-      lastComponent().handleInput(ESCAPE); // home (GitHub) -- closes directly
+      const panel = lastComponent();
+      const outerBar = panel.render(80).join("\n");
+      expect(outerBar).toContain("GitHub");
+      expect(outerBar).toContain("Jira");
+      // The submenu's own three tabs aren't shown at all until Jira itself is active.
+      expect(outerBar).not.toContain("Issues");
+      expect(outerBar).not.toContain("Queries");
+      expect(outerBar).not.toContain("Board");
+
+      panel.handleInput(TAB); // GitHub -> Jira
+      const withSubmenu = panel.render(80).join("\n");
+      expect(withSubmenu).toContain("Issues");
+      expect(withSubmenu).toContain("Queries");
+      expect(withSubmenu).toContain("Board");
+
+      panel.handleInput(ESCAPE); // Jira submenu -> home (GitHub)
+      panel.handleInput(ESCAPE); // home -- closes
       await done;
     });
 
@@ -277,7 +288,7 @@ describe("registerTicketsTui", () => {
       await done;
     });
 
-    it("Tab/Shift-Tab cycle tabs, wrapping at both ends", async () => {
+    it("Tab/Shift-Tab cycle provider tabs at the outer level, wrapping at both ends", async () => {
       const pi = fakePi();
       const client = fakeClient({ "backends.list": () => MIXED_BACKENDS });
       registerTicketsTui(pi as never, { getClient: async () => client });
@@ -286,16 +297,18 @@ describe("registerTicketsTui", () => {
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
       const panel = lastComponent();
-      panel.handleInput(TAB); // GitHub -> Jira Issues
-      expect(panel.render(80).join("\n")).toContain("Jira Issues");
-      panel.handleInput(TAB); // -> Jira Queries
-      panel.handleInput(TAB); // -> Jira Board
-      panel.handleInput(TAB); // wraps back to GitHub
+      panel.handleInput(TAB); // GitHub -> Jira
+      expect(panel.render(80).join("\n")).toContain("Issues"); // Jira's own submenu is now showing
+      // Once inside Jira, Tab stays drilled into ITS own three tabs (see the
+      // next test) rather than bubbling back out to the outer provider bar --
+      // escape (ascend) then Tab is how you get back to cycling providers.
+      panel.handleInput(ESCAPE); // Jira (at its own home) -> outer home (GitHub)
+      expect(panel.render(80).join("\n")).not.toContain("Issues");
       panel.handleInput(ESCAPE); // home -- closes
       await done;
     });
 
-    it("Left/Right cycle tabs the same as Tab, unless the active tab captures them", async () => {
+    it("once inside Jira's own submenu, Tab/Shift-Tab and Left/Right both cycle ITS three tabs instead of the outer provider bar", async () => {
       const pi = fakePi();
       const client = fakeClient({ "backends.list": () => MIXED_BACKENDS });
       registerTicketsTui(pi as never, { getClient: async () => client });
@@ -304,15 +317,20 @@ describe("registerTicketsTui", () => {
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
       const panel = lastComponent();
-      panel.handleInput(RIGHT);
-      expect(panel.render(80).join("\n")).toContain("Jira Issues");
-      panel.handleInput(LEFT);
-      expect(panel.render(80).join("\n")).toContain("GitHub");
-      panel.handleInput(ESCAPE);
+      panel.handleInput(TAB); // GitHub -> Jira
+      panel.handleInput(TAB); // Jira's own Issues -> Queries (not back out to GitHub)
+      expect(panel.render(80).join("\n")).toContain("No saved queries yet for Jira");
+      panel.handleInput(RIGHT); // Queries -> Board (Left/Right works the same as Tab one level down)
+      expect(panel.render(80).join("\n")).toContain("No saved queries yet for Jira"); // Board's own empty state (no saved query to run)
+      panel.handleInput(LEFT); // back to Queries
+      panel.handleInput(LEFT); // back to Issues (Jira's own home)
+      expect(panel.render(80).join("\n")).toContain("No Jira tickets pooled yet");
+      panel.handleInput(ESCAPE); // Jira (at its own home) -> outer home (GitHub)
+      panel.handleInput(ESCAPE); // home -- closes
       await done;
     });
 
-    it("a mnemonic instantly activates its tab from anywhere, without conflicting with pooled-typeahead browsing", async () => {
+    it("a provider mnemonic instantly activates its tab; a submenu mnemonic only resolves once that submenu is already active", async () => {
       const pi = fakePi();
       const client = fakeClient({ "backends.list": () => MIXED_BACKENDS, "ledger.search": () => ({ issues: ISSUES }) });
       registerTicketsTui(pi as never, { getClient: async () => client });
@@ -321,9 +339,17 @@ describe("registerTicketsTui", () => {
       const done = pi.commands.get("tickets")?.handler(undefined, ctx);
       await tick();
       const panel = lastComponent();
-      panel.handleInput("b"); // Jira Board
-      expect(panel.render(80).join("\n")).toContain("Jira Board");
-      panel.handleInput("h"); // back to GitHub
+      // 'b' (Jira's own Board mnemonic) does nothing from GitHub -- it's scoped
+      // to Jira's own submenu, not reachable at the outer level at all.
+      panel.handleInput("b");
+      expect(panel.render(80).join("\n")).toContain("github:#1");
+
+      panel.handleInput("j"); // jumps straight to Jira
+      expect(panel.render(80).join("\n")).toContain("jira:PROJ-1"); // Jira's own home (Issues), pooled issues shown
+      panel.handleInput("b"); // now resolves, scoped to the active submenu
+      expect(panel.render(80).join("\n")).toContain("No saved queries yet for Jira");
+
+      panel.handleInput("h"); // back to GitHub from anywhere, including mid-submenu
       expect(panel.render(80).join("\n")).toContain("github:#1");
       panel.handleInput(ESCAPE);
       await done;
@@ -769,7 +795,14 @@ describe("registerTicketsTui", () => {
       panel.handleInput(ENTER);
       await tick();
       panel.handleInput(RIGHT); // moves the board's own column selection, not the tab bar
-      expect(panel.render(120).join("\n")).toContain("Jira Board"); // still on the same tab
+      // A strong assertion, not just "the label is still somewhere on screen"
+      // (always true regardless of which tab is active) -- the real
+      // regression check for a live bug: a captured Left/Right previously
+      // still fell through to TabbedContainer's own cycle-on-arrow handling
+      // and silently switched away from the board.
+      const afterRight = panel.render(120).join("\n");
+      expect(afterRight).toContain("Board: sprint");
+      expect(afterRight).toContain("\u2503 Second bug"); // selection marker moved to the 2nd column's card
       panel.handleInput(ESCAPE); // board -> picker
       panel.handleInput(ESCAPE); // picker -> home
       panel.handleInput(ESCAPE); // home -- closes
@@ -856,43 +889,55 @@ describe("registerTicketsTui", () => {
   });
 
   describe("the panel's real keybindings (mnemonic conflict detection)", () => {
-    // Mirrors the real reachable-at-once set: the panel's own top-level
-    // dispatcher (mnemonics + settings) plus whichever single tab's own
-    // content is active. Issues, a Saved-queries tab while browsing (it
-    // swaps in the exact same IssueListComponent -- see saved-query-view.ts),
-    // and a Board tab (its own 'o', see board-view.ts's handleInput) are
-    // SIBLING leaves -- never simultaneously active, so freely allowed to
-    // reuse a key among themselves; only shared-with-root collisions count.
+    // Mirrors the real two-level reachable-at-once set: the outer panel's
+    // own dispatcher (provider mnemonics + settings), then -- only once
+    // Jira is the active provider -- its own submenu dispatcher (i/q/b),
+    // then whichever single leaf within THAT submenu is active. Issues, a
+    // Saved-queries tab while browsing (it swaps in the exact same
+    // IssueListComponent -- see saved-query-view.ts), and a Board tab (its
+    // own 'o', see board-view.ts's handleInput) are SIBLING leaves under
+    // the submenu -- never simultaneously active, so freely allowed to
+    // reuse a key among themselves; only collisions shared with an
+    // ancestor (the submenu's own i/q/b, or the outer panel's h/l/j/s)
+    // count as real.
     const PANEL_MNEMONIC_TREE: MnemonicContext = {
       name: "panel",
       bindings: [
         { key: "h", description: "jump: GitHub" },
         { key: "l", description: "jump: GitLab" },
-        { key: "i", description: "jump: Jira Issues" },
-        { key: "q", description: "jump: Jira Queries" },
-        { key: "b", description: "jump: Jira Board" },
+        { key: "j", description: "jump: Jira" },
         { key: "s", description: "open settings" },
       ],
       children: [
         {
-          name: "an Issues tab",
+          name: "Jira's own submenu",
           bindings: [
-            { key: "v", description: "view issue detail" } satisfies KeyBinding,
-            { key: "o", description: "open in browser" },
-            { key: "r", description: "reload" },
+            { key: "i", description: "jump: Issues" },
+            { key: "q", description: "jump: Queries" },
+            { key: "b", description: "jump: Board" },
           ],
-        },
-        {
-          name: "a Saved-queries tab while browsing",
-          bindings: [
-            { key: "v", description: "view issue detail" },
-            { key: "o", description: "open in browser" },
-            { key: "r", description: "reload" },
+          children: [
+            {
+              name: "an Issues tab",
+              bindings: [
+                { key: "v", description: "view issue detail" } satisfies KeyBinding,
+                { key: "o", description: "open in browser" },
+                { key: "r", description: "reload" },
+              ],
+            },
+            {
+              name: "a Saved-queries tab while browsing",
+              bindings: [
+                { key: "v", description: "view issue detail" },
+                { key: "o", description: "open in browser" },
+                { key: "r", description: "reload" },
+              ],
+            },
+            {
+              name: "a Board tab while showing a board",
+              bindings: [{ key: "o", description: "open in browser" }],
+            },
           ],
-        },
-        {
-          name: "a Board tab while showing a board",
-          bindings: [{ key: "o", description: "open in browser" }],
         },
       ],
     };
@@ -904,15 +949,27 @@ describe("registerTicketsTui", () => {
     // A deliberately introduced conflict, to prove the check above isn't
     // vacuously passing on an empty or trivial tree.
     it("genuinely detects a conflict when one is deliberately introduced", () => {
+      const submenu = PANEL_MNEMONIC_TREE.children![0]!;
       const broken: MnemonicContext = {
         ...PANEL_MNEMONIC_TREE,
-        children: PANEL_MNEMONIC_TREE.children!.map((child) =>
-          child.name === "a Board tab while showing a board"
-            ? { ...child, bindings: [...child.bindings, { key: "h", description: "a fake conflicting GitHub-jump binding" }] }
-            : child,
-        ),
+        children: [
+          {
+            ...submenu,
+            children: submenu.children!.map((child) =>
+              child.name === "a Board tab while showing a board"
+                ? { ...child, bindings: [...child.bindings, { key: "j", description: "a fake conflicting Jira-jump binding" }] }
+                : child,
+            ),
+          },
+        ],
       };
       expect(() => assertNoMnemonicConflicts(broken)).toThrow();
+    });
+
+    it("the submenu's own i/q/b never collide with the outer panel's h/l/j/s", () => {
+      const outer = new Set(PANEL_MNEMONIC_TREE.bindings.map((b) => b.key));
+      const submenu = PANEL_MNEMONIC_TREE.children![0]!;
+      for (const binding of submenu.bindings) expect(outer.has(binding.key)).toBe(false);
     });
   });
 });
