@@ -6,6 +6,6 @@ export function tabBarTheme(theme: Theme): TabBarTheme {
   return {
     tab: (s) => theme.fg("dim", s),
     activeTab: (s) => theme.inverse(s),
-    mnemonic: (s) => theme.bold(theme.fg("warning", s)),
+    mnemonic: (s) => theme.underline(theme.bold(theme.fg("accent", s))),
   };
 }

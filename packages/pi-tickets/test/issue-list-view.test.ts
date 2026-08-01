@@ -162,7 +162,11 @@ describe("IssueListComponent", () => {
 
   it("'r' reloads from source", async () => {
     let calls = 0;
-    const client = fakeClient((op) => (op === "focus.get" ? { focus: null } : { issues: (calls++, calls === 1 ? [] : ISSUES) }));
+    const client = fakeClient((op) => {
+      if (op === "focus.get") return { focus: null };
+      calls += 1;
+      return { issues: calls === 1 ? [] : ISSUES };
+    });
     const list = new IssueListComponent(fakeTui(), fakeTheme, fakeCtx(), client, {
       title: "T",
       showClearFocus: false,
