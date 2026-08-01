@@ -34,7 +34,21 @@ per-session wait.
 
 ## `/tickets` command
 
-Browsable list of every pooled issue across configured backends. `↑↓`
-navigate, `enter` sets focus, `o` opens the issue's URL in a browser, `esc`
-cancels. A footer status shows the current focus, kept in sync with focus
+`/tickets` with no arguments opens one persistent panel -- a tab bar of
+every configured provider (GitHub, GitLab, Jira), each staying mounted for
+the whole session so switching tabs never tears down and reopens a
+different screen. Every provider gets an Issues tab; a provider with a real
+query language (Jira's JQL today) also gets Saved queries and a Kanban
+Board view. `Tab`/`Shift-Tab` or `←`/`→` cycle tabs; a mnemonic letter
+jumps directly (shown highlighted in each tab's own label); `s` opens
+`/secrets` without leaving the panel; `esc` returns to the first tab from
+any other, or closes the panel from the first tab.
+
+Within an issue list: `↑↓` navigate, `enter` sets focus (or clears it on
+the synthetic first row when one is already set), `v` opens the full issue
+detail view, `o` opens the issue's URL in a browser, `r` reloads from
+source. A footer status shows the current focus, kept in sync with focus
 changes the LLM makes via the tool.
+
+`/tickets <query>` skips the panel and pushes a single one-shot search view
+over every configured backend.
