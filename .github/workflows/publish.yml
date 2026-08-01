@@ -65,6 +65,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - run: bun install
+      - run: bun run lint:ci
 
       - run: bun run --filter '*' test
       - run: bun run --filter '*' typecheck

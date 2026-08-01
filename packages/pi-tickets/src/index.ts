@@ -17,8 +17,8 @@
  * an agent or a casual keypress should trigger.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerTicketsTui } from "./tui.js";
 import { registerTicketsSecretsCommand } from "./secrets.js";
+import { registerTicketsTui } from "./tui.js";
 import { registerTicketsVehicle } from "./vehicle-client.js";
 
 export interface PiTicketsDeps {

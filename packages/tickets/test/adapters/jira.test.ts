@@ -2,9 +2,9 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from "axios";
-import { JiraRepository } from "../../src/adapters/jira.js";
+import { type AxiosAdapter, AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { IssueNotFoundError } from "../../src/adapters/errors.js";
+import { JiraRepository } from "../../src/adapters/jira.js";
 import { discover, load, save } from "../../src/manifest/manifest.js";
 
 async function withTempDir<T>(fn: (dir: string) => T | Promise<T>): Promise<T> {
@@ -31,9 +31,7 @@ async function withTempDir<T>(fn: (dir: string) => T | Promise<T>): Promise<T> {
  * `{status: 404}` resolved instead of rejecting. So this mock replicates that
  * validation explicitly, matching what a real adapter does.
  */
-function mockAdapter(
-  handler: (config: InternalAxiosRequestConfig) => { data: unknown; status: number },
-): AxiosAdapter {
+function mockAdapter(handler: (config: InternalAxiosRequestConfig) => { data: unknown; status: number }): AxiosAdapter {
   return (async (config: InternalAxiosRequestConfig) => {
     const { data, status } = handler(config);
     const response = { data, status, statusText: "", headers: {}, config };
@@ -69,7 +67,10 @@ describe("JiraRepository", () => {
       expect(auth).toStartWith("Basic ");
       if (String(config.url).endsWith("/remotelink")) {
         expect(config.url).toBe("/rest/api/2/issue/PROJ-42/remotelink");
-        return { data: [{ object: { url: "https://github.com/acme/widgets/pull/1", title: "Fix it" }, application: { name: "GitHub" } }], status: 200 };
+        return {
+          data: [{ object: { url: "https://github.com/acme/widgets/pull/1", title: "Fix it" }, application: { name: "GitHub" } }],
+          status: 200,
+        };
       }
       expect(config.url).toBe("/rest/api/2/issue/PROJ-42");
       return { data: RAW_ISSUE("PROJ-42", "Do the thing"), status: 200 };
@@ -108,7 +109,13 @@ describe("JiraRepository", () => {
       expect(body.jql).toContain('project = "WIDGET"');
       return { data: { issues: [] }, status: 200 };
     });
-    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", project: "WIDGET", axiosAdapter });
+    const repo = new JiraRepository("jira", {
+      baseUrl: "https://acme.atlassian.net",
+      email: "me@acme.com",
+      token: "tok",
+      project: "WIDGET",
+      axiosAdapter,
+    });
     await repo.search("PTP");
   });
 
@@ -119,7 +126,13 @@ describe("JiraRepository", () => {
       expect(body.jql).not.toContain("WIDGET");
       return { data: { issues: [] }, status: 200 };
     });
-    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", project: "WIDGET", axiosAdapter });
+    const repo = new JiraRepository("jira", {
+      baseUrl: "https://acme.atlassian.net",
+      email: "me@acme.com",
+      token: "tok",
+      project: "WIDGET",
+      axiosAdapter,
+    });
     await repo.search("PTP", 50, "OPS");
   });
 
@@ -135,7 +148,13 @@ describe("JiraRepository", () => {
       expect(body.fields).toEqual(["*all"]);
       return { data: { issues: [RAW_ISSUE("PROJ-1", "One")] }, status: 200 };
     });
-    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", project: "PROJ", axiosAdapter });
+    const repo = new JiraRepository("jira", {
+      baseUrl: "https://acme.atlassian.net",
+      email: "me@acme.com",
+      token: "tok",
+      project: "PROJ",
+      axiosAdapter,
+    });
     const issues = await repo.list({ status: "done" });
     expect(issues).toHaveLength(1);
   });
@@ -192,7 +211,13 @@ describe("JiraRepository", () => {
       }
       return { data: RAW_ISSUE("PROJ-100", "New ticket"), status: 200 };
     });
-    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", project: "PROJ", axiosAdapter });
+    const repo = new JiraRepository("jira", {
+      baseUrl: "https://acme.atlassian.net",
+      email: "me@acme.com",
+      token: "tok",
+      project: "PROJ",
+      axiosAdapter,
+    });
     await repo.create({ title: "New ticket", customFields: { "QE Priority": "P1" } });
     expect(createdFields?.customfield_10619).toEqual({ value: "P1" });
   });
@@ -233,7 +258,13 @@ describe("JiraRepository", () => {
             status: 200,
           };
         });
-        const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter, configDir: dir });
+        const repo = new JiraRepository("jira", {
+          baseUrl: "https://acme.atlassian.net",
+          email: "me@acme.com",
+          token: "tok",
+          axiosAdapter,
+          configDir: dir,
+        });
         const mappings = await repo.discoverFields();
         expect(mappings).toEqual({ "Target Version": "customfield_10855" });
         expect(repo.fieldDisplayName("customfield_10855")).toBe("Target Version");
@@ -251,7 +282,13 @@ describe("JiraRepository", () => {
           fieldCalls++;
           return { data: [{ id: "customfield_10855", name: "Target Version", custom: true, schema: { type: "array" } }], status: 200 };
         });
-        const first = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter: discoverAdapter, configDir: dir });
+        const first = new JiraRepository("jira", {
+          baseUrl: "https://acme.atlassian.net",
+          email: "me@acme.com",
+          token: "tok",
+          axiosAdapter: discoverAdapter,
+          configDir: dir,
+        });
         await first.discoverFields();
         expect(fieldCalls).toBe(1);
 
@@ -259,7 +296,13 @@ describe("JiraRepository", () => {
         const noNetworkAdapter = mockAdapter(() => {
           throw new Error("should not hit the network -- persisted manifest should have been loaded at construction");
         });
-        const second = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter: noNetworkAdapter, configDir: dir });
+        const second = new JiraRepository("jira", {
+          baseUrl: "https://acme.atlassian.net",
+          email: "me@acme.com",
+          token: "tok",
+          axiosAdapter: noNetworkAdapter,
+          configDir: dir,
+        });
         expect(second.fieldDisplayName("customfield_10855")).toBe("Target Version");
       });
     });
@@ -271,9 +314,21 @@ describe("JiraRepository", () => {
           if (url === "/rest/api/2/status") {
             return { data: [{ name: "ON_QA", statusCategory: { key: "indeterminate" } }], status: 200 };
           }
-          return { data: { ...RAW_ISSUE("PROJ-1", "x"), fields: { ...RAW_ISSUE("PROJ-1", "x").fields, status: { name: "ON_QA", statusCategory: { key: "indeterminate" } } } }, status: 200 };
+          return {
+            data: {
+              ...RAW_ISSUE("PROJ-1", "x"),
+              fields: { ...RAW_ISSUE("PROJ-1", "x").fields, status: { name: "ON_QA", statusCategory: { key: "indeterminate" } } },
+            },
+            status: 200,
+          };
         });
-        const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter, configDir: dir });
+        const repo = new JiraRepository("jira", {
+          baseUrl: "https://acme.atlassian.net",
+          email: "me@acme.com",
+          token: "tok",
+          axiosAdapter,
+          configDir: dir,
+        });
         const before = await repo.get("PROJ-1");
         expect(before.status).toBe("in_progress"); // category-based default, no manifest yet
 
@@ -291,10 +346,19 @@ describe("JiraRepository", () => {
         // (-> in_progress by default), but this team wants it treated as in_review.
         save("statuses", "jira", dir, discover("jira", { ON_QA: "in_review" }));
         const axiosAdapter = mockAdapter(() => ({
-          data: { ...RAW_ISSUE("PROJ-1", "x"), fields: { ...RAW_ISSUE("PROJ-1", "x").fields, status: { name: "ON_QA", statusCategory: { key: "indeterminate" } } } },
+          data: {
+            ...RAW_ISSUE("PROJ-1", "x"),
+            fields: { ...RAW_ISSUE("PROJ-1", "x").fields, status: { name: "ON_QA", statusCategory: { key: "indeterminate" } } },
+          },
           status: 200,
         }));
-        const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter, configDir: dir });
+        const repo = new JiraRepository("jira", {
+          baseUrl: "https://acme.atlassian.net",
+          email: "me@acme.com",
+          token: "tok",
+          axiosAdapter,
+          configDir: dir,
+        });
         const issue = await repo.get("PROJ-1");
         expect(issue.status).toBe("in_review");
         expect(issue.rawStatus).toBe("ON_QA");
@@ -324,7 +388,7 @@ describe("JiraRepository", () => {
     });
 
     it("discoverTemplate() returns undefined when no common sections are found", async () => {
-      const axiosAdapter = mockAdapter(() => ({ data: { issues: [RAW_ISSUE("PROJ-1", "a")] } , status: 200 }));
+      const axiosAdapter = mockAdapter(() => ({ data: { issues: [RAW_ISSUE("PROJ-1", "a")] }, status: 200 }));
       const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
       const template = await repo.discoverTemplate("PROJ", "Bug");
       expect(template).toBeUndefined();
@@ -390,8 +454,22 @@ describe("JiraRepository", () => {
       const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
       const issue = await repo.get("OPS-95587");
       expect(issue.issueLinks).toEqual([
-        { type: "blocks", direction: "outward", targetRef: "jira:OPS-1", targetKey: "OPS-1", targetTitle: "Downstream sync", targetStatus: "New" },
-        { type: "relates to", direction: "inward", targetRef: "jira:OPS-2", targetKey: "OPS-2", targetTitle: "Related bug", targetStatus: "Closed" },
+        {
+          type: "blocks",
+          direction: "outward",
+          targetRef: "jira:OPS-1",
+          targetKey: "OPS-1",
+          targetTitle: "Downstream sync",
+          targetStatus: "New",
+        },
+        {
+          type: "relates to",
+          direction: "inward",
+          targetRef: "jira:OPS-2",
+          targetKey: "OPS-2",
+          targetTitle: "Related bug",
+          targetStatus: "Closed",
+        },
       ]);
     });
 
@@ -399,7 +477,10 @@ describe("JiraRepository", () => {
       const axiosAdapter = mockAdapter((config) => {
         const url = String(config.url);
         if (url === "/rest/api/2/field") {
-          return { data: [{ id: "customfield_10855", name: "Target Version", custom: true, schema: { type: "array", items: "version" } }], status: 200 };
+          return {
+            data: [{ id: "customfield_10855", name: "Target Version", custom: true, schema: { type: "array", items: "version" } }],
+            status: 200,
+          };
         }
         if (url.endsWith("/remotelink")) return { data: [], status: 200 };
         return { data: issueWithExtraFields({ customfield_10855: [{ name: "5.0.0" }] }), status: 200 };
@@ -428,15 +509,28 @@ describe("JiraRepository", () => {
           }
           return { data: [], status: 200 };
         });
-        const first = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter: discoverAdapter, configDir: dir });
+        const first = new JiraRepository("jira", {
+          baseUrl: "https://acme.atlassian.net",
+          email: "me@acme.com",
+          token: "tok",
+          axiosAdapter: discoverAdapter,
+          configDir: dir,
+        });
         await first.discoverFields();
 
         const secondAdapter = mockAdapter((config) => {
-          if (String(config.url) === "/rest/api/2/field") throw new Error("should not hit the network -- persisted manifest should have been loaded at construction");
+          if (String(config.url) === "/rest/api/2/field")
+            throw new Error("should not hit the network -- persisted manifest should have been loaded at construction");
           if (String(config.url).endsWith("/remotelink")) return { data: [], status: 200 };
           return { data: issueWithExtraFields({ customfield_10855: [{ name: "5.0.0" }] }), status: 200 };
         });
-        const second = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter: secondAdapter, configDir: dir });
+        const second = new JiraRepository("jira", {
+          baseUrl: "https://acme.atlassian.net",
+          email: "me@acme.com",
+          token: "tok",
+          axiosAdapter: secondAdapter,
+          configDir: dir,
+        });
         const issue = await second.get("OPS-95587");
         expect(issue.customFields).toEqual({ "Target Version": "5.0.0" });
       });
@@ -467,7 +561,10 @@ describe("JiraRepository", () => {
       const axiosAdapter = mockAdapter((config) => {
         if (String(config.url) === "/rest/agile/1.0/board/9525/configuration") {
           expect(config.method).toBe("get");
-          return { data: { id: 9525, name: "QE Scrum Board", filter: { id: "55501" }, location: { type: "project", projectKeyOrId: "BMPTEMP" } }, status: 200 };
+          return {
+            data: { id: 9525, name: "QE Scrum Board", filter: { id: "55501" }, location: { type: "project", projectKeyOrId: "BMPTEMP" } },
+            status: 200,
+          };
         }
         if (String(config.url) === "/rest/api/2/filter/55501") {
           return { data: { id: "55501", jql: "project in (BMPTEMP, TELCOV10N) AND labels = qe-scrum ORDER BY Rank ASC" }, status: 200 };
@@ -497,7 +594,10 @@ describe("JiraRepository", () => {
         expect(config.method).toBe("post");
         expect(config.url).toBe("/rest/api/2/issue/PROJ-42/comment");
         expect(JSON.parse(config.data as string)).toMatchObject({ body: "hello world" });
-        return { data: { id: "123", body: "hello world", author: { displayName: "Me" }, created: "2026-01-01T00:00:00.000Z" }, status: 201 };
+        return {
+          data: { id: "123", body: "hello world", author: { displayName: "Me" }, created: "2026-01-01T00:00:00.000Z" },
+          status: 201,
+        };
       });
       const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
       const comment = await repo.addComment("PROJ-42", "hello world");

@@ -12,15 +12,15 @@
  * client's `UserDetails.accountId` typing would make the fix straightforward
  * (see RESEARCH.md for the full analysis of the bug this leaves unfixed).
  */
-import { AgileClient, Version2Client } from "jira.js";
-import type { Config as JiraClientConfig, HttpException } from "jira.js";
+
 import type { AxiosAdapter } from "axios";
-import type { Comment, CreateInput, Issue, IssueLink, ListFilter, Status, UpdateInput } from "../domain/issue.js";
-import { parsePriority } from "../domain/issue.js";
-import { ApiError, IssueNotFoundError } from "./errors.js";
+import type { HttpException, Config as JiraClientConfig } from "jira.js";
+import { AgileClient, Version2Client } from "jira.js";
+import type { Comment, CreateInput, Issue, IssueLink, ListFilter, parsePriority, Status, UpdateInput } from "../domain/issue.js";
 import type { Template } from "../domain/template.js";
 import { buildTemplateBody, extractTemplateSections } from "../domain/template.js";
 import * as manifest from "../manifest/manifest.js";
+import { ApiError, IssueNotFoundError } from "./errors.js";
 
 /**
  * Basic-auth mode (email + API token) hits the tenant's own *.atlassian.net
@@ -188,7 +188,11 @@ export class JiraRepository {
     ]);
     const issue = this.toDomain(raw);
     if (remoteLinks.length > 0) {
-      issue.externalLinks = remoteLinks.map((link) => ({ url: link.object?.url ?? "", title: link.object?.title, type: link.application?.name }));
+      issue.externalLinks = remoteLinks.map((link) => ({
+        url: link.object?.url ?? "",
+        title: link.object?.title,
+        type: link.application?.name,
+      }));
     }
     return issue;
   }
@@ -256,18 +260,12 @@ export class JiraRepository {
   }
 
   async listComments(key: string): Promise<Comment[]> {
-    const result = await this.call<{ comments?: JiraComment[] }>(
-      () => this.client.issueComments.getComments({ issueIdOrKey: key }),
-      key,
-    );
+    const result = await this.call<{ comments?: JiraComment[] }>(() => this.client.issueComments.getComments({ issueIdOrKey: key }), key);
     return (result?.comments ?? []).map(commentToDomain);
   }
 
   async addComment(key: string, body: string): Promise<Comment> {
-    const raw = await this.call<JiraComment>(
-      () => this.client.issueComments.addComment({ issueIdOrKey: key, comment: body }),
-      key,
-    );
+    const raw = await this.call<JiraComment>(() => this.client.issueComments.addComment({ issueIdOrKey: key, comment: body }), key);
     return commentToDomain(raw);
   }
 
@@ -526,7 +524,9 @@ function formatCustomFieldValue(raw: unknown): string | undefined {
   if (typeof raw === "string") return raw;
   if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
   if (Array.isArray(raw)) {
-    const names = raw.map((item) => (item && typeof item === "object" && "name" in item ? String((item as { name: unknown }).name) : undefined)).filter((n): n is string => !!n);
+    const names = raw
+      .map((item) => (item && typeof item === "object" && "name" in item ? String((item as { name: unknown }).name) : undefined))
+      .filter((n): n is string => !!n);
     return names.length > 0 ? names.join(", ") : undefined;
   }
   if (raw && typeof raw === "object") {
@@ -538,7 +538,10 @@ function formatCustomFieldValue(raw: unknown): string | undefined {
 
 function coerceCustomFieldValue(field: { type: string; items?: string }, rawValue: string): unknown {
   if (field.type === "array") {
-    const parts = rawValue.split(",").map((v) => v.trim()).filter(Boolean);
+    const parts = rawValue
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
     return field.items === "option" ? parts.map((v) => ({ value: v })) : parts;
   }
   if (field.type === "option") return { value: rawValue };

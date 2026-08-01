@@ -10,11 +10,11 @@
  * Self-hosted base URLs are still validated to reject SSRF-prone targets before
  * any request is made.
  */
-import { Gitlab } from "@gitbeaker/rest";
-import { GitbeakerRequestError, type RequesterType, type ResourceOptions } from "@gitbeaker/requester-utils";
+
 import { isIP } from "node:net";
-import type { Comment, CreateInput, Issue, ListFilter, Status, UpdateInput } from "../domain/issue.js";
-import { parsePriority } from "../domain/issue.js";
+import { GitbeakerRequestError, type RequesterType, type ResourceOptions } from "@gitbeaker/requester-utils";
+import { Gitlab } from "@gitbeaker/rest";
+import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../domain/issue.js";
 import { ApiError, AuthRequiredError, InvalidUrlError, IssueNotFoundError } from "./errors.js";
 
 export interface GitLabOptions {
@@ -80,11 +80,7 @@ export class GitLabRepository {
       // is set (confirmed by reading its source), so a stalled call fails predictably
       // instead of hanging -- same class of gap the octokit adapter needed a manual fix for.
       queryTimeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      ...(opts.token
-        ? opts.tokenType === "oauth"
-          ? { oauthToken: opts.token }
-          : { token: opts.token }
-        : {}),
+      ...(opts.token ? (opts.tokenType === "oauth" ? { oauthToken: opts.token } : { token: opts.token }) : {}),
       ...(opts.requesterFn ? { requesterFn: opts.requesterFn } : {}),
     });
   }
@@ -144,9 +140,7 @@ export class GitLabRepository {
   // project is accepted for IssueRepository interface parity but ignored --
   // GitLab's scope (projectId) is fixed at construction, not overridable per call.
   async search(query: string, limit = 50, _project?: string): Promise<Issue[]> {
-    const raw = await this.call<GlIssue[]>(() =>
-      this.client.Issues.all({ projectId: this.projectId, search: query, perPage: limit }),
-    );
+    const raw = await this.call<GlIssue[]>(() => this.client.Issues.all({ projectId: this.projectId, search: query, perPage: limit }));
     return raw.map(toDomain);
   }
 
@@ -275,9 +269,7 @@ export function validateUrl(rawUrl: string): void {
     throw new InvalidUrlError(`gitlab: scheme must be http(s) (got ${parsed.protocol})`);
   }
   if (parsed.protocol === "http:" && parsed.hostname !== "localhost") {
-    throw new InvalidUrlError(
-      `gitlab: http:// only allowed for localhost (got ${parsed.hostname}); use https:// for remote instances`,
-    );
+    throw new InvalidUrlError(`gitlab: http:// only allowed for localhost (got ${parsed.hostname}); use https:// for remote instances`);
   }
   if (isIP(parsed.hostname) && isPrivateIp(parsed.hostname)) {
     throw new InvalidUrlError("gitlab: private IP addresses are not allowed (blocks SSRF)");

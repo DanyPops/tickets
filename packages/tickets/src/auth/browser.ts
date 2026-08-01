@@ -29,7 +29,13 @@ export function openUrl(url: string, opts: { platform?: NodeJS.Platform; spawner
   const platform = opts.platform ?? process.platform;
   const spawner = opts.spawner ?? defaultSpawner;
 
-  if (platform === "darwin") return spawner("open", [url]);
-  if (platform === "win32") return spawner("cmd", ["/c", "start", '""', url]);
-  return spawner("xdg-open", [url]);
+  if (platform === "darwin") {
+    spawner("open", [url]);
+    return;
+  }
+  if (platform === "win32") {
+    spawner("cmd", ["/c", "start", '""', url]);
+    return;
+  }
+  spawner("xdg-open", [url]);
 }

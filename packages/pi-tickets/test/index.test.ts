@@ -34,7 +34,6 @@ describe("extension registration", () => {
     // factory resolves) -- previously silently swallowed by registerTicketsVehicle's
     // own daemon-unreachable try/catch, making every projected tool invisible to
     // the model with zero visible sign why. Confirmed live before this fix.
-    // biome-ignore lint: test-only cast into the ExtensionAPI shape the factory expects
     (mod.default as (pi: unknown, deps: unknown) => void)(fakePi, {
       registerVehicle: async () => {
         vehicleCalled = true;

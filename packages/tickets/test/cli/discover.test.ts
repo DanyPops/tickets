@@ -17,7 +17,13 @@ describe("tickets discover CLI", () => {
 
   it("has one subcommand per discover.* daemon operation", () => {
     const discoverOps = TICKET_OPERATIONS.filter((op) => op.startsWith("discover."));
-    expect(discoverOps).toEqual(["discover.fields", "discover.statuses", "discover.template", "discover.board_quickfilter", "discover.board_filter"]);
+    expect(discoverOps).toEqual([
+      "discover.fields",
+      "discover.statuses",
+      "discover.template",
+      "discover.board_quickfilter",
+      "discover.board_filter",
+    ]);
 
     const subcommandNames = (discoverGroup?.commands ?? []).map((c) => c.name());
     for (const op of discoverOps) {

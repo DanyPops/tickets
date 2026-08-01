@@ -5,8 +5,9 @@
  * network, bad creds) is logged and skipped; it never crashes the daemon
  * and never blocks other backends' syncs.
  */
-import type { Logger } from "@danypops/vehicle-server/logging";
+
 import type { MaintenanceTask } from "@danypops/vehicle-server/daemon";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import type { TicketService } from "../application/service.js";
 import type { Ledger } from "./ledger.js";
 
@@ -42,12 +43,7 @@ export async function syncOnce(
  * service is synced on this task's very next run, no daemon restart or
  * task rebuild needed.
  */
-export function createSyncTask(
-  service: TicketService,
-  ledger: Ledger,
-  intervalMs: number,
-  logger?: Logger,
-): MaintenanceTask {
+export function createSyncTask(service: TicketService, ledger: Ledger, intervalMs: number, logger?: Logger): MaintenanceTask {
   return {
     name: "ledger-sync",
     intervalMs,

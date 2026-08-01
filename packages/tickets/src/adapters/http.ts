@@ -80,7 +80,5 @@ export class HttpClient {
 
 /** Strips anything that looks like a bearer/basic credential from error bodies before logging. */
 function redact(text: string): string {
-  return text
-    .replace(/"(token|password|secret|api_key|authorization)"\s*:\s*"[^"]*"/gi, '"$1":"[redacted]"')
-    .slice(0, 2000);
+  return text.replace(/"(token|password|secret|api_key|authorization)"\s*:\s*"[^"]*"/gi, '"$1":"[redacted]"').slice(0, 2000);
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createRequesterFn, GitbeakerRequestError } from "@gitbeaker/requester-utils";
-import { GitLabRepository, validateUrl } from "../../src/adapters/gitlab.js";
 import { InvalidUrlError, IssueNotFoundError } from "../../src/adapters/errors.js";
+import { GitLabRepository, validateUrl } from "../../src/adapters/gitlab.js";
 
 /**
  * @gitbeaker/rest's sanctioned test-injection point is `requesterFn`, not a raw
@@ -14,7 +14,9 @@ import { InvalidUrlError, IssueNotFoundError } from "../../src/adapters/errors.j
  */
 type MockBody = Record<string, unknown> | Record<string, unknown>[];
 
-function mockRequesterFn(handler: (endpoint: string, options: Record<string, unknown>) => { body: MockBody; status: number; headers: Record<string, string> }) {
+function mockRequesterFn(
+  handler: (endpoint: string, options: Record<string, unknown>) => { body: MockBody; status: number; headers: Record<string, string> },
+) {
   return createRequesterFn(
     async (_serviceOptions, requestOptions) => requestOptions,
     async (endpoint: string, options?: Record<string, unknown>) => handler(endpoint, options ?? {}),

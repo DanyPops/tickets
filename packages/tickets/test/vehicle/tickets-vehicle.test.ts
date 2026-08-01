@@ -1,11 +1,11 @@
+import type { Database } from "bun:sqlite";
 import { afterEach, describe, expect, it } from "bun:test";
-import { Database } from "bun:sqlite";
 import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { TicketService } from "../../src/application/service.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/daemon/focus.js";
-import { Ledger, LEDGER_MIGRATIONS } from "../../src/daemon/ledger.js";
-import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/daemon/saved-queries.js";
+import { LEDGER_MIGRATIONS, Ledger } from "../../src/daemon/ledger.js";
 import { TICKET_OPERATIONS } from "../../src/daemon/ops.js";
+import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/daemon/saved-queries.js";
 import { createTicketsVehicleRegistry } from "../../src/vehicle/tickets-vehicle.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
@@ -24,7 +24,15 @@ function harness() {
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
   const github = new FakeRepository("github", [
-    { ref: "github:#1", id: "1", key: "#1", title: "First", status: "todo", priority: "none", url: "https://github.com/acme/widgets/issues/1" },
+    {
+      ref: "github:#1",
+      id: "1",
+      key: "#1",
+      title: "First",
+      status: "todo",
+      priority: "none",
+      url: "https://github.com/acme/widgets/issues/1",
+    },
   ]);
   const service = new TicketService({ github });
   const registry = createTicketsVehicleRegistry({ service, ledger, focusStore, queries, token: "test-token", version: "0.0.0-test" });
@@ -34,7 +42,10 @@ function harness() {
 describe("createTicketsVehicleRegistry", () => {
   it("registers every real ticket operation, dotted names preserved, daemon.shutdown deliberately excluded", () => {
     const { registry } = harness();
-    const names = registry.manifest().operations.map((op) => op.name).sort();
+    const names = registry
+      .manifest()
+      .operations.map((op) => op.name)
+      .sort();
     const expected = TICKET_OPERATIONS.filter((op) => op !== "daemon.shutdown").sort();
     expect(names).toEqual(expected);
     expect(names).not.toContain("daemon.shutdown");
@@ -76,7 +87,9 @@ describe("createTicketsVehicleRegistry", () => {
 
   it("issue.list's tool schema exposes project/status/assignee/labels/limit as flat top-level properties, not an opaque filter object -- matching issue.search's own convention", () => {
     const { registry } = harness();
-    const schema = registry.manifest().operations.find((op) => op.name === "issue.list")?.inputSchema as { properties?: Record<string, unknown> };
+    const schema = registry.manifest().operations.find((op) => op.name === "issue.list")?.inputSchema as {
+      properties?: Record<string, unknown>;
+    };
     const properties = Object.keys(schema.properties ?? {});
     expect(properties).toEqual(expect.arrayContaining(["backend", "project", "status", "assignee", "labels", "limit"]));
     expect(properties).not.toContain("filter");
@@ -123,7 +136,9 @@ describe("createTicketsVehicleRegistry", () => {
 
   it("issue.create performs a real, externally-visible write through the fake backend", async () => {
     const { registry } = harness();
-    const result = (await registry.invoke("issue.create", 1, { backend: "github", input: { title: "New one" } }, PERMS)) as { issue: { title: string; ref: string } };
+    const result = (await registry.invoke("issue.create", 1, { backend: "github", input: { title: "New one" } }, PERMS)) as {
+      issue: { title: string; ref: string };
+    };
     expect(result.issue.title).toBe("New one");
     const listed = (await registry.invoke("issue.list", 1, { backend: "github" }, PERMS)) as { issues: { title: string }[] };
     expect(listed.issues.map((i) => i.title)).toContain("New one");
@@ -152,7 +167,9 @@ describe("createTicketsVehicleRegistry", () => {
 
   it("query.save/list/run/remove round-trip a saved query through the real SavedQueryStore and TicketService", async () => {
     const { registry } = harness();
-    const saved = (await registry.invoke("query.save", 1, { name: "q1", backend: "github", query: "First" }, PERMS)) as { query: { name: string } };
+    const saved = (await registry.invoke("query.save", 1, { name: "q1", backend: "github", query: "First" }, PERMS)) as {
+      query: { name: string };
+    };
     expect(saved.query.name).toBe("q1");
 
     const listed = (await registry.invoke("query.list", 1, {}, PERMS)) as { queries: { name: string }[] };
@@ -167,7 +184,9 @@ describe("createTicketsVehicleRegistry", () => {
 
   it("query.save's tool schema is flat (name/backend/query/description), matching every other operation's own convention", () => {
     const { registry } = harness();
-    const schema = registry.manifest().operations.find((op) => op.name === "query.save")?.inputSchema as { properties?: Record<string, unknown> };
+    const schema = registry.manifest().operations.find((op) => op.name === "query.save")?.inputSchema as {
+      properties?: Record<string, unknown>;
+    };
     expect(Object.keys(schema.properties ?? {})).toEqual(expect.arrayContaining(["name", "backend", "query", "description"]));
   });
 });

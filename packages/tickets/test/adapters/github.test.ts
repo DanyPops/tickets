@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { GitHubRepository } from "../../src/adapters/github.js";
 import { AuthRequiredError } from "../../src/adapters/errors.js";
+import { GitHubRepository } from "../../src/adapters/github.js";
 
 // octokit inspects the response's content-type header to decide whether to JSON-parse the
 // body (unlike the old hand-rolled HttpClient, which parsed blindly) -- real GitHub API
@@ -54,9 +54,7 @@ describe("GitHubRepository", () => {
   });
 
   it("filters out pull requests from list()", async () => {
-    const fetchImpl = mockFetch(() =>
-      jsonResponse([RAW_ISSUE(1, "Real issue"), { ...RAW_ISSUE(2, "A PR"), pull_request: {} }]),
-    );
+    const fetchImpl = mockFetch(() => jsonResponse([RAW_ISSUE(1, "Real issue"), { ...RAW_ISSUE(2, "A PR"), pull_request: {} }]));
     const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl });
     const issues = await repo.list({});
     expect(issues).toHaveLength(1);
@@ -77,7 +75,7 @@ describe("GitHubRepository", () => {
 
   it("update() with an assignee sends assignees: [login] -- GitHub's real write contract, confirmed via octokit's generated types", async () => {
     let sentBody: Record<string, unknown> | undefined;
-    const fetchImpl = mockFetch((url, init) => {
+    const fetchImpl = mockFetch((_url, init) => {
       if (init?.method === "PATCH") {
         sentBody = JSON.parse(String(init.body));
         return jsonResponse(RAW_ISSUE(7, "Fix the thing"));
@@ -91,7 +89,7 @@ describe("GitHubRepository", () => {
 
   it("update() with assignee: '' unassigns (empty assignees array), not a no-op", async () => {
     let sentBody: Record<string, unknown> | undefined;
-    const fetchImpl = mockFetch((url, init) => {
+    const fetchImpl = mockFetch((_url, init) => {
       if (init?.method === "PATCH") {
         sentBody = JSON.parse(String(init.body));
       }

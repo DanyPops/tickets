@@ -14,9 +14,7 @@
  */
 export type GhCliTokenResult = { ok: true; token: string } | { ok: false; reason: string };
 
-export interface SpawnLike {
-	(command: string[]): { stdout: ReadableStream<Uint8Array> | number; exited: Promise<number> };
-}
+export type SpawnLike = (command: string[]) => { stdout: ReadableStream<Uint8Array> | number; exited: Promise<number> };
 
 const defaultSpawn: SpawnLike = (command) => Bun.spawn(command, { stdout: "pipe" });
 
@@ -26,21 +24,26 @@ const defaultSpawn: SpawnLike = (command) => Bun.spawn(command, { stdout: "pipe"
  * prompts, never falls back to a device flow itself.
  */
 export async function readGhCliToken(user?: string, spawn: SpawnLike = defaultSpawn): Promise<GhCliTokenResult> {
-	const command = user ? ["gh", "auth", "token", "--user", user] : ["gh", "auth", "token"];
-	let proc: ReturnType<SpawnLike>;
-	try {
-		proc = spawn(command);
-	} catch {
-		return { ok: false, reason: "gh CLI not found -- install it (cli.github.com) or use a different login method" };
-	}
-	const [stdout, code] = await Promise.all([
-		proc.stdout instanceof ReadableStream ? new Response(proc.stdout).text() : Promise.resolve(""),
-		proc.exited,
-	]);
-	if (code !== 0) {
-		return { ok: false, reason: user ? `gh CLI has no authenticated account named "${user}" -- run \`gh auth login\` first` : "gh CLI is not authenticated -- run `gh auth login` first" };
-	}
-	const token = stdout.trim();
-	if (!token) return { ok: false, reason: "gh auth token returned no token" };
-	return { ok: true, token };
+  const command = user ? ["gh", "auth", "token", "--user", user] : ["gh", "auth", "token"];
+  let proc: ReturnType<SpawnLike>;
+  try {
+    proc = spawn(command);
+  } catch {
+    return { ok: false, reason: "gh CLI not found -- install it (cli.github.com) or use a different login method" };
+  }
+  const [stdout, code] = await Promise.all([
+    proc.stdout instanceof ReadableStream ? new Response(proc.stdout).text() : Promise.resolve(""),
+    proc.exited,
+  ]);
+  if (code !== 0) {
+    return {
+      ok: false,
+      reason: user
+        ? `gh CLI has no authenticated account named "${user}" -- run \`gh auth login\` first`
+        : "gh CLI is not authenticated -- run `gh auth login` first",
+    };
+  }
+  const token = stdout.trim();
+  if (!token) return { ok: false, reason: "gh auth token returned no token" };
+  return { ok: true, token };
 }

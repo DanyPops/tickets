@@ -15,14 +15,7 @@ export function parsePriority(value: unknown): Priority {
   return (PRIORITIES as readonly string[]).includes(lower) ? (lower as Priority) : "none";
 }
 
-export const STATUSES = [
-  "backlog",
-  "todo",
-  "in_progress",
-  "in_review",
-  "done",
-  "canceled",
-] as const;
+export const STATUSES = ["backlog", "todo", "in_progress", "in_review", "done", "canceled"] as const;
 export type Status = (typeof STATUSES)[number];
 
 export function parseStatus(value: unknown, fallback: Status = "todo"): Status {

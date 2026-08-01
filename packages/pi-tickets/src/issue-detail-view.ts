@@ -3,10 +3,11 @@
  * comments -- the terminal alternative to opening the ticket in a browser
  * just to read it.
  */
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type TUI } from "@earendil-works/pi-tui";
-import { buildDetailLines, type DetailField, type DetailSection, type TextMeasure } from "malevich-tui-components";
+
 import type { Comment, Issue } from "@danypops/tickets";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { type Component, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { buildDetailLines, type DetailField, type DetailSection, type TextMeasure } from "malevich-tui-components";
 
 const DETAIL_RESERVED_ROWS = 4;
 
@@ -44,7 +45,9 @@ export class IssueDetailComponent implements Component {
       "pgup/pgdn page",
       this.lines.length > visibleRows ? `${this.offsetY + 1}-${end}/${this.lines.length}` : undefined,
       "esc back",
-    ].filter(Boolean).join(" \u2022 ");
+    ]
+      .filter(Boolean)
+      .join(" \u2022 ");
     return [
       border,
       truncateToWidth(theme.fg("accent", theme.bold(`${this.issue.key}  ${this.issue.title}`)), width, ""),
@@ -99,7 +102,10 @@ export class IssueDetailComponent implements Component {
     if (this.comments.length > 0) {
       sections.push({
         heading: `Comments (${this.comments.length}):`,
-        items: this.comments.map((comment) => ({ byline: `${comment.author ?? "unknown"} \u00b7 ${comment.createdAt ?? ""}`, body: comment.body })),
+        items: this.comments.map((comment) => ({
+          byline: `${comment.author ?? "unknown"} \u00b7 ${comment.createdAt ?? ""}`,
+          body: comment.body,
+        })),
       });
     }
 

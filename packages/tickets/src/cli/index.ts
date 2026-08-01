@@ -6,16 +6,16 @@
  * ledger or a backend adapter directly.
  */
 import { Command } from "commander";
+import { openUrl } from "../auth/browser.js";
+import { readGhCliToken } from "../auth/gh-cli.js";
+import { loginWithGitHubDeviceFlow } from "../auth/github-oauth.js";
+import { loginWithGitLabDeviceFlow } from "../auth/gitlab-oauth.js";
+import { loginWithJiraAuthorizationCode } from "../auth/jira-oauth.js";
+import { promptMaskedSecret } from "../auth/masked-prompt.js";
+import { deleteToken, isTokenFresh, listStoredBackends, loadToken, saveToken } from "../auth/token-store.js";
+import { createTicketsClient, type TicketsRpcClient } from "../client/tickets-client.js";
 import type { CreateInput, ListFilter, Priority, Status, UpdateInput } from "../domain/issue.js";
 import { parseStatus } from "../domain/issue.js";
-import { createTicketsClient, type TicketsRpcClient } from "../client/tickets-client.js";
-import { openUrl } from "../auth/browser.js";
-import { loginWithGitHubDeviceFlow } from "../auth/github-oauth.js";
-import { readGhCliToken } from "../auth/gh-cli.js";
-import { gitlabDeviceEndpoints, loginWithGitLabDeviceFlow } from "../auth/gitlab-oauth.js";
-import { loginWithJiraAuthorizationCode } from "../auth/jira-oauth.js";
-import { deleteToken, isTokenFresh, listStoredBackends, loadToken, saveToken } from "../auth/token-store.js";
-import { promptMaskedSecret } from "../auth/masked-prompt.js";
 import { installTicketsService, systemctlTickets, systemdUnitPath } from "./systemd-service.js";
 
 function printJson(value: unknown): void {
@@ -200,7 +200,9 @@ focus
     await withClient((client) => client.call("focus.clear", {}));
   });
 
-const discoverCmd = program.command("discover").description("discover and persist backend-specific mappings (custom fields, statuses) or a description template");
+const discoverCmd = program
+  .command("discover")
+  .description("discover and persist backend-specific mappings (custom fields, statuses) or a description template");
 
 discoverCmd
   .command("fields")
@@ -227,7 +229,12 @@ discoverCmd
   .option("--sample-size <n>", "how many recent issues to sample", (v) => Number.parseInt(v, 10))
   .action(async (opts) => {
     await withClient((client) =>
-      client.call("discover.template", { backend: opts.backend, project: opts.project, issueType: opts.issueType, sampleSize: opts.sampleSize }),
+      client.call("discover.template", {
+        backend: opts.backend,
+        project: opts.project,
+        issueType: opts.issueType,
+        sampleSize: opts.sampleSize,
+      }),
     );
   });
 
@@ -240,7 +247,9 @@ discoverCmd
     await withClient((client) => client.call("discover.board_filter", { backend: opts.backend, boardId: opts.board }));
   });
 
-const queryCmd = program.command("query").description("save and run named raw backend queries (Jira JQL) -- e.g. a board's sprint or backlog view");
+const queryCmd = program
+  .command("query")
+  .description("save and run named raw backend queries (Jira JQL) -- e.g. a board's sprint or backlog view");
 
 queryCmd
   .command("save <name>")
@@ -249,7 +258,9 @@ queryCmd
   .requiredOption("--jql <jql>", "the raw query string (Jira JQL)")
   .option("--description <text>", "human-readable note about what this query is")
   .action(async (name: string, opts) => {
-    await withClient((client) => client.call("query.save", { name, backend: opts.backend, query: opts.jql, description: opts.description }));
+    await withClient((client) =>
+      client.call("query.save", { name, backend: opts.backend, query: opts.jql, description: opts.description }),
+    );
   });
 
 queryCmd
@@ -276,12 +287,16 @@ queryCmd
 
 discoverCmd
   .command("board_quickfilter")
-  .description("resolve a Jira board's quick filter id to its JQL fragment -- board view's quickFilter=, backlog view's customFilter=, are the same id")
+  .description(
+    "resolve a Jira board's quick filter id to its JQL fragment -- board view's quickFilter=, backlog view's customFilter=, are the same id",
+  )
   .requiredOption("-b, --backend <name>", "backend name")
   .requiredOption("--board <id>", "board id", (v) => Number.parseInt(v, 10))
   .requiredOption("--quick-filter <id>", "quick filter id", (v) => Number.parseInt(v, 10))
   .action(async (opts) => {
-    await withClient((client) => client.call("discover.board_quickfilter", { backend: opts.backend, boardId: opts.board, quickFilterId: opts.quickFilter }));
+    await withClient((client) =>
+      client.call("discover.board_quickfilter", { backend: opts.backend, boardId: opts.board, quickFilterId: opts.quickFilter }),
+    );
   });
 
 const daemon = program.command("daemon").description("manage the tickets daemon process");
@@ -348,7 +363,9 @@ daemon
 
 const service = program
   .command("service")
-  .description("deploy the tickets daemon as a persistent systemd --user service (Linux; survives logout/reboot, unlike `daemon start`'s on-demand spawn)");
+  .description(
+    "deploy the tickets daemon as a persistent systemd --user service (Linux; survives logout/reboot, unlike `daemon start`'s on-demand spawn)",
+  );
 
 service
   .command("install")
@@ -395,7 +412,10 @@ auth
   .option("--client-secret <secret>", "OAuth client secret (Jira only — GitHub/GitLab device flow needs none)")
   .option("--url <baseUrl>", "self-managed GitLab URL (defaults to gitlab.com)")
   .option("--scope <scope>", "space-delimited OAuth scope override")
-  .option("--gh-cli [account]", "github only: reuse an already-authenticated gh CLI session instead of the device flow (omit value for gh's active account)")
+  .option(
+    "--gh-cli [account]",
+    "github only: reuse an already-authenticated gh CLI session instead of the device flow (omit value for gh's active account)",
+  )
   .action(async (opts) => {
     const type = opts.type ?? opts.backend;
     try {
@@ -403,12 +423,20 @@ auth
         const result = await readGhCliToken(opts.ghCli === true ? undefined : opts.ghCli);
         if (!result.ok) throw new Error(result.reason);
         saveToken(opts.backend, { accessToken: result.token });
-        printJson({ backend: opts.backend, status: "authorized", via: "gh-cli", note: "restart the tickets daemon (or run `tickets daemon-status` after a fresh start) to pick up the new token" });
+        printJson({
+          backend: opts.backend,
+          status: "authorized",
+          via: "gh-cli",
+          note: "restart the tickets daemon (or run `tickets daemon-status` after a fresh start) to pick up the new token",
+        });
         return;
       }
       if (type === "github") {
         const clientId = opts.clientId ?? process.env.GITHUB_OAUTH_CLIENT_ID;
-        if (!clientId) throw new Error("--client-id or GITHUB_OAUTH_CLIENT_ID is required (or pass --gh-cli [account] to reuse an already-authenticated gh CLI session instead)");
+        if (!clientId)
+          throw new Error(
+            "--client-id or GITHUB_OAUTH_CLIENT_ID is required (or pass --gh-cli [account] to reuse an already-authenticated gh CLI session instead)",
+          );
         const token = await loginWithGitHubDeviceFlow({
           clientId,
           scope: opts.scope,
@@ -421,7 +449,12 @@ auth
             }
           },
         });
-        saveToken(opts.backend, { accessToken: token.accessToken, refreshToken: token.refreshToken, expiresAt: token.expiresAt, scope: token.scope });
+        saveToken(opts.backend, {
+          accessToken: token.accessToken,
+          refreshToken: token.refreshToken,
+          expiresAt: token.expiresAt,
+          scope: token.scope,
+        });
       } else if (type === "gitlab") {
         const clientId = opts.clientId ?? process.env.GITLAB_OAUTH_CLIENT_ID;
         if (!clientId) throw new Error("--client-id or GITLAB_OAUTH_CLIENT_ID is required");
@@ -439,12 +472,19 @@ auth
             }
           },
         });
-        saveToken(opts.backend, { accessToken: token.accessToken, refreshToken: token.refreshToken, expiresAt: token.expiresAt, scope: token.scope });
+        saveToken(opts.backend, {
+          accessToken: token.accessToken,
+          refreshToken: token.refreshToken,
+          expiresAt: token.expiresAt,
+          scope: token.scope,
+        });
       } else if (type === "jira") {
         const clientId = opts.clientId ?? process.env.JIRA_OAUTH_CLIENT_ID;
         const clientSecret = opts.clientSecret ?? process.env.JIRA_OAUTH_CLIENT_SECRET;
         if (!clientId || !clientSecret) {
-          throw new Error("--client-id/--client-secret or JIRA_OAUTH_CLIENT_ID/JIRA_OAUTH_CLIENT_SECRET are required (Atlassian 3LO has no public-client flow)");
+          throw new Error(
+            "--client-id/--client-secret or JIRA_OAUTH_CLIENT_ID/JIRA_OAUTH_CLIENT_SECRET are required (Atlassian 3LO has no public-client flow)",
+          );
         }
         const token = await loginWithJiraAuthorizationCode({
           clientId,
@@ -494,7 +534,11 @@ auth
       return;
     }
     saveToken(backend, { accessToken: value });
-    printJson({ backend, status: "stored", note: "restart the tickets daemon (or run `tickets daemon-status` after a fresh start) to pick up the new token" });
+    printJson({
+      backend,
+      status: "stored",
+      note: "restart the tickets daemon (or run `tickets daemon-status` after a fresh start) to pick up the new token",
+    });
   });
 
 auth

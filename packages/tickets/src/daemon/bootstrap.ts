@@ -6,20 +6,20 @@
  * root instead of hitting real GitHub/GitLab/Jira or the real home directory.
  */
 import type { Database } from "bun:sqlite";
+import type { StartDaemonOptions } from "@danypops/vehicle-server/daemon";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
 import { ensureAuthToken, type PathEnvironment, resolveDaemonPaths } from "@danypops/vehicle-server/paths";
 import { checkpoint, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
-import type { StartDaemonOptions } from "@danypops/vehicle-server/daemon";
 import { TicketService } from "../application/service.js";
-import { buildRepositories, type BuildRepositories, type Config, createBackendRefreshTask, loadConfig } from "../config/config.js";
+import { type BuildRepositories, buildRepositories, type Config, createBackendRefreshTask, loadConfig } from "../config/config.js";
 import type { IssueRepository } from "../ports/repository.js";
-import { FOCUS_MIGRATIONS, FocusStore } from "./focus.js";
-import { Ledger, LEDGER_MIGRATIONS } from "./ledger.js";
-import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "./saved-queries.js";
-import { TICKETS_DAEMON_NAMES } from "./ops.js";
-import { buildApp, type TicketsAppDeps } from "./server.js";
-import { createSyncTask } from "./poller.js";
 import { createTicketsVehicleRegistry } from "../vehicle/tickets-vehicle.js";
+import { FOCUS_MIGRATIONS, FocusStore } from "./focus.js";
+import { LEDGER_MIGRATIONS, Ledger } from "./ledger.js";
+import { TICKETS_DAEMON_NAMES } from "./ops.js";
+import { createSyncTask } from "./poller.js";
+import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "./saved-queries.js";
+import { buildApp, type TicketsAppDeps } from "./server.js";
 
 export interface BootstrapOptions {
   pathEnv?: PathEnvironment;
@@ -79,7 +79,16 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
   // the registry field itself -- createTicketsVehicleRegistry never reads
   // deps.vehicleRegistry, so this ordering is safe (see server.ts's own
   // comment on why the registry is built outside it, not imported into it).
-  const vehicleRegistry = createTicketsVehicleRegistry({ service, ledger, focusStore, queries, token, version, logger, onShutdownRequested } as TicketsAppDeps);
+  const vehicleRegistry = createTicketsVehicleRegistry({
+    service,
+    ledger,
+    focusStore,
+    queries,
+    token,
+    version,
+    logger,
+    onShutdownRequested,
+  } as TicketsAppDeps);
 
   const options: StartDaemonOptions = {
     daemonLabel: "Tickets",
@@ -95,7 +104,15 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
       // Only when repos came from real config/env/Enigma resolution -- an
       // injected test fixture (opts.repos) has no config to re-resolve from.
       ...(opts.repos === undefined
-        ? [createBackendRefreshTask(service, config, buildRepos, opts.backendRefreshIntervalMs ?? DEFAULT_BACKEND_REFRESH_INTERVAL_MS, logger)]
+        ? [
+            createBackendRefreshTask(
+              service,
+              config,
+              buildRepos,
+              opts.backendRefreshIntervalMs ?? DEFAULT_BACKEND_REFRESH_INTERVAL_MS,
+              logger,
+            ),
+          ]
         : []),
     ],
     buildApp: () =>

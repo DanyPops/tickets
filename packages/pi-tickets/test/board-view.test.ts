@@ -65,7 +65,7 @@ describe("epicBadgeColor", () => {
     expect(colors.size).toBeGreaterThan(1);
   });
 
-  it("never returns an alarm color (error/warning) that would misread as \"something is wrong\"", () => {
+  it('never returns an alarm color (error/warning) that would misread as "something is wrong"', () => {
     for (const key of ["a", "bb", "ccc", "dddd", "eeeee", "ENG-1", "ENG-99999"]) {
       expect(["error", "warning"]).not.toContain(epicBadgeColor(key));
     }
@@ -129,7 +129,9 @@ describe("KanbanBoardComponent", () => {
     const tui = fakeTui();
     const opened: Issue[] = [];
     const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", {
-      onOpenIssue: async (issue) => { opened.push(issue); },
+      onOpenIssue: async (issue) => {
+        opened.push(issue);
+      },
       onClose: () => {},
     });
     board.render(120);
@@ -150,7 +152,9 @@ describe("KanbanBoardComponent", () => {
     const opened: string[] = [];
     // re-run with an onOpenIssue spy since the earlier board discarded it
     const board2 = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", {
-      onOpenIssue: async (issue) => { opened.push(issue.key); },
+      onOpenIssue: async (issue) => {
+        opened.push(issue.key);
+      },
       onClose: () => {},
     });
     board2.render(120);
@@ -164,7 +168,9 @@ describe("KanbanBoardComponent", () => {
     const tui = fakeTui();
     const opened: string[] = [];
     const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", {
-      onOpenIssue: async (issue) => { opened.push(issue.key); },
+      onOpenIssue: async (issue) => {
+        opened.push(issue.key);
+      },
       onClose: () => {},
     });
     board.render(120);
@@ -176,7 +182,12 @@ describe("KanbanBoardComponent", () => {
   it("escape calls onClose", () => {
     const tui = fakeTui();
     let closed = false;
-    const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", { onOpenIssue: async () => {}, onClose: () => { closed = true; } });
+    const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", {
+      onOpenIssue: async () => {},
+      onClose: () => {
+        closed = true;
+      },
+    });
     board.render(120);
     board.handleInput("\x1b");
     expect(closed).toBe(true);
@@ -188,7 +199,9 @@ describe("KanbanBoardComponent", () => {
     const opened: string[] = [];
     const board = new KanbanBoardComponent(tui, fakeTheme, withUrl, "sprint", {
       onOpenIssue: async () => {},
-      onOpenUrl: (issue) => { opened.push(issue.url!); },
+      onOpenUrl: (issue) => {
+        opened.push(issue.url!);
+      },
       onClose: () => {},
     });
     board.render(120);

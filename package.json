@@ -7,11 +7,25 @@
   ],
   "scripts": {
     "test": "bun run --filter '*' test",
-    "typecheck": "bun run --filter '*' typecheck"
+    "typecheck": "bun run --filter '*' typecheck",
+    "format": "biome format --write .",
+    "lint": "biome check --write . && eslint packages --max-warnings 0",
+    "lint:ci": "biome ci . && eslint packages --max-warnings 0"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/DanyPops/tickets.git"
-  }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.6",
+    "eslint": "^10.8.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.17.1",
+    "jiti": "^2.7.0",
+    "typescript-eslint": "^8.65.0"
+  },
+  "trustedDependencies": [
+    "unrs-resolver"
+  ]
 }

@@ -7,7 +7,7 @@ describe("loginWithGitHubDeviceFlow", () => {
     let prompted: { userCode: string; verificationUri: string } | undefined;
     let polls = 0;
 
-    const fetchImpl = (async (url: string, init?: RequestInit) => {
+    const fetchImpl = (async (url: string, _init?: RequestInit) => {
       requestedUrls.push(url);
       if (url === GITHUB_DEVICE_AUTHORIZATION_URL) {
         return new Response(

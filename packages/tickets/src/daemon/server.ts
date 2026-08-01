@@ -6,16 +6,17 @@
  * stand up. Every operation here has a CLI command (cli/index.ts) and a
  * pi-tickets tool action — no operation exists only for one caller.
  */
-import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
-import type { Logger } from "@danypops/vehicle-server/logging";
-import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
+
 import type { VehicleRegistry } from "@danypops/vehicle-server";
+import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
+import type { Logger } from "@danypops/vehicle-server/logging";
+import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
 import { AuthRequiredError, IssueNotFoundError } from "../adapters/errors.js";
 import { NotSupportedError, type TicketService, UnknownBackendError } from "../application/service.js";
 import { parseRef } from "../domain/issue.js";
 import { FocusError, type FocusStore } from "./focus.js";
 import type { Ledger } from "./ledger.js";
-import { TICKET_OPERATIONS, type TicketOpInputs, type TicketOperation, type TicketOpOutputs } from "./ops.js";
+import { TICKET_OPERATIONS, type TicketOperation, type TicketOpInputs, type TicketOpOutputs } from "./ops.js";
 import { SavedQueryNotFoundError, type SavedQueryStore } from "./saved-queries.js";
 
 export interface TicketsAppDeps {

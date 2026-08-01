@@ -7,11 +7,11 @@
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import type { DaemonHandle } from "@danypops/vehicle-server/paths";
 import { ensureAuthToken, readDaemonHandle, resolveDaemonPaths } from "@danypops/vehicle-server/paths";
-import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
+import { TICKETS_DAEMON_NAMES, type TicketOperation, type TicketOpInputs, type TicketOpOutputs } from "../daemon/ops.js";
 import { packageRoot } from "../util/package-root.js";
-import { TICKETS_DAEMON_NAMES, type TicketOpInputs, type TicketOperation, type TicketOpOutputs } from "../daemon/ops.js";
 
 export function ticketsPaths(env?: Record<string, string | undefined>) {
   return resolveDaemonPaths(TICKETS_DAEMON_NAMES, env ? { env } : {});
@@ -58,9 +58,7 @@ export interface EnsureDaemonOptions {
 
 const DEFAULT_SPAWN_TIMEOUT_MS = 4_000;
 
-export async function ensureDaemonRunning(
-  opts: EnsureDaemonOptions = {},
-): Promise<{ baseUrl: string; token: string }> {
+export async function ensureDaemonRunning(opts: EnsureDaemonOptions = {}): Promise<{ baseUrl: string; token: string }> {
   const paths = ticketsPaths();
   const token = ensureAuthToken(paths.token, "Tickets");
 
@@ -70,9 +68,7 @@ export async function ensureDaemonRunning(
   }
 
   if (opts.autoStart === false) {
-    throw new Error(
-      "tickets daemon is not running. Start it with `npm run daemon` (or `bun run src/daemon/main.ts`).",
-    );
+    throw new Error("tickets daemon is not running. Start it with `npm run daemon` (or `bun run src/daemon/main.ts`).");
   }
 
   spawnDaemon();

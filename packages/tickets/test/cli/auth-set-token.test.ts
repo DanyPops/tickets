@@ -28,7 +28,10 @@ describe("tickets auth set-token (real subprocess)", () => {
   it("saves a real token via TICKETS_TOKEN_VALUE, non-interactively", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tickets-set-token-"));
     try {
-      const { code, stdout } = await runCliProcess(["auth", "set-token", "jira"], { ...tempXdgEnv(dir), TICKETS_TOKEN_VALUE: "real-jira-token" });
+      const { code, stdout } = await runCliProcess(["auth", "set-token", "jira"], {
+        ...tempXdgEnv(dir),
+        TICKETS_TOKEN_VALUE: "real-jira-token",
+      });
       expect(code).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed).toEqual({
@@ -49,7 +52,10 @@ describe("tickets auth set-token (real subprocess)", () => {
   it("never prints the token value itself", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tickets-set-token-"));
     try {
-      const { stdout, stderr } = await runCliProcess(["auth", "set-token", "jira"], { ...tempXdgEnv(dir), TICKETS_TOKEN_VALUE: "should-never-be-printed" });
+      const { stdout, stderr } = await runCliProcess(["auth", "set-token", "jira"], {
+        ...tempXdgEnv(dir),
+        TICKETS_TOKEN_VALUE: "should-never-be-printed",
+      });
       expect(stdout).not.toContain("should-never-be-printed");
       expect(stderr).not.toContain("should-never-be-printed");
     } finally {
