@@ -23,6 +23,7 @@ import {
   type VehicleEffect,
 } from "@danypops/vehicle-core";
 import { VehicleRegistry } from "@danypops/vehicle-server";
+import type { BackendCapabilities, TicketService } from "../application/service.js";
 import type { TicketOperation } from "../daemon/ops.js";
 import { TICKET_OP_HANDLERS, type TicketsAppDeps } from "../daemon/server.js";
 
@@ -227,6 +228,54 @@ const OPERATIONS: readonly OperationSpec[] = [
 ];
 
 /**
+ * The five discover.* operations only ever succeed against a backend whose
+ * repository implements the matching optional capability (Jira today,
+ * structurally -- never a hardcoded backend name). An operation none of the
+ * currently configured backends could possibly satisfy is marked
+ * unavailable so it never appears in the LLM's callable tool list in the
+ * first place, instead of being offered and then failing with
+ * NotSupportedError on the first real call.
+ */
+const DISCOVER_AVAILABILITY: readonly { action: TicketOperation; capability: keyof BackendCapabilities; reason: string }[] = [
+  { action: "discover.fields", capability: "supportsFieldDiscovery", reason: "no configured backend supports field discovery (Jira only)" },
+  {
+    action: "discover.statuses",
+    capability: "supportsStatusDiscovery",
+    reason: "no configured backend supports status discovery (Jira only)",
+  },
+  {
+    action: "discover.template",
+    capability: "supportsTemplateDiscovery",
+    reason: "no configured backend supports template discovery (Jira only)",
+  },
+  {
+    action: "discover.board_quickfilter",
+    capability: "supportsBoardQuickFilterDiscovery",
+    reason: "no configured backend supports board quick-filter discovery (Jira only)",
+  },
+  {
+    action: "discover.board_filter",
+    capability: "supportsBoardFilterDiscovery",
+    reason: "no configured backend supports board filter discovery (Jira only)",
+  },
+];
+
+/**
+ * Re-syncs the five discover.* operations' availability against the
+ * service's current backend set -- called once right after the registry is
+ * built, and again after every live backend refresh (config.ts's
+ * createBackendRefreshTask), so a Jira credential added or removed at
+ * runtime flips these tools' visibility without a daemon restart.
+ */
+export function syncDiscoverAvailability(registry: VehicleRegistry, service: TicketService): void {
+  const capabilities = service.backendCapabilities();
+  for (const { action, capability, reason } of DISCOVER_AVAILABILITY) {
+    const available = capabilities.some((backend) => backend[capability]);
+    registry.setAvailability(action, 1, available, available ? undefined : reason);
+  }
+}
+
+/**
  * Builds a VehicleRegistry exposing every real ticket operation, backed by
  * the exact same deps shape the daemon's own hand-rolled dispatch already
  * uses -- minus vehicleRegistry itself, which doesn't exist yet while this
@@ -260,5 +309,6 @@ export function createTicketsVehicleRegistry(deps: Omit<TicketsAppDeps, "vehicle
     );
   }
 
+  syncDiscoverAvailability(registry, deps.service);
   return registry;
 }

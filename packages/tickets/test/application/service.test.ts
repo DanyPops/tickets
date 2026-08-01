@@ -42,12 +42,19 @@ describe("TicketService", () => {
     expect(makeService().backends().sort()).toEqual(["github", "jira"]);
   });
 
-  it("reports each backend's real runQuery capability, not a hardcoded backend name", () => {
+  it("reports each backend's real optional capabilities, not a hardcoded backend name", () => {
     const svc = new TicketService({ github: new BareRepository("github"), jira: new FakeRepository("jira", []) });
     const capabilities = svc.backendCapabilities().sort((a, b) => a.name.localeCompare(b.name));
+    const noDiscovery = {
+      supportsFieldDiscovery: false,
+      supportsStatusDiscovery: false,
+      supportsTemplateDiscovery: false,
+      supportsBoardQuickFilterDiscovery: false,
+      supportsBoardFilterDiscovery: false,
+    };
     expect(capabilities).toEqual([
-      { name: "github", supportsRawQuery: false },
-      { name: "jira", supportsRawQuery: true },
+      { name: "github", supportsRawQuery: false, ...noDiscovery },
+      { name: "jira", supportsRawQuery: true, ...noDiscovery },
     ]);
   });
 
