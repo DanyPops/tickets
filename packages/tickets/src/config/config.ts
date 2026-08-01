@@ -142,6 +142,8 @@ export function createBackendRefreshTask(
   buildRepos: BuildRepositories,
   intervalMs: number,
   logger?: Logger,
+  /** Re-syncs Vehicle tool availability (createTicketsVehicleRegistry's syncDiscoverAvailability) against the freshly swapped-in backend set -- called after every successful refresh, so a Jira credential added or removed at runtime flips discover.* tool visibility without a daemon restart. Optional: a caller with no vehicleRegistry yet (tests, injected repos) just skips it. */
+  onRefreshed?: (service: TicketService) => void,
 ): MaintenanceTask {
   return {
     name: "backend-refresh",
@@ -158,6 +160,7 @@ export function createBackendRefreshTask(
         return;
       }
       service.setRepos(fresh);
+      onRefreshed?.(service);
       const after = new Set(Object.keys(fresh));
       const added = [...after].filter((backend) => !before.has(backend));
       const removed = [...before].filter((backend) => !after.has(backend));

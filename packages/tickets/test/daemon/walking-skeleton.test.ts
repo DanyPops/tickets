@@ -17,6 +17,17 @@ import { bootstrap } from "../../src/daemon/bootstrap.js";
 import type { TicketOperation, TicketOpInputs, TicketOpOutputs } from "../../src/daemon/ops.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
+/** FakeRepository implements only the RawQueryable capability, none of the five discover ones. */
+const GITHUB_CAPABILITIES_ONLY_RAW_QUERY = {
+  name: "github",
+  supportsRawQuery: true,
+  supportsFieldDiscovery: false,
+  supportsStatusDiscovery: false,
+  supportsTemplateDiscovery: false,
+  supportsBoardQuickFilterDiscovery: false,
+  supportsBoardFilterDiscovery: false,
+};
+
 let daemon: RunningDaemon | undefined;
 let tmpRoot: string | undefined;
 
@@ -72,7 +83,7 @@ describe("tickets daemon walking skeleton", () => {
     expect(await client.operations()).toContain("issue.get");
 
     const backends = await client.call("backends.list", {});
-    expect(backends.backends).toEqual([{ name: "github", supportsRawQuery: true }]);
+    expect(backends.backends).toEqual([GITHUB_CAPABILITIES_ONLY_RAW_QUERY]);
 
     const got = await client.call("issue.get", { ref: "github:#1" });
     expect(got.issue.title).toBe("Skeleton issue");
@@ -179,7 +190,7 @@ describe("tickets daemon walking skeleton", () => {
     );
 
     const before = await client.call("backends.list", {});
-    expect(before.backends).toEqual([{ name: "github", supportsRawQuery: true }]);
+    expect(before.backends).toEqual([GITHUB_CAPABILITIES_ONLY_RAW_QUERY]);
 
     // Give the refresh task at least one tick.
     await new Promise((resolve) => setTimeout(resolve, 60));

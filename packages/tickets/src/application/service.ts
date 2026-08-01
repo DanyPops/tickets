@@ -18,6 +18,16 @@ import {
   type IssueRepository,
 } from "../ports/repository.js";
 
+export interface BackendCapabilities {
+  readonly name: string;
+  readonly supportsRawQuery: boolean;
+  readonly supportsFieldDiscovery: boolean;
+  readonly supportsStatusDiscovery: boolean;
+  readonly supportsTemplateDiscovery: boolean;
+  readonly supportsBoardQuickFilterDiscovery: boolean;
+  readonly supportsBoardFilterDiscovery: boolean;
+}
+
 export class UnknownBackendError extends Error {
   constructor(backend: string, known: string[]) {
     super(`unknown backend "${backend}" (known: ${known.join(", ") || "none configured"})`);
@@ -39,9 +49,17 @@ export class TicketService {
     return Object.keys(this.repos);
   }
 
-  /** Every configured backend's name plus which optional capabilities its own repository actually implements -- lets a driving adapter (the CLI, pi-tickets) branch on real capability instead of a hardcoded backend name. */
-  backendCapabilities(): { name: string; supportsRawQuery: boolean }[] {
-    return Object.values(this.repos).map((repo) => ({ name: repo.name, supportsRawQuery: hasRawQuery(repo) }));
+  /** Every configured backend's name plus which optional capabilities its own repository actually implements -- lets a driving adapter (the CLI, pi-tickets, the Vehicle tool-availability sync) branch on real capability instead of a hardcoded backend name. */
+  backendCapabilities(): BackendCapabilities[] {
+    return Object.values(this.repos).map((repo) => ({
+      name: repo.name,
+      supportsRawQuery: hasRawQuery(repo),
+      supportsFieldDiscovery: hasFieldDiscovery(repo),
+      supportsStatusDiscovery: hasStatusDiscovery(repo),
+      supportsTemplateDiscovery: hasTemplateDiscovery(repo),
+      supportsBoardQuickFilterDiscovery: hasBoardQuickFilterDiscovery(repo),
+      supportsBoardFilterDiscovery: hasBoardFilterDiscovery(repo),
+    }));
   }
 
   /**

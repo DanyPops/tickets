@@ -13,7 +13,7 @@ import { checkpoint, openSqliteWithPragmas } from "@danypops/vehicle-server/stor
 import { TicketService } from "../application/service.js";
 import { type BuildRepositories, buildRepositories, type Config, createBackendRefreshTask, loadConfig } from "../config/config.js";
 import type { IssueRepository } from "../ports/repository.js";
-import { createTicketsVehicleRegistry } from "../vehicle/tickets-vehicle.js";
+import { createTicketsVehicleRegistry, syncDiscoverAvailability } from "../vehicle/tickets-vehicle.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "./focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "./ledger.js";
 import { TICKETS_DAEMON_NAMES } from "./ops.js";
@@ -111,6 +111,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
               buildRepos,
               opts.backendRefreshIntervalMs ?? DEFAULT_BACKEND_REFRESH_INTERVAL_MS,
               logger,
+              (refreshedService) => syncDiscoverAvailability(vehicleRegistry, refreshedService),
             ),
           ]
         : []),
