@@ -26,7 +26,13 @@
 
 import { resolveVehicleClientTarget, type VehicleClientTarget } from "@danypops/tickets";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
-import { type RegisteredPiVehicle, registerVehicleTools } from "@danypops/vehicle-client-pi";
+import {
+  type RegisteredPiVehicle,
+  type RegisterVehicleToolsOptions,
+  refreshVehicleToolAvailability,
+  registerVehicleTools,
+} from "@danypops/vehicle-client-pi";
+import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-status-refresh";
 import type { VehicleClient, VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
@@ -58,10 +64,10 @@ function legacyActionFor(operationName: string): string {
  * Every Vehicle-projected ticket tool name starts with one of these
  * namespace prefixes (issue_list, focus_set, ledger_search,
  * discover_fields, backends_list -- see tickets-vehicle.ts's OPERATIONS).
- * Used by tui.ts to recognize "a tickets tool just ran" now that there's no
- * longer a single tool literally named "tickets".
+ * Exported so tui.ts's own footer-status refresh shares the exact same
+ * list instead of keeping a second copy in sync by hand.
  */
-const TICKETS_TOOL_PREFIXES = ["issue_", "focus_", "ledger_", "discover_", "backends_"];
+export const TICKETS_TOOL_PREFIXES = ["issue_", "focus_", "ledger_", "discover_", "backends_"];
 
 export function isTicketsVehicleTool(toolName: string): boolean {
   return TICKETS_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix));
@@ -95,14 +101,29 @@ export async function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehi
   const createClient = deps.createClient ?? ((t: VehicleClientTarget) => new RemoteVehicleClient({ baseUrl: t.baseUrl, token: t.token }));
   try {
     const client = createClient(target);
-    return await registerVehicleTools(pi, client, {
+    const options: RegisterVehicleToolsOptions = {
       permissions: ["tickets:read", "tickets:write"],
       principal: { id: "pi-tickets" },
       renderers: (descriptor: VehicleOperationDescriptor) => ({
         renderCall: (args, theme) => renderTicketsCall(descriptor.name, args, theme),
         renderResult: (result, _options, theme, context) => renderTicketsResult(descriptor.name, result, theme, context.isError),
       }),
+    };
+    let registered = await registerVehicleTools(pi, client, options);
+
+    // A backend added/removed via /secrets since the last check (a Jira
+    // credential configured or removed) flips discover.*'s availability on
+    // the daemon side (see tickets-vehicle.ts's syncDiscoverAvailability) --
+    // this is what re-syncs which of those tools the LLM can currently see,
+    // without a Pi restart.
+    registerVehicleStatusRefresh(pi, {
+      ownToolPrefixes: TICKETS_TOOL_PREFIXES,
+      refresh: async () => {
+        registered = await refreshVehicleToolAvailability(pi, client, registered, options);
+      },
     });
+
+    return registered;
   } catch {
     // Daemon state stale/unreachable between resolveTarget() and the real
     // manifest fetch -- degrade silently, matching refreshStatus's own

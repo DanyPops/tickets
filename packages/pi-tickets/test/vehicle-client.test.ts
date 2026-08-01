@@ -3,6 +3,8 @@ import type { VehicleClient, VehicleInvocationOptions, VehicleManifest, VehicleM
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { isTicketsVehicleTool, registerTicketsVehicle, type TicketsVehicleDeps } from "../src/vehicle-client.js";
 
+type FakeEventHandler = (event: unknown, ctx: unknown) => Promise<void> | void;
+
 const limits = { defaultTimeoutMs: 1_000, maxTimeoutMs: 5_000, maxRequestBytes: 1_024, maxResponseBytes: 1_024 };
 
 function operation(name: string, overrides: Partial<VehicleManifestOperation> = {}): VehicleManifestOperation {
@@ -28,7 +30,12 @@ class FakeClient implements VehicleClient {
   closed = false;
   result: unknown = { ok: true };
 
-  constructor(private readonly value: VehicleManifest) {}
+  constructor(private value: VehicleManifest) {}
+
+  /** Simulates a backend added/removed between manifest fetches -- e.g. tickets-vehicle.ts's syncDiscoverAvailability flipping discover.fields on a live backend change. */
+  setManifest(value: VehicleManifest): void {
+    this.value = value;
+  }
 
   manifest(): Promise<VehicleManifest> {
     return Promise.resolve(this.value);
@@ -54,14 +61,27 @@ function manifest(operations: VehicleManifestOperation[]): VehicleManifest {
 // pi-tickets' own test suite).
 function fakePi() {
   const tools: ToolDefinition[] = [];
+  let active: string[] = [];
+  const handlers: Record<string, FakeEventHandler[]> = {};
   const pi = {
-    registerTool: (tool: ToolDefinition) => tools.push(tool),
-    getAllTools: () => [],
-    getActiveTools: () => [],
-    setActiveTools: () => {},
-    on: () => {},
+    registerTool: (tool: ToolDefinition) => {
+      tools.push(tool);
+      active.push(tool.name);
+    },
+    getAllTools: () => tools,
+    getActiveTools: () => active,
+    setActiveTools: (names: string[]) => {
+      active = names;
+    },
+    on: (event: string, handler: FakeEventHandler) => {
+      if (!handlers[event]) handlers[event] = [];
+      handlers[event].push(handler);
+    },
   } as unknown as ExtensionAPI;
-  return { pi, tools };
+  const fire = async (event: string, toolName?: string) => {
+    for (const handler of handlers[event] ?? []) await handler({ toolName }, {});
+  };
+  return { pi, tools, active: () => active, fire };
 }
 
 describe("registerTicketsVehicle", () => {
@@ -108,6 +128,41 @@ describe("registerTicketsVehicle", () => {
     const tool = tools[0];
     expect(tool?.renderCall).toBeDefined();
     expect(tool?.renderResult).toBeDefined();
+  });
+});
+
+describe("registerTicketsVehicle's availability refresh", () => {
+  it("re-syncs tool availability after one of its own tools runs, picking up a newly-unavailable operation", async () => {
+    const { pi, active, fire } = fakePi();
+    const client = new FakeClient(manifest([operation("issue.list"), operation("discover.fields")]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    await registerTicketsVehicle(pi, deps);
+    expect(active().sort()).toEqual(["discover_fields", "issue_list"]);
+
+    // A backend refresh removed the only Jira-like backend -- tickets-vehicle.ts's
+    // syncDiscoverAvailability would now mark discover.fields unavailable.
+    client.setManifest(manifest([operation("issue.list"), operation("discover.fields", { available: false })]));
+    await fire("tool_execution_end", "issue_list");
+
+    expect(active().sort()).toEqual(["issue_list"]);
+  });
+
+  it("does not refresh for a tool call outside the tickets namespace", async () => {
+    const { pi, active, fire } = fakePi();
+    const client = new FakeClient(manifest([operation("discover.fields")]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    await registerTicketsVehicle(pi, deps);
+
+    client.setManifest(manifest([operation("discover.fields", { available: false })]));
+    await fire("tool_execution_end", "read");
+
+    expect(active()).toEqual(["discover_fields"]);
   });
 });
 
