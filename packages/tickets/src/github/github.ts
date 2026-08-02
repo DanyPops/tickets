@@ -21,8 +21,8 @@
 
 import { RequestError } from "@octokit/request-error";
 import { Octokit } from "octokit";
-import { ApiError, AuthRequiredError, IssueNotFoundError } from "../domain/errors.js";
-import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../domain/issue.js";
+import { ApiError, AuthRequiredError, IssueNotFoundError } from "../issue/errors.js";
+import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 

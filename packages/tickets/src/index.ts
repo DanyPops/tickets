@@ -1,4 +1,3 @@
-export { NotSupportedError, TicketService, UnknownBackendError } from "./application/service.js";
 export { openUrl } from "./auth/browser.js";
 // Delegated OAuth (device flow for GitHub/GitLab, authorization code for Jira)
 // — see RESEARCH.md for why each backend gets a different flow.
@@ -24,11 +23,12 @@ export {
   defaultConfigPath,
   loadConfig,
 } from "./config/config.js";
-export * from "./domain/errors.js";
-export * from "./domain/issue.js";
-export * from "./domain/repository.js";
 export { type GitHubOptions, GitHubRepository } from "./github/github.js";
 export { type GitLabOptions, GitLabRepository } from "./gitlab/gitlab.js";
+export * from "./issue/errors.js";
+export * from "./issue/issue.js";
+export * from "./issue/repository.js";
+export { NotSupportedError, TicketService, UnknownBackendError } from "./issue/service.js";
 export { type JiraOptions, JiraRepository } from "./jira/jira.js";
 export type { TicketOperation, TicketOpInputs, TicketOpOutputs } from "./rpc/ops.js";
 export type { FocusStatus, TicketFocusState } from "./sqlite/focus.js";

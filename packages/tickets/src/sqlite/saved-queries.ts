@@ -1,6 +1,6 @@
 /**
  * Saved queries — a name plus a raw query string (Jira JQL today; the backend
- * decides what "raw query" means via domain/repository.ts's RawQueryable) that
+ * decides what "raw query" means via issue/repository.ts's RawQueryable) that
  * can be run again by name instead of re-typing the query every time. This is
  * how a board/backlog view (e.g. a Jira board's quickFilter, or its backlog's
  * customFilter) becomes something the CLI/TUI/tool surface can browse

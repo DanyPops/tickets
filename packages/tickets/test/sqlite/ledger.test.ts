@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { afterEach, describe, expect, it } from "bun:test";
 import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
-import type { Issue } from "../../src/domain/issue.js";
+import type { Issue } from "../../src/issue/issue.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 
 let db: Database | undefined;

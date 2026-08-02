@@ -1,4 +1,4 @@
-import { ApiError, IssueNotFoundError } from "./domain/errors.js";
+import { ApiError, IssueNotFoundError } from "./issue/errors.js";
 
 export type FetchLike = typeof fetch;
 

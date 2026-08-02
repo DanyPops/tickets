@@ -23,7 +23,7 @@ import {
   type VehicleEffect,
 } from "@danypops/vehicle-core";
 import { VehicleRegistry } from "@danypops/vehicle-server";
-import type { BackendCapabilities, TicketService } from "../application/service.js";
+import type { BackendCapabilities, TicketService } from "../issue/service.js";
 import type { TicketOperation } from "../rpc/ops.js";
 import { TICKET_OP_HANDLERS, type TicketsAppDeps } from "../rpc/server.js";
 

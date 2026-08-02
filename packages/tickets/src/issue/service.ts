@@ -4,8 +4,8 @@
  * routes every call to the named backend's repository. Depends only on ports,
  * never on a concrete adapter.
  */
-import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../domain/issue.js";
-import { parseRef } from "../domain/issue.js";
+import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "./issue.js";
+import { parseRef } from "./issue.js";
 import {
   hasBoardFilterDiscovery,
   hasBoardQuickFilterDiscovery,
@@ -16,8 +16,8 @@ import {
   hasSyncScopeExpansion,
   hasTemplateDiscovery,
   type IssueRepository,
-} from "../domain/repository.js";
-import type { Template } from "../domain/template.js";
+} from "./repository.js";
+import type { Template } from "./template.js";
 
 export interface BackendCapabilities {
   readonly name: string;

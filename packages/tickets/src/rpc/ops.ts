@@ -4,8 +4,8 @@
  * whatever consumes this package). Pure types, zero runtime imports, safe to
  * import from either side without pulling in bun:sqlite or Bun.serve.
  */
-import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../domain/issue.js";
-import type { Template } from "../domain/template.js";
+import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../issue/issue.js";
+import type { Template } from "../issue/template.js";
 import type { TicketFocusState } from "../sqlite/focus.js";
 import type { SavedQuery } from "../sqlite/saved-queries.js";
 

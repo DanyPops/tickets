@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { TryEnigmaCredential } from "@danypops/enigma-client";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { TicketService } from "../../src/application/service.js";
 import { buildRepositories, createBackendRefreshTask, preferredAuth } from "../../src/config/config.js";
 import { GitHubRepository } from "../../src/github/github.js";
 import { GitLabRepository } from "../../src/gitlab/gitlab.js";
+import { TicketService } from "../../src/issue/service.js";
 import { JiraRepository } from "../../src/jira/jira.js";
 import { FakeRepository } from "../support/fake-repository.js";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { makeRef, parsePriority, parseRef, parseStatus } from "../../src/domain/issue.js";
+import { makeRef, parsePriority, parseRef, parseStatus } from "../../src/issue/issue.js";
 
 describe("parsePriority", () => {
   it("accepts known values case-insensitively", () => {

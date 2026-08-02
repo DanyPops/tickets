@@ -10,11 +10,11 @@ import { type TryEnigmaCredential, tryEnigmaCredential } from "@danypops/enigma-
 import type { MaintenanceTask } from "@danypops/vehicle-server/daemon";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { parse as parseYaml } from "yaml";
-import type { TicketService } from "../application/service.js";
 import { isTokenFresh, loadToken } from "../auth/token-store.js";
-import type { IssueRepository } from "../domain/repository.js";
 import { GitHubRepository } from "../github/github.js";
 import { GitLabRepository } from "../gitlab/gitlab.js";
+import type { IssueRepository } from "../issue/repository.js";
+import type { TicketService } from "../issue/service.js";
 import { JiraRepository } from "../jira/jira.js";
 
 export interface BackendConfig {

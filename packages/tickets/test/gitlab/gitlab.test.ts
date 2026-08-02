@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createRequesterFn, GitbeakerRequestError } from "@gitbeaker/requester-utils";
-import { InvalidUrlError, IssueNotFoundError } from "../../src/domain/errors.js";
 import { GitLabRepository, validateUrl } from "../../src/gitlab/gitlab.js";
+import { InvalidUrlError, IssueNotFoundError } from "../../src/issue/errors.js";
 
 /**
  * @gitbeaker/rest's sanctioned test-injection point is `requesterFn`, not a raw

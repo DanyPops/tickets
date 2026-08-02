@@ -8,7 +8,7 @@
  */
 import type { Database } from "bun:sqlite";
 import type { Migration } from "@danypops/vehicle-server/storage";
-import type { Issue } from "../domain/issue.js";
+import type { Issue } from "../issue/issue.js";
 
 export const LEDGER_MIGRATIONS: Migration[] = [
   {

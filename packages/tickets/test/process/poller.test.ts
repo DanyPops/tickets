@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { afterEach, describe, expect, it } from "bun:test";
 import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
-import { TicketService } from "../../src/application/service.js";
+import { TicketService } from "../../src/issue/service.js";
 import { createSyncTask, syncOnce } from "../../src/process/poller.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { FakeRepository } from "../support/fake-repository.js";

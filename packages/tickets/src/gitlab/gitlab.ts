@@ -14,8 +14,8 @@
 import { isIP } from "node:net";
 import { GitbeakerRequestError, type RequesterType, type ResourceOptions } from "@gitbeaker/requester-utils";
 import { Gitlab } from "@gitbeaker/rest";
-import { ApiError, AuthRequiredError, InvalidUrlError, IssueNotFoundError } from "../domain/errors.js";
-import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../domain/issue.js";
+import { ApiError, AuthRequiredError, InvalidUrlError, IssueNotFoundError } from "../issue/errors.js";
+import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
 
 export interface GitLabOptions {
   projectId: string;

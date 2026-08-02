@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { afterEach, describe, expect, it } from "bun:test";
 import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { createTicketsVehicleRegistry, syncDiscoverAvailability } from "../../src/agent-tools/tickets-vehicle.js";
-import { TicketService } from "../../src/application/service.js";
+import { TicketService } from "../../src/issue/service.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";

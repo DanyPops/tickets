@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildTemplateBody, extractTemplateSections } from "../../src/domain/template.js";
+import { buildTemplateBody, extractTemplateSections } from "../../src/issue/template.js";
 
 /**
  * Test cases ported 1:1 from emcee's internal/domain/template_test.go

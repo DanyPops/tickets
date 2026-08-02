@@ -13,8 +13,8 @@ import { loginWithGitLabDeviceFlow } from "../auth/gitlab-oauth.js";
 import { loginWithJiraAuthorizationCode } from "../auth/jira-oauth.js";
 import { promptMaskedSecret } from "../auth/masked-prompt.js";
 import { deleteToken, isTokenFresh, listStoredBackends, loadToken, saveToken } from "../auth/token-store.js";
-import type { CreateInput, ListFilter, Priority, Status, UpdateInput } from "../domain/issue.js";
-import { parseStatus } from "../domain/issue.js";
+import type { CreateInput, ListFilter, Priority, Status, UpdateInput } from "../issue/issue.js";
+import { parseStatus } from "../issue/issue.js";
 import { installTicketsService, systemctlTickets, systemdUnitPath } from "./systemd-service.js";
 import { createTicketsClient, type TicketsRpcClient } from "./tickets-client.js";
 

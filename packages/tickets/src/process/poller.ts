@@ -8,7 +8,7 @@
 
 import type { MaintenanceTask } from "@danypops/vehicle-server/daemon";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import type { TicketService } from "../application/service.js";
+import type { TicketService } from "../issue/service.js";
 import type { Ledger } from "../sqlite/ledger.js";
 
 const DEFAULT_SYNC_LIMIT = 50;

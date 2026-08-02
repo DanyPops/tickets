@@ -16,10 +16,10 @@
 import type { AxiosAdapter } from "axios";
 import type { HttpException, Config as JiraClientConfig } from "jira.js";
 import { AgileClient, Version2Client } from "jira.js";
-import { ApiError, IssueNotFoundError } from "../domain/errors.js";
-import type { Comment, CreateInput, Issue, IssueLink, ListFilter, parsePriority, Status, UpdateInput } from "../domain/issue.js";
-import type { Template } from "../domain/template.js";
-import { buildTemplateBody, extractTemplateSections } from "../domain/template.js";
+import { ApiError, IssueNotFoundError } from "../issue/errors.js";
+import type { Comment, CreateInput, Issue, IssueLink, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
+import type { Template } from "../issue/template.js";
+import { buildTemplateBody, extractTemplateSections } from "../issue/template.js";
 import * as manifest from "./manifest.js";
 
 /**
@@ -444,7 +444,7 @@ export class JiraRepository {
   /**
    * Samples the most recently created issues for a project/issue-type pair
    * and extracts the description section headers common to all of them --
-   * see ../domain/template.ts. Ported from emcee's TemplateService.DiscoverTemplate.
+   * see ../issue/template.ts. Ported from emcee's TemplateService.DiscoverTemplate.
    */
   async discoverTemplate(project: string, issueType: string, sampleSize = 5): Promise<Template | undefined> {
     const jql = `project = ${jqlQuote(project)} AND issuetype = ${jqlQuote(issueType)} ORDER BY created DESC`;

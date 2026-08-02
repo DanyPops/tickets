@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AxiosAdapter, AxiosError, type InternalAxiosRequestConfig } from "axios";
-import { IssueNotFoundError } from "../../src/domain/errors.js";
+import { IssueNotFoundError } from "../../src/issue/errors.js";
 import { JiraRepository } from "../../src/jira/jira.js";
 import { discover, load, save } from "../../src/jira/manifest.js";
 

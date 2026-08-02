@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { AuthRequiredError } from "../../src/domain/errors.js";
 import { GitHubRepository } from "../../src/github/github.js";
+import { AuthRequiredError } from "../../src/issue/errors.js";
 
 // octokit inspects the response's content-type header to decide whether to JSON-parse the
 // body (unlike the old hand-rolled HttpClient, which parsed blindly) -- real GitHub API

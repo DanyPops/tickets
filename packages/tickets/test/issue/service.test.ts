@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { NotSupportedError, TicketService, UnknownBackendError } from "../../src/application/service.js";
-import type { IssueRepository } from "../../src/domain/repository.js";
+import type { IssueRepository } from "../../src/issue/repository.js";
+import { NotSupportedError, TicketService, UnknownBackendError } from "../../src/issue/service.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
 /** A minimal IssueRepository with none of the optional capabilities -- proves backendCapabilities() reflects what a repo actually implements, not a hardcoded backend name. */
