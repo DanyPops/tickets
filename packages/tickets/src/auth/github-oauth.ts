@@ -4,7 +4,7 @@
  * Requires a GitHub OAuth App (or GitHub App) with the device flow enabled in
  * its settings; the client ID is public (no secret needed for this flow).
  */
-import type { FetchLike } from "../adapters/http.js";
+import type { FetchLike } from "../http-client.js";
 import { type DeviceFlowConfig, type DeviceFlowToken, type PollOptions, pollForToken, requestDeviceAuthorization } from "./device-flow.js";
 
 export const GITHUB_DEVICE_AUTHORIZATION_URL = "https://github.com/login/device/code";

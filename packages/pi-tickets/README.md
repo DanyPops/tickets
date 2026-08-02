@@ -37,12 +37,17 @@ per-session wait.
 `/tickets` with no arguments opens one persistent panel -- a tab bar of
 every configured provider (GitHub, GitLab, Jira), each staying mounted for
 the whole session so switching tabs never tears down and reopens a
-different screen. Every provider gets an Issues tab; a provider with a real
-query language (Jira's JQL today) also gets Saved queries and a Kanban
-Board view. `Tab`/`Shift-Tab` or `←`/`→` cycle tabs; a mnemonic letter
-jumps directly (shown highlighted in each tab's own label); `s` opens
-`/secrets` without leaving the panel; `esc` returns to the first tab from
-any other, or closes the panel from the first tab.
+different screen. A plain provider's tab is its Issues list directly; a
+provider with a real query language (Jira's JQL today) gets a real
+submenu instead -- its own Issues/Saved queries/Board view tabs, nested one
+level inside its own provider tab. `Tab`/`Shift-Tab` and `←`/`→` cycle
+whichever level's tabs you're currently in (the outer provider bar, or,
+once you're inside a provider's own submenu, its own three tabs); a
+mnemonic letter jumps directly, scoped like a real menu bar's own
+accelerators -- a provider's own letter works from anywhere, a submenu's
+own letters only once that submenu is active. `s` opens `/secrets` without
+leaving the panel; `esc` ascends one level at a time -- a submenu's own
+home, then the outer panel's own home, then closes.
 
 Within an issue list: `↑↓` navigate, `enter` sets focus (or clears it on
 the synthetic first row when one is already set), `v` opens the full issue

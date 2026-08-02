@@ -277,7 +277,7 @@ bun test                   # both packages
 ```
 
 Tests never hit real GitHub/GitLab/Jira/Atlassian: adapters take an
-injectable `fetchImpl`, and the daemon tests (`test/daemon/`) run the real
+injectable `fetchImpl`, and the daemon tests (`test/rpc/`, `test/sqlite/`, `test/process/`) run the real
 `@danypops/daemon-kit` `startDaemon()`/SQLite/HTTP stack against a scratch
 XDG root with a fake `IssueRepository`.
 

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import type { TryEnigmaCredential } from "@danypops/enigma-client";
 import type { Logger } from "@danypops/vehicle-server/logging";
-import { GitHubRepository } from "../../src/adapters/github.js";
-import { GitLabRepository } from "../../src/adapters/gitlab.js";
-import { JiraRepository } from "../../src/adapters/jira.js";
-import { TicketService } from "../../src/application/service.js";
 import { buildRepositories, createBackendRefreshTask, preferredAuth } from "../../src/config/config.js";
+import { GitHubRepository } from "../../src/github/github.js";
+import { GitLabRepository } from "../../src/gitlab/gitlab.js";
+import { TicketService } from "../../src/issue/service.js";
+import { JiraRepository } from "../../src/jira/jira.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
 /**
@@ -49,6 +49,37 @@ describe("buildRepositories", () => {
   it("omits a backend entirely when required fields are missing from both config and env", async () => {
     const repos = await buildRepositories({ backends: { jira: { url: "https://acme.atlassian.net" } } }, {} as NodeJS.ProcessEnv, noEnigma);
     expect(repos.jira).toBeUndefined();
+  });
+
+  it("threads syncProjects/syncMine from config into the Jira repository's own expanded sync scope", async () => {
+    const repos = await buildRepositories(
+      {
+        backends: {
+          jira: {
+            url: "https://acme.atlassian.net",
+            email: "me@acme.com",
+            token: "jira-token",
+            project: "WIDGET",
+            syncProjects: ["ENG", "OPS"],
+            syncMine: true,
+          },
+        },
+      },
+      process.env,
+      noEnigma,
+    );
+    const jira = repos.jira as JiraRepository;
+    expect(jira.buildSyncQuery()).toBe('project in ("WIDGET", "ENG", "OPS") OR assignee = currentUser() ORDER BY created DESC');
+  });
+
+  it("falls back to JIRA_SYNC_PROJECTS (comma-separated) / JIRA_SYNC_MINE env vars when no config entry sets them", async () => {
+    const repos = await buildRepositories(
+      { backends: { jira: { url: "https://acme.atlassian.net", email: "me@acme.com", token: "jira-token", project: "WIDGET" } } },
+      { JIRA_SYNC_PROJECTS: "ENG, OPS", JIRA_SYNC_MINE: "true", PATH: "/usr/bin" } as NodeJS.ProcessEnv,
+      noEnigma,
+    );
+    const jira = repos.jira as JiraRepository;
+    expect(jira.buildSyncQuery()).toBe('project in ("WIDGET", "ENG", "OPS") OR assignee = currentUser() ORDER BY created DESC');
   });
 
   it("supports a custom name with an explicit type (multi-instance)", async () => {

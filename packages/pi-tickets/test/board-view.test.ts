@@ -55,18 +55,18 @@ describe("groupIssuesByColumn", () => {
 
 describe("epicBadgeColor", () => {
   it("is deterministic -- the same epic key always maps to the same color", () => {
-    const first = epicBadgeColor("CNF-22136");
-    const second = epicBadgeColor("CNF-22136");
+    const first = epicBadgeColor("ENG-22136");
+    const second = epicBadgeColor("ENG-22136");
     expect(first).toBe(second);
   });
 
   it("gives different epic keys a real chance at different colors", () => {
-    const colors = new Set(["CNF-1", "CNF-2", "CNF-3", "CNF-4", "CNF-5", "CNF-6"].map(epicBadgeColor));
+    const colors = new Set(["ENG-1", "ENG-2", "ENG-3", "ENG-4", "ENG-5", "ENG-6"].map(epicBadgeColor));
     expect(colors.size).toBeGreaterThan(1);
   });
 
   it('never returns an alarm color (error/warning) that would misread as "something is wrong"', () => {
-    for (const key of ["a", "bb", "ccc", "dddd", "eeeee", "CNF-1", "CNF-99999"]) {
+    for (const key of ["a", "bb", "ccc", "dddd", "eeeee", "ENG-1", "ENG-99999"]) {
       expect(["error", "warning"]).not.toContain(epicBadgeColor(key));
     }
   });
@@ -76,10 +76,10 @@ describe("renderCard", () => {
   it("includes the card's title, epic title, labels, story points, key, and assignee initials", () => {
     const card = issue({
       ref: "a:1",
-      key: "CNF-1",
+      key: "ENG-1",
       title: "First card",
       status: "todo",
-      parent: { key: "CNF-100", title: "Epic One" },
+      parent: { key: "ENG-100", title: "Epic One" },
       labels: ["red-team"],
       customFields: { "Story Points": "3" },
       assignee: "Jane Doe",
@@ -88,13 +88,13 @@ describe("renderCard", () => {
     expect(rendered).toContain("First card");
     expect(rendered).toContain("Epic One");
     expect(rendered).toContain("\u2039red-team\u203a");
-    expect(rendered).toContain("CNF-1");
+    expect(rendered).toContain("ENG-1");
     expect(rendered).toContain("\u20223");
     expect(rendered).toContain("JD");
   });
 
   it("uses a distinct bar glyph/color when selected", () => {
-    const card = issue({ ref: "a:1", key: "CNF-1", title: "Card", status: "todo" });
+    const card = issue({ ref: "a:1", key: "ENG-1", title: "Card", status: "todo" });
     const normal = stripAnsi(renderCard(card, fakeTheme, 60, false)[0]!);
     const selected = stripAnsi(renderCard(card, fakeTheme, 60, true)[0]!);
     expect(normal.startsWith("\u2502")).toBe(true);
@@ -104,9 +104,9 @@ describe("renderCard", () => {
 
 describe("KanbanBoardComponent", () => {
   const issues: Issue[] = [
-    issue({ ref: "a:1", key: "CNF-1", title: "Todo one", status: "todo" }),
-    issue({ ref: "a:2", key: "CNF-2", title: "Todo two", status: "todo" }),
-    issue({ ref: "a:3", key: "CNF-3", title: "In progress one", status: "in_progress" }),
+    issue({ ref: "a:1", key: "ENG-1", title: "Todo one", status: "todo" }),
+    issue({ ref: "a:2", key: "ENG-2", title: "Todo two", status: "todo" }),
+    issue({ ref: "a:3", key: "ENG-3", title: "In progress one", status: "in_progress" }),
   ];
 
   it("frames the board with a full-width border rule top and bottom, so it reads as a distinct overlay", () => {
@@ -114,6 +114,41 @@ describe("KanbanBoardComponent", () => {
     const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });
     const lines = board.render(80).map(stripAnsi);
     expect(lines[0]).toBe("\u2500".repeat(80));
+    expect(lines.at(-1)).toBe("\u2500".repeat(80));
+  });
+
+  it("never renders more lines than the terminal has, even with many more cards than fit -- the closing border always stays on screen", () => {
+    // The real regression this test exists for (screenshot-reported): with
+    // enough cards to overflow, the footer/closing border silently ran past
+    // the terminal's own row count instead of showing at all, because
+    // visibleRows() didn't reserve nearly enough rows for the chrome this
+    // component actually sits inside (the persistent panel's own Envelope,
+    // its outer provider tab bar, and the raw-query backend's own submenu
+    // tab bar -- see BOARD_RESERVED_ROWS's own comment in board-view.ts).
+    const many: Issue[] = Array.from({ length: 40 }, (_, i) =>
+      issue({ ref: `a:${i}`, key: `ENG-${i}`, title: `Card ${i}`, status: "todo" }),
+    );
+    // Below the visible-rows MAX cap, so this genuinely exercises
+    // BOARD_RESERVED_ROWS rather than being masked by the ceiling.
+    const tui = fakeTui(20);
+    const board = new KanbanBoardComponent(tui, fakeTheme, many, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });
+
+    const lines = board.render(80).map(stripAnsi);
+
+    expect(lines.length).toBeLessThanOrEqual(20);
+    expect(lines.at(-1)).toBe("\u2500".repeat(80)); // the closing border, genuinely the last line
+  });
+
+  it("caps the visible window on a very tall terminal instead of growing without bound", () => {
+    const many: Issue[] = Array.from({ length: 60 }, (_, i) =>
+      issue({ ref: `a:${i}`, key: `ENG-${i}`, title: `Card ${i}`, status: "todo" }),
+    );
+    const tui = fakeTui(200);
+    const board = new KanbanBoardComponent(tui, fakeTheme, many, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });
+
+    const lines = board.render(80).map(stripAnsi);
+
+    expect(lines.length).toBeLessThan(200);
     expect(lines.at(-1)).toBe("\u2500".repeat(80));
   });
 
@@ -139,14 +174,14 @@ describe("KanbanBoardComponent", () => {
     board.render(120);
     board.handleInput("\r"); // enter
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(opened.map((i) => i.key)).toEqual(["CNF-2"]);
+    expect(opened.map((i) => i.key)).toEqual(["ENG-2"]);
   });
 
   it("right moves selection to the next non-empty column, clamping the index", () => {
     const tui = fakeTui();
     const board = new KanbanBoardComponent(tui, fakeTheme, issues, "sprint", { onOpenIssue: async () => {}, onClose: () => {} });
     board.render(120);
-    board.handleInput("\x1b[B"); // down -> CNF-2 (index 1 in TO DO)
+    board.handleInput("\x1b[B"); // down -> ENG-2 (index 1 in TO DO)
     board.handleInput("\x1b[C"); // right -> IN PROGRESS, only has index 0
     board.handleInput("\r");
     const opened: string[] = [];
@@ -161,7 +196,7 @@ describe("KanbanBoardComponent", () => {
     board2.handleInput("\x1b[B");
     board2.handleInput("\x1b[C");
     board2.handleInput("\r");
-    expect(opened).toEqual(["CNF-3"]);
+    expect(opened).toEqual(["ENG-3"]);
   });
 
   it("left/right does not move past the edge columns", () => {
@@ -176,7 +211,7 @@ describe("KanbanBoardComponent", () => {
     board.render(120);
     board.handleInput("\x1b[D"); // left from TO DO -- already the first column, no-op
     board.handleInput("\r");
-    expect(opened).toEqual(["CNF-1"]);
+    expect(opened).toEqual(["ENG-1"]);
   });
 
   it("escape calls onClose", () => {
@@ -195,7 +230,7 @@ describe("KanbanBoardComponent", () => {
 
   it("'o' opens the selected issue's URL via onOpenUrl", () => {
     const tui = fakeTui();
-    const withUrl = [{ ...issues[0]!, url: "https://example.invalid/CNF-1" }];
+    const withUrl = [{ ...issues[0]!, url: "https://example.invalid/ENG-1" }];
     const opened: string[] = [];
     const board = new KanbanBoardComponent(tui, fakeTheme, withUrl, "sprint", {
       onOpenIssue: async () => {},
@@ -206,6 +241,6 @@ describe("KanbanBoardComponent", () => {
     });
     board.render(120);
     board.handleInput("o");
-    expect(opened).toEqual(["https://example.invalid/CNF-1"]);
+    expect(opened).toEqual(["https://example.invalid/ENG-1"]);
   });
 });

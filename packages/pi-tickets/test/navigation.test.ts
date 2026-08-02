@@ -7,7 +7,7 @@ function fakeCtx(customImpl: (factory: unknown, options?: unknown) => Promise<un
 
 describe("FULL_SCREEN_OVERLAY", () => {
   it("fills the terminal instead of a centered minified box", () => {
-    expect(FULL_SCREEN_OVERLAY).toEqual({ width: "100%", maxHeight: "100%", anchor: "center", margin: 0 });
+    expect(FULL_SCREEN_OVERLAY).toEqual({ width: "100%", maxHeight: "100%", anchor: "top-center", offsetY: 1, margin: 0 });
   });
 });
 

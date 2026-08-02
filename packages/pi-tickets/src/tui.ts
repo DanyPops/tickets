@@ -1,28 +1,40 @@
 /**
  * Interactive TUI for pi-tickets: `/tickets` with no args opens one
  * persistent panel -- a tab bar of every configured provider (GitHub,
- * GitLab, Jira), each tab's content a live, standing view (an issue list,
- * or for a backend with a real query language like Jira's JQL, its own
- * Issues/Saved queries/Board view sub-tabs) that stays mounted for the
- * whole session. `/tickets <query>` skips the panel and pushes a single
- * quick cross-backend search view -- that shortcut stays one-shot.
+ * GitLab, Jira). A plain backend's tab is a live issue list directly; a
+ * backend with a real query language (Jira's JQL today) gets a real
+ * submenu instead -- ONE outer tab whose own content is a second,
+ * nested TabbedContainer grouping its Issues/Saved queries/Board views
+ * (see backend-tab-group.ts) -- never three flat top-level tabs. Both
+ * levels stay mounted for the whole session; switching tabs, at either
+ * level, never tears anything down. `/tickets <query>` skips the panel
+ * and pushes a single quick cross-backend search view -- that shortcut
+ * stays one-shot.
  *
  * This replaced a walkable tree of dialogs (pick a provider, resolve into
  * a leaf, close, open a DIFFERENT dialog for the actual content) with
  * Malevich's TabbedContainer -- the same fix pi-packed's own panel made
- * for its Packages/Find/Config/Settings screens: every feature lives
- * inside ONE overlay for the panel's whole lifetime, switching tabs never
- * tears anything down. Left/Right or Tab/Shift-Tab cycle tabs (wrapping);
- * a mnemonic character jumps directly and activates in one step -- none of
- * pi-tui's own SelectList (every tab's own picker) treats a printable key
- * as live-filter input, so a mnemonic never collides with browsing a list.
- * 's' jumps straight to the shared /secrets flow the same way. Escape
- * returns to the first tab from any other, or closes the whole panel from
- * the first tab -- unless the active tab's own capturesEscape() says it
- * wants that key for itself right now (Jira's Board/Saved-queries tabs use
- * this to back out of a live query to their own picker instead of leaving
- * the tab), and Left/Right instead cycle a Kanban board's own columns
- * while one is showing (capturesHorizontalArrows).
+ * for its Packages/Find/Config/Settings screens. Tab/Shift-Tab and
+ * Left/Right both cycle whichever level's own tabs you're currently
+ * drilled into (the outer provider bar, or -- once a submenu claims them,
+ * see tab-dispatch.ts's capturesTabCycle/capturesHorizontalArrows -- that
+ * submenu's own three tabs), unless the active leaf wants Left/Right for
+ * itself (a Kanban board's own columns). A mnemonic character jumps
+ * directly and activates in one step, but is scoped to whichever menu is
+ * currently reachable, the same way a real menu bar's own accelerators
+ * are: a provider's own letter (h/l/j) always works from anywhere, while a
+ * submenu's own letters (i/q/b) only resolve once that submenu is already
+ * active -- none of pi-tui's own SelectList (every tab's own picker)
+ * treats a printable key as live-filter input, so a mnemonic never
+ * collides with browsing a list. 's' jumps straight to the shared
+ * /secrets flow the same way, from any level.
+ *
+ * Escape ascends one level at a time: a leaf's own captured state first
+ * (Jira's Board/Saved-queries tabs back out of a live query to their own
+ * picker), then a submenu's own home (Issues), then the outer panel's own
+ * home (the first provider), and only from there does it close the whole
+ * panel -- never skipping a level (capturesEscape, checked at both
+ * levels).
  *
  * Enter sets focus (or clears it on the synthetic first row), 'v' opens
  * the full ticket detail view, 'o' opens the issue's real web URL, 'r'
@@ -50,28 +62,25 @@ import {
 import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-status-refresh";
 import { listSecretsContributors, mergeSecretsContributions, runSecretsCommand } from "@danypops/vehicle-client-pi/secrets-tui";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, type TUI } from "@earendil-works/pi-tui";
-import { Envelope, TabbedContainer, type TabbedContainerTab } from "malevich-tui-components";
+import { matchesKey, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Envelope, TabbedContainer, type TextMeasure } from "malevich-tui-components";
+import { BackendTabGroupComponent } from "./backends/backend-tab-group.js";
+import { activeScopedTab, handleHorizontalArrow, handleMnemonicJump, type ScopedTab } from "./backends/tab-dispatch.js";
 import { BoardTabComponent } from "./board-view.js";
-import { IssueDetailComponent } from "./issue-detail-view.js";
-import { IssueListComponent } from "./issue-list-view.js";
+import { IssueDetailComponent } from "./issues/issue-detail-view.js";
+import { IssueListComponent } from "./issues/issue-list-view.js";
 import { tabBarTheme } from "./menu-theme.js";
 import { pushView } from "./navigation.js";
-import { SavedQueryTabComponent } from "./saved-query-view.js";
+import { SavedQueryTabComponent } from "./saved-queries/saved-query-view.js";
 import { TICKETS_TOOL_PREFIXES } from "./vehicle-client.js";
 
 const BROWSE_LIMIT = 100;
-/** First letter that's actually distinct within the real product name (GitHub/GitLab share a G, so "Hub"/"Lab" are what's unique); Jira's own three sub-tabs also all start with J, so each gets its own letter too. 's' (settings) is reserved globally -- never assigned here. */
-const TAB_MNEMONICS: Record<string, string> = { github: "h", gitlab: "l", "jira-issues": "i", "jira-query": "q", "jira-board": "b" };
+/** First letter that's actually distinct within the real product name (GitHub/GitLab share a G, so "Hub"/"Lab" are what's unique); a third provider with no such collision just gets its own first letter. Scoped to the OUTER provider bar only -- a raw-query backend's own Issues/Queries/Board submenu (see backend-tab-group.ts) has its own separate i/q/b mnemonics, reachable only once that provider is already active, the same way a real menu bar's own accelerators are scoped to whichever menu is open. 's' (settings) is reserved globally -- never assigned here. */
+const PROVIDER_MNEMONICS: Record<string, string> = { github: "h", gitlab: "l", jira: "j" };
+/** A raw-query backend's own submenu tabs -- local to whichever single group is showing, so unlike PROVIDER_MNEMONICS these never need per-backend disambiguation. */
+const SUB_TAB_MNEMONICS = { issues: "i", queries: "q", board: "b" } as const;
 
 type BackendCapability = { name: string; supportsRawQuery: boolean };
-
-/** A tab's own claim on a key the host would otherwise handle itself -- escape (back out of a live query to this tab's own picker), left/right (a Kanban board's own column navigation), or every printable key (a live typeahead SelectList in charge right now). Optional: a tab with none of these just falls through to the host's own default handling for that key. */
-interface TabScope {
-  capturesEscape?(): boolean;
-  capturesHorizontalArrows?(): boolean;
-  capturesMnemonics?(): boolean;
-}
 
 export interface TicketsTuiDeps {
   /** Overridden in tests instead of spawning/reaching a real daemon. */
@@ -177,19 +186,21 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
     });
   }
 
-  /** One tab per configured backend that has no real query language; three (Issues/Saved queries/Board view) for one that does (Jira's JQL today). */
+  /** One tab per configured backend: a plain issue list for one with no real query language, or -- for one that does (Jira's JQL today) -- a real submenu grouping its own Issues/Saved queries/Board view (see backend-tab-group.ts) behind a single provider-level tab. */
   function buildTabs(
     tui: TUI,
     theme: Theme,
     ctx: ExtensionCommandContext,
     client: TicketsRpcClient,
     backends: BackendCapability[],
-  ): (TabbedContainerTab & TabScope)[] {
+  ): ScopedTab[] {
     const onOpenIssue = (issue: Issue) => showIssueDetail(ctx, client, issue.ref);
     const onFocusChanged = () => void refreshStatus(ctx, client);
 
-    return backends.flatMap((b): (TabbedContainerTab & TabScope)[] => {
+    return backends.map((b): ScopedTab => {
       const displayName = backendDisplayName(b.name);
+      const mnemonic = PROVIDER_MNEMONICS[b.name];
+
       if (!b.supportsRawQuery) {
         const content = new IssueListComponent(tui, theme, ctx, client, {
           title: `${displayName} issues`,
@@ -202,11 +213,11 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
           onFocusChanged,
           framed: false, // hosted as a tab inside the persistent panel's own Envelope
         });
-        return [{ key: b.name, label: displayName, mnemonic: TAB_MNEMONICS[b.name], content }];
+        return { key: b.name, label: displayName, mnemonic, content };
       }
 
       const issues = new IssueListComponent(tui, theme, ctx, client, {
-        title: `${displayName} issues`,
+        title: "Issues",
         showClearFocus: true,
         loadIssues: (q) => client.call("ledger.search", { query: q, limit: BROWSE_LIMIT, backend: b.name }).then((r) => r.issues),
         emptyMessage: () =>
@@ -230,24 +241,38 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         onOpenUrl: openIssueUrl,
       });
 
-      return [
-        { key: `${b.name}-issues`, label: `${displayName} Issues`, mnemonic: TAB_MNEMONICS[`${b.name}-issues`], content: issues },
-        {
-          key: `${b.name}-query`,
-          label: `${displayName} Queries`,
-          mnemonic: TAB_MNEMONICS[`${b.name}-query`],
-          content: savedQueries,
-          capturesEscape: () => savedQueries.capturesEscape(),
-        },
-        {
-          key: `${b.name}-board`,
-          label: `${displayName} Board`,
-          mnemonic: TAB_MNEMONICS[`${b.name}-board`],
-          content: board,
-          capturesEscape: () => board.capturesEscape(),
-          capturesHorizontalArrows: () => board.capturesHorizontalArrows(),
-        },
-      ];
+      const group = new BackendTabGroupComponent(
+        [
+          { key: "issues", label: "Issues", mnemonic: SUB_TAB_MNEMONICS.issues, content: issues },
+          {
+            key: "queries",
+            label: "Queries",
+            mnemonic: SUB_TAB_MNEMONICS.queries,
+            content: savedQueries,
+            capturesEscape: () => savedQueries.capturesEscape(),
+          },
+          {
+            key: "board",
+            label: "Board",
+            mnemonic: SUB_TAB_MNEMONICS.board,
+            content: board,
+            capturesEscape: () => board.capturesEscape(),
+            capturesHorizontalArrows: () => board.capturesHorizontalArrows(),
+          },
+        ],
+        tabBarTheme(theme),
+      );
+
+      return {
+        key: b.name,
+        label: displayName,
+        mnemonic,
+        content: group,
+        capturesEscape: () => group.capturesEscape(),
+        capturesHorizontalArrows: () => group.capturesHorizontalArrows(),
+        capturesTabCycle: () => group.capturesTabCycle(),
+        capturesMnemonics: () => group.capturesMnemonics(),
+      };
     });
   }
 
@@ -273,11 +298,20 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         matchesKey: (data, keyId) => matchesKey(data, keyId as Parameters<typeof matchesKey>[1]),
       });
 
+      // measure must be explicit: Envelope's own default is ASCII-only (raw
+      // .length, blind to ANSI escape codes) and every tab's own content is
+      // styled through theme.fg/theme.bold/theme.underline -- without this,
+      // Envelope pads each line against its own escape-code-inflated "length"
+      // instead of its real visible width, so the right border lands at a
+      // different column on every line depending on how much styling it
+      // carries (confirmed live in pi-packed's own identical panel).
+      const measure: TextMeasure = { visibleWidth, truncateToWidth };
       const envelope = new Envelope({
         title: "tickets",
         borderStyle: "rounded",
         style: (s) => theme.fg("border", s),
         titleStyle: (s) => theme.bold(theme.fg("accent", s)),
+        measure,
       });
 
       return {
@@ -288,7 +322,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
         invalidate: () => envelope.invalidate(),
         handleInput: (data: string) => {
           const activeKey = tabbedContainer.getActiveKey();
-          const activeTab = tabByKey.get(activeKey);
+          const activeTab = activeScopedTab(tabbedContainer, tabByKey);
 
           if (matchesKey(data, "escape") && !(activeTab?.capturesEscape?.() ?? false)) {
             if (activeKey !== homeKey) tabbedContainer.setActive(homeKey);
@@ -300,12 +334,17 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
             return;
           }
           if (matchesKey(data, "tab") || matchesKey(data, "shift+tab")) {
-            tabbedContainer.handleInput(data);
+            // A raw-query backend's own submenu (Issues/Queries/Board) claims
+            // Tab/Shift-Tab for its own tab cycling instead of the outer
+            // panel's provider cycling -- the same one-level-down delegation
+            // handleHorizontalArrow already does for Left/Right below.
+            if (activeTab?.capturesTabCycle?.()) activeTab.content.handleInput?.(data);
+            else tabbedContainer.handleInput(data);
             tui.requestRender();
             return;
           }
-          if ((matchesKey(data, "left") || matchesKey(data, "right")) && !(activeTab?.capturesHorizontalArrows?.() ?? false)) {
-            tabbedContainer.handleInput(data);
+          if (matchesKey(data, "left") || matchesKey(data, "right")) {
+            handleHorizontalArrow(tabbedContainer, activeTab, data);
             tui.requestRender();
             return;
           }
@@ -314,12 +353,10 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
               void openSettings(ctx).then(() => tui.requestRender());
               return;
             }
-            const target = tabbedContainer.resolveMnemonic(data);
-            if (target && target !== activeKey) {
-              tabbedContainer.setActive(target);
-              tui.requestRender();
-              return;
-            }
+          }
+          if (handleMnemonicJump(tabbedContainer, activeTab, data)) {
+            tui.requestRender();
+            return;
           }
           tabbedContainer.handleInput(data);
           tui.requestRender();

@@ -20,12 +20,18 @@ name: Publish packages
 # @danypops/tickets kept its pre-existing bare "v*" tag for continuity with
 # its release history predating the pi-tickets workspace member (v0.1.0,
 # v0.2.0, ...); pi-tickets uses "pi-tickets-v*" to disambiguate.
+#
+# The trigger below matches every tag, not just those two patterns: a tag
+# push that doesn't match either convention still needs to run this workflow
+# far enough to hit the "Unsupported release tag" check below and fail
+# loudly. A trigger scoped to just "v*"/"pi-tickets-v*" would silently never
+# start the workflow for a mistagged push (e.g. "tickets-v0.8.0"), leaving
+# that check dead code -- exactly what happened once already.
 
 on:
   push:
     tags:
-      - "v*"
-      - "pi-tickets-v*"
+      - "*"
 
 permissions:
   id-token: write # Required for OIDC

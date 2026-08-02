@@ -3,8 +3,8 @@ import { program } from "../../src/cli/index.js";
 
 /**
  * CLI-parity check: `list()` and `search()` both accept a per-call project
- * override at the port/service/daemon-RPC layer (reaching e.g. CNF or
- * OCPBUGS on a Jira backend defaulting to another project) -- the CLI must
+ * override at the port/service/daemon-RPC layer (reaching e.g. ENG or
+ * OPS on a Jira backend defaulting to another project) -- the CLI must
  * expose the same `--project` flag, per this environment's
  * daemon-backed-tool CLI-parity requirement.
  */

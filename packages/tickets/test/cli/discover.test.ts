@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { program } from "../../src/cli/index.js";
-import { TICKET_OPERATIONS } from "../../src/daemon/ops.js";
+import { TICKET_OPERATIONS } from "../../src/rpc/ops.js";
 
 /**
  * Structural CLI-parity check for the discovery engine's three new ops:

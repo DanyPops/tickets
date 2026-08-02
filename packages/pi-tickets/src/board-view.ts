@@ -14,8 +14,16 @@
 import type { Issue, Status, TicketsRpcClient } from "@danypops/tickets";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { type Component, type KeyId, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { Board, type BoardColumn, type BoardTheme, formatBadgeCount, type KeyMatcher, type TextMeasure } from "malevich-tui-components";
-import { SavedQueryPickerComponent } from "./saved-query-picker.js";
+import {
+  Board,
+  type BoardColumn,
+  type BoardTheme,
+  formatBadgeCount,
+  type KeyMatcher,
+  Spinner,
+  type TextMeasure,
+} from "malevich-tui-components";
+import { SavedQueryPickerComponent } from "./saved-queries/saved-query-picker.js";
 
 const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 /** malevich's KeyMatcher takes a plain string keyId; pi-tui's matchesKey narrows it to its own closed KeyId union -- Board only ever calls this with the fixed small set ('up'/'down'/'left'/'right'/'enter'/'escape') that's a real KeyId, so the cast is safe. */
@@ -107,8 +115,26 @@ function initials(name: string): string {
   return parts.length === 1 ? parts[0]!.slice(0, 2).toUpperCase() : `${parts[0]![0]}${parts.at(-1)![0]}`.toUpperCase();
 }
 
-/** Rows reserved for the top/title/border-under-title/footer/bottom-border lines -- render() subtracts this from the terminal's own row count to get the scrollable window height. */
-const BOARD_RESERVED_ROWS = 4;
+/**
+ * Same clamped-viewport technique papyrus's own detail views use (a proven
+ * MIN/MAX floor+ceiling around terminal.rows minus a reserved-chrome
+ * count) -- min avoids an unusably short scroll window on a tiny terminal,
+ * max avoids an unwieldy one on a huge one.
+ *
+ * RESERVED_ROWS breakdown: 8 matches the reserved count issue-detail-view.ts
+ * uses for an equivalent STANDALONE overlay (this component's own 5 lines --
+ * border/title/border/footer/border -- plus Pi's own outer UI chrome around
+ * a pushed overlay), PLUS 4 more for chrome this component sits inside that
+ * a standalone view doesn't: the persistent panel's own Envelope border (2),
+ * the outer provider tab bar (1), and the raw-query backend's own submenu
+ * tab bar (1) -- see tui.ts/backend-tab-group.ts. Previously only 4 total,
+ * a real live bug: the footer and closing border silently ran past the
+ * terminal's own visible rows instead of showing at all once a board had
+ * more cards than fit.
+ */
+const BOARD_MIN_VISIBLE_ROWS = 6;
+const BOARD_MAX_VISIBLE_ROWS = 24;
+const BOARD_RESERVED_ROWS = 12;
 
 export interface KanbanBoardOptions {
   /** Called when the user presses enter on a selected card; the component awaits this before re-rendering, so a caller can push a detail view and return here on close. */
@@ -188,7 +214,7 @@ export class KanbanBoardComponent implements Component {
   }
 
   private visibleRows(): number {
-    return Math.max(6, this.tui.terminal.rows - BOARD_RESERVED_ROWS);
+    return Math.max(BOARD_MIN_VISIBLE_ROWS, Math.min(BOARD_MAX_VISIBLE_ROWS, this.tui.terminal.rows - BOARD_RESERVED_ROWS));
   }
 
   private scrollSelectionIntoView(totalLines: number): void {
@@ -223,6 +249,7 @@ export class BoardTabComponent implements Component {
   private loadingBoard = false;
   private lastEmptyQuery: string | undefined;
   private lastError: string | undefined;
+  private readonly spinner = new Spinner();
 
   constructor(
     private readonly tui: TUI,
@@ -258,17 +285,20 @@ export class BoardTabComponent implements Component {
     this.loadingBoard = true;
     this.lastEmptyQuery = undefined;
     this.lastError = undefined;
+    this.spinner.start(() => this.tui.requestRender());
     this.tui.requestRender();
     let issues: Issue[];
     try {
       ({ issues } = await this.client.call("query.run", { name, limit: 100 }));
     } catch (err) {
       this.loadingBoard = false;
+      this.spinner.stop();
       this.lastError = `error running query "${name}": ${err instanceof Error ? err.message : String(err)}`;
       this.tui.requestRender();
       return;
     }
     this.loadingBoard = false;
+    this.spinner.stop();
     if (issues.length === 0) {
       this.lastEmptyQuery = name;
       this.tui.requestRender();
@@ -287,7 +317,7 @@ export class BoardTabComponent implements Component {
 
   render(width: number): string[] {
     if (this.board) return this.board.render(width);
-    if (this.loadingBoard) return [this.theme.fg("muted", "Loading\u2026")];
+    if (this.loadingBoard) return [this.theme.fg("muted", `${this.spinner.glyph()} Loading\u2026`)];
     const lines = this.picker.render(width);
     if (this.lastError) lines.push(this.theme.fg("error", this.lastError));
     else if (this.lastEmptyQuery) lines.push(this.theme.fg("warning", `Saved query "${this.lastEmptyQuery}" matched no issues.`));

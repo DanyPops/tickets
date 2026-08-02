@@ -11,7 +11,7 @@
  * URI/local callback server needed, ideal for a headless daemon. Jira/Atlassian
  * has no equivalent (see jira-oauth.ts, which uses Authorization Code instead).
  */
-import type { FetchLike } from "../adapters/http.js";
+import type { FetchLike } from "../http-client.js";
 
 export const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 

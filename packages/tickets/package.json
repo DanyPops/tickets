@@ -1,12 +1,12 @@
 {
   "name": "@danypops/tickets",
-  "version": "0.7.0",
+  "version": "0.8.3",
   "description": "Unified CLI, daemon, and TypeScript library for issue tracking across GitHub, GitLab, and Jira.",
   "type": "module",
   "license": "MIT",
   "bin": {
     "tickets": "./src/cli/index.ts",
-    "tickets-daemon": "./src/daemon/main.ts"
+    "tickets-daemon": "./src/process/main.ts"
   },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -19,7 +19,7 @@
     "RESEARCH.md"
   ],
   "scripts": {
-    "daemon": "bun run src/daemon/main.ts",
+    "daemon": "bun run src/process/main.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

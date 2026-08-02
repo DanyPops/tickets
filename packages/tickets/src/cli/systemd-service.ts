@@ -12,8 +12,8 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { resolveDaemonEntryPath } from "../client/tickets-client.js";
-import { TICKETS_DAEMON_NAMES } from "../daemon/ops.js";
+import { TICKETS_DAEMON_NAMES } from "../rpc/ops.js";
+import { resolveDaemonEntryPath } from "./tickets-client.js";
 
 export interface SystemdUnitOptions {
   bunBin: string;

@@ -2,7 +2,7 @@
  * Registers every real ticket operation as its own Vehicle-projected Pi
  * tool (issue_list, focus_set, discover_fields, ...) instead of the old
  * hand-rolled `tickets(action=X)` mega-tool -- see @danypops/tickets' own
- * src/vehicle/tickets-vehicle.ts for the VehicleRegistry side. Same daemon,
+ * src/agent-tools/tickets-vehicle.ts for the VehicleRegistry side. Same daemon,
  * same handle file, same Bearer token every other tickets RPC call already
  * uses (resolveVehicleClientTarget mirrors tui.ts's refreshStatus, which
  * already tolerates "daemon not running" the same way).

@@ -1,6 +1,6 @@
-import { IssueNotFoundError } from "../../src/adapters/errors.js";
-import type { CreateInput, Issue, ListFilter, UpdateInput } from "../../src/domain/issue.js";
-import type { CommentCapable, IssueRepository } from "../../src/ports/repository.js";
+import { IssueNotFoundError } from "../../src/issue/errors.js";
+import type { CreateInput, Issue, ListFilter, UpdateInput } from "../../src/issue/issue.js";
+import type { CommentCapable, IssueRepository } from "../../src/issue/repository.js";
 
 /** In-memory IssueRepository test double — no network, deterministic, used across test suites. */
 export class FakeRepository implements IssueRepository, CommentCapable {
@@ -79,6 +79,14 @@ export class FakeRepository implements IssueRepository, CommentCapable {
     let issues = [...this.issues.values()].filter((i) => i.title.includes(query));
     if (limit) issues = issues.slice(0, limit);
     return issues;
+  }
+
+  /** Set by a test to make buildSyncQuery() return a real query, modeling an expanded Jira sync scope; leave unset to model "nothing beyond the default scope configured", same as buildSyncQuery() returning undefined for real. */
+  syncQuery: string | undefined;
+
+  /** SyncScopeExpandable. */
+  buildSyncQuery(): string | undefined {
+    return this.syncQuery;
   }
 
   async listChildren(): Promise<Issue[]> {
