@@ -23,7 +23,7 @@ export async function syncOnce(
   const results: { backend: string; synced: number; error?: string }[] = [];
   for (const backend of backends) {
     try {
-      const issues = await service.list(backend, { limit: DEFAULT_SYNC_LIMIT });
+      const issues = await service.syncFetch(backend, DEFAULT_SYNC_LIMIT);
       const synced = ledger.upsertMany(backend, issues);
       results.push({ backend, synced });
       logger?.debug("ledger sync ok", { backend, synced });

@@ -27,6 +27,10 @@ export interface BackendConfig {
   owner?: string;
   project?: string;
   repo?: string;
+  /** Jira only: additional project keys the background poller also pools into the ledger, beyond the single default `project` above. */
+  syncProjects?: string[];
+  /** Jira only: when true, the background poller also pools everything assigned to the authenticated user, regardless of project. */
+  syncMine?: boolean;
 }
 
 export interface Config {
@@ -56,6 +60,22 @@ function resolveToken(cfg: BackendConfig, env: NodeJS.ProcessEnv, envFallback: s
   if (cfg.token) return cfg.token;
   if (cfg.tokenEnv) return env[cfg.tokenEnv];
   return env[envFallback];
+}
+
+/** Config wins over the env var; the env var is a comma-separated list (JIRA_SYNC_PROJECTS=ENG,OPS). */
+function resolveSyncProjects(cfg: BackendConfig, env: NodeJS.ProcessEnv): string[] | undefined {
+  if (cfg.syncProjects) return cfg.syncProjects;
+  const raw = env.JIRA_SYNC_PROJECTS;
+  if (!raw) return undefined;
+  return raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+function resolveSyncMine(cfg: BackendConfig, env: NodeJS.ProcessEnv): boolean {
+  if (cfg.syncMine !== undefined) return cfg.syncMine;
+  return /^(1|true|yes)$/i.test(env.JIRA_SYNC_MINE ?? "");
 }
 
 /**
@@ -208,6 +228,8 @@ async function createRepository(
           accessToken: auth.token,
           cloudId: auth.extra.cloudId,
           project: cfg.project ?? env.JIRA_PROJECT,
+          syncProjects: resolveSyncProjects(cfg, env),
+          syncMine: resolveSyncMine(cfg, env),
           configDir: configDir(),
         });
       }
@@ -219,6 +241,8 @@ async function createRepository(
         email,
         token: auth.token,
         project: cfg.project ?? env.JIRA_PROJECT,
+        syncProjects: resolveSyncProjects(cfg, env),
+        syncMine: resolveSyncMine(cfg, env),
         configDir: configDir(),
       });
     }

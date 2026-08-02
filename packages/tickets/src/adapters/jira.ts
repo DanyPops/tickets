@@ -39,6 +39,10 @@ export interface JiraBasicAuthOptions {
   email: string;
   token: string;
   project?: string;
+  /** Additional project keys the poller's background sync also pools into the ledger, beyond the single default `project` above -- see buildSyncQuery(). */
+  syncProjects?: string[];
+  /** When true, the poller's background sync also pools everything assigned to the authenticated user (JQL `assignee = currentUser()`), regardless of project -- covers projects not listed in `project`/`syncProjects`. */
+  syncMine?: boolean;
   timeoutMs?: number;
   /** Injected in tests instead of a real network call — see axios's AxiosRequestConfig.adapter. */
   axiosAdapter?: AxiosAdapter;
@@ -55,6 +59,8 @@ export interface JiraOAuthOptions {
   accessToken: string;
   cloudId: string;
   project?: string;
+  syncProjects?: string[];
+  syncMine?: boolean;
   timeoutMs?: number;
   axiosAdapter?: AxiosAdapter;
   configDir?: string;
@@ -125,6 +131,8 @@ export class JiraRepository {
   /** Same auth/host config Version2Client was built from -- reused lazily by agileClient() so the Agile API client (board/quickfilter resolution) authenticates identically without duplicating the OAuth-vs-basic branching in the constructor below. */
   private readonly clientConfig: JiraClientConfig;
   private readonly project?: string;
+  private readonly syncProjects: string[];
+  private readonly syncMine: boolean;
   private readonly configDir?: string;
   /** display name (lowercased) -> { fieldId, schema type/items }, populated lazily from client.issueFields.getFields(). */
   private customFieldCache?: Map<string, { id: string; type: string; items?: string }>;
@@ -136,6 +144,8 @@ export class JiraRepository {
   constructor(name: string, opts: JiraOptions) {
     this.name = name;
     this.project = opts.project;
+    this.syncProjects = opts.syncProjects ?? [];
+    this.syncMine = opts.syncMine ?? false;
     this.configDir = opts.configDir;
 
     if (this.configDir) {
@@ -272,6 +282,25 @@ export class JiraRepository {
   /** RawQueryable -- runs a raw JQL string verbatim, for the "Saved query" feature (and anything else that already has real JQL rather than a ListFilter to build one from). */
   async runQuery(query: string, limit = 50): Promise<Issue[]> {
     return this.searchJql(query, limit);
+  }
+
+  /**
+   * SyncScopeExpandable -- widens what the poller's own background sync pools
+   * into the local ledger beyond the single default `project` list() falls
+   * back to: every configured project (default plus syncProjects) ORed with
+   * "assignee = currentUser()" when syncMine is set, so issues assigned to
+   * you in a project nobody thought to list still get pooled. Returns
+   * undefined -- letting the poller fall back to plain list() -- when
+   * neither syncProjects nor syncMine adds anything beyond the default
+   * project's own existing behavior.
+   */
+  buildSyncQuery(): string | undefined {
+    const projects = [...new Set([this.project, ...this.syncProjects].filter((p): p is string => Boolean(p)))];
+    if (projects.length <= 1 && !this.syncMine) return undefined;
+    const clauses: string[] = [];
+    if (projects.length > 0) clauses.push(`project in (${projects.map(jqlQuote).join(", ")})`);
+    if (this.syncMine) clauses.push("assignee = currentUser()");
+    return `${clauses.join(" OR ")} ORDER BY created DESC`;
   }
 
   /**

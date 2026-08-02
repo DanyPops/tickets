@@ -33,6 +33,28 @@ describe("syncOnce", () => {
     ]);
   });
 
+  it("prefers a backend's own expanded sync scope (SyncScopeExpandable) over its plain default-project list()", async () => {
+    db = openSqliteWithPragmas(":memory:", { migrations: LEDGER_MIGRATIONS });
+    const ledger = new Ledger(db);
+    const jira = new FakeRepository("jira", [
+      { ref: "jira:WIDGET-1", id: "1", key: "WIDGET-1", title: "default project issue", status: "todo", priority: "none" },
+      { ref: "jira:ENG-1", id: "2", key: "ENG-1", title: "eng issue", status: "todo", priority: "none" },
+    ]);
+    // FakeRepository.runQuery treats its query arg as a plain substring title
+    // filter, unlike real JQL -- "issue" matches both seeded titles, so this
+    // proves syncOnce routed through runQuery (real JQL would use a project
+    // list -- see jira.ts's real buildSyncQuery()), not that a real JQL
+    // string matches by substring.
+    jira.syncQuery = "issue";
+    const service = new TicketService({ jira });
+
+    await syncOnce(service, ledger, ["jira"]);
+
+    expect(jira.lastRunQueryCall).toEqual({ query: "issue", limit: 50 });
+    expect(jira.lastListCall).toBeUndefined();
+    expect(ledger.stats()).toEqual([{ backend: "jira", count: 2 }]);
+  });
+
   it("a failing backend is reported and skipped, other backends still sync", async () => {
     db = openSqliteWithPragmas(":memory:", { migrations: LEDGER_MIGRATIONS });
     const ledger = new Ledger(db);

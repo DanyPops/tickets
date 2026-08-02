@@ -81,6 +81,14 @@ export class FakeRepository implements IssueRepository, CommentCapable {
     return issues;
   }
 
+  /** Set by a test to make buildSyncQuery() return a real query, modeling an expanded Jira sync scope; leave unset to model "nothing beyond the default scope configured", same as buildSyncQuery() returning undefined for real. */
+  syncQuery: string | undefined;
+
+  /** SyncScopeExpandable. */
+  buildSyncQuery(): string | undefined {
+    return this.syncQuery;
+  }
+
   async listChildren(): Promise<Issue[]> {
     return [];
   }

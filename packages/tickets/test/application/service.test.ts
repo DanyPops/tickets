@@ -144,6 +144,47 @@ describe("TicketService", () => {
     expect(jira.lastRunQueryCall).toEqual({ query: "Sprint", limit: 5 });
   });
 
+  describe("syncFetch (the poller's own background sync fetch)", () => {
+    it("falls back to plain list() when the repo has no SyncScopeExpandable capability at all (GitHub/GitLab)", async () => {
+      const github = new FakeRepository("github", [{ ref: "github:#1", id: "1", key: "#1", title: "A", status: "todo", priority: "none" }]);
+      // FakeRepository implements buildSyncQuery generically; a repo genuinely
+      // lacking the capability (like BareRepository above) exercises the same
+      // fallback path via hasSyncScopeExpansion() returning false.
+      const bare = new BareRepository("bare");
+      const svc = new TicketService({ github, bare });
+      await svc.syncFetch("github", 50);
+      expect(github.lastListCall).toEqual({ limit: 50 });
+      await svc.syncFetch("bare", 50);
+    });
+
+    it("falls back to plain list() when buildSyncQuery() returns undefined -- nothing beyond the default scope configured", async () => {
+      const jira = new FakeRepository("jira", [
+        { ref: "jira:PROJ-1", id: "1", key: "PROJ-1", title: "B", status: "todo", priority: "none" },
+      ]);
+      const svc = new TicketService({ jira });
+      await svc.syncFetch("jira", 50);
+      expect(jira.lastListCall).toEqual({ limit: 50 });
+      expect(jira.lastRunQueryCall).toBeUndefined();
+    });
+
+    it("prefers the expanded sync query via runQuery() over list() when one is configured", async () => {
+      const jira = new FakeRepository("jira", [
+        { ref: "jira:ENG-1", id: "1", key: "ENG-1", title: "ENG issue", status: "todo", priority: "none" },
+      ]);
+      // FakeRepository.runQuery treats its query arg as a plain substring title
+      // filter, unlike real JQL -- this only proves syncFetch routed through
+      // runQuery with the right args, not that a real JQL string matches.
+      jira.syncQuery = "ENG";
+      const svc = new TicketService({ jira });
+
+      const issues = await svc.syncFetch("jira", 50);
+
+      expect(issues.map((i) => i.title)).toEqual(["ENG issue"]);
+      expect(jira.lastRunQueryCall).toEqual({ query: "ENG", limit: 50 });
+      expect(jira.lastListCall).toBeUndefined();
+    });
+  });
+
   describe("setRepos", () => {
     it("swaps in a newly available backend without reconstructing the service", async () => {
       const github = new FakeRepository("github", [

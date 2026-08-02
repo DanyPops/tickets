@@ -620,4 +620,64 @@ describe("JiraRepository", () => {
       expect(comments.map((c) => c.body)).toEqual(["first comment", "second comment"]);
     });
   });
+
+  describe("buildSyncQuery (SyncScopeExpandable)", () => {
+    it("returns undefined when only the single default project is configured -- the poller's plain list() behavior is unchanged", () => {
+      const repo = new JiraRepository("jira", {
+        baseUrl: "https://acme.atlassian.net",
+        email: "me@acme.com",
+        token: "tok",
+        project: "WIDGET",
+      });
+      expect(repo.buildSyncQuery()).toBeUndefined();
+    });
+
+    it("returns undefined when nothing is configured at all", () => {
+      const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok" });
+      expect(repo.buildSyncQuery()).toBeUndefined();
+    });
+
+    it("combines the default project with syncProjects into one 'project in (...)' clause", () => {
+      const repo = new JiraRepository("jira", {
+        baseUrl: "https://acme.atlassian.net",
+        email: "me@acme.com",
+        token: "tok",
+        project: "WIDGET",
+        syncProjects: ["ENG", "OPS"],
+      });
+      expect(repo.buildSyncQuery()).toBe('project in ("WIDGET", "ENG", "OPS") ORDER BY created DESC');
+    });
+
+    it("de-duplicates a project listed in both `project` and `syncProjects`", () => {
+      const repo = new JiraRepository("jira", {
+        baseUrl: "https://acme.atlassian.net",
+        email: "me@acme.com",
+        token: "tok",
+        project: "WIDGET",
+        syncProjects: ["WIDGET", "ENG"],
+      });
+      expect(repo.buildSyncQuery()).toBe('project in ("WIDGET", "ENG") ORDER BY created DESC');
+    });
+
+    it("ORs in 'assignee = currentUser()' when syncMine is set, alongside the project list", () => {
+      const repo = new JiraRepository("jira", {
+        baseUrl: "https://acme.atlassian.net",
+        email: "me@acme.com",
+        token: "tok",
+        project: "WIDGET",
+        syncMine: true,
+      });
+      expect(repo.buildSyncQuery()).toBe('project in ("WIDGET") OR assignee = currentUser() ORDER BY created DESC');
+    });
+
+    it("syncMine alone (no project at all) still expands the scope, without an empty 'project in ()' clause", () => {
+      const repo = new JiraRepository("jira", {
+        baseUrl: "https://acme.atlassian.net",
+        email: "me@acme.com",
+        token: "tok",
+        syncMine: true,
+      });
+      expect(repo.buildSyncQuery()).toBe("assignee = currentUser() ORDER BY created DESC");
+    });
+  });
 });

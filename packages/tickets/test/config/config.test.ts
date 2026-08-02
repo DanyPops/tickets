@@ -51,6 +51,37 @@ describe("buildRepositories", () => {
     expect(repos.jira).toBeUndefined();
   });
 
+  it("threads syncProjects/syncMine from config into the Jira repository's own expanded sync scope", async () => {
+    const repos = await buildRepositories(
+      {
+        backends: {
+          jira: {
+            url: "https://acme.atlassian.net",
+            email: "me@acme.com",
+            token: "jira-token",
+            project: "WIDGET",
+            syncProjects: ["ENG", "OPS"],
+            syncMine: true,
+          },
+        },
+      },
+      process.env,
+      noEnigma,
+    );
+    const jira = repos.jira as JiraRepository;
+    expect(jira.buildSyncQuery()).toBe('project in ("WIDGET", "ENG", "OPS") OR assignee = currentUser() ORDER BY created DESC');
+  });
+
+  it("falls back to JIRA_SYNC_PROJECTS (comma-separated) / JIRA_SYNC_MINE env vars when no config entry sets them", async () => {
+    const repos = await buildRepositories(
+      { backends: { jira: { url: "https://acme.atlassian.net", email: "me@acme.com", token: "jira-token", project: "WIDGET" } } },
+      { JIRA_SYNC_PROJECTS: "ENG, OPS", JIRA_SYNC_MINE: "true", PATH: "/usr/bin" } as NodeJS.ProcessEnv,
+      noEnigma,
+    );
+    const jira = repos.jira as JiraRepository;
+    expect(jira.buildSyncQuery()).toBe('project in ("WIDGET", "ENG", "OPS") OR assignee = currentUser() ORDER BY created DESC');
+  });
+
   it("supports a custom name with an explicit type (multi-instance)", async () => {
     const repos = await buildRepositories(
       {

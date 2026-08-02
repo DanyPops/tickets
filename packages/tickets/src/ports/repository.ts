@@ -100,3 +100,20 @@ export interface BoardFilterDiscoverable {
 export function hasBoardFilterDiscovery(repo: IssueRepository): repo is IssueRepository & BoardFilterDiscoverable {
   return typeof (repo as Partial<BoardFilterDiscoverable>).discoverBoardFilterJql === "function";
 }
+
+/**
+ * Optional capability — lets a backend widen what the poller's own background
+ * sync pools into the local ledger beyond list()'s single default-project
+ * filter (Jira: additional named projects, plus everything assigned to the
+ * authenticated user, unioned into one JQL string). Returns undefined when
+ * nothing beyond the default scope is configured, so the poller falls back
+ * to plain list() unchanged. Jira only; GitHub/GitLab have no equivalent
+ * multi-project-plus-assignee query language to expand into.
+ */
+export interface SyncScopeExpandable {
+  buildSyncQuery(): string | undefined;
+}
+
+export function hasSyncScopeExpansion(repo: IssueRepository): repo is IssueRepository & SyncScopeExpandable {
+  return typeof (repo as Partial<SyncScopeExpandable>).buildSyncQuery === "function";
+}

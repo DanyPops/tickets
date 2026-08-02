@@ -14,6 +14,7 @@ import {
   hasFieldDiscovery,
   hasRawQuery,
   hasStatusDiscovery,
+  hasSyncScopeExpansion,
   hasTemplateDiscovery,
   type IssueRepository,
 } from "../ports/repository.js";
@@ -87,6 +88,25 @@ export class TicketService {
   // breaking `await`/`.rejects` callers alike.
   async list(backend: string, filter: ListFilter = {}): Promise<Issue[]> {
     return this.repo(backend).list(filter);
+  }
+
+  /**
+   * Fetches issues for the poller's own background sync pass (see
+   * daemon/poller.ts). Prefers a backend's own expanded sync scope
+   * (SyncScopeExpandable -- Jira: multiple configured projects plus
+   * everything assigned to the authenticated user, unioned into one query)
+   * over its plain default-project list() when one is configured; falls
+   * back to list() otherwise, so a backend with no sync scope configured
+   * (or with no such capability at all, e.g. GitHub/GitLab) behaves exactly
+   * as before.
+   */
+  async syncFetch(backend: string, limit: number): Promise<Issue[]> {
+    const repo = this.repo(backend);
+    if (hasSyncScopeExpansion(repo) && hasRawQuery(repo)) {
+      const query = repo.buildSyncQuery();
+      if (query) return repo.runQuery(query, limit);
+    }
+    return repo.list({ limit });
   }
 
   async get(ref: string): Promise<Issue> {

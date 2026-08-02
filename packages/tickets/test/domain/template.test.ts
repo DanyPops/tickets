@@ -6,7 +6,7 @@ import { buildTemplateBody, extractTemplateSections } from "../../src/domain/tem
  * (~/Workspace/emcee) -- same heuristic, same expected output.
  */
 describe("extractTemplateSections", () => {
-  it("finds every section present in all samples (OPS Bug template)", () => {
+  it("finds every section present in all samples (a common bug-report template)", () => {
     const descs = [
       "Description of problem: VFs not configured\n\nVersion-Release number of selected component (if applicable): 4.22\n\nHow reproducible: 100%\n\nSteps to Reproduce:\n1. Create an altname\n2. Create policy\n\nActual results: Node enters boot loop\n\nExpected results: VFs configured\n\nAdditional info: none",
       "Description of problem: PTP DPLL issue\n\nVersion-Release number of selected component (if applicable): 4.22\n\nHow reproducible: intermittent\n\nSteps to Reproduce:\n1. Deploy T-BC\n2. Update PtpConfig\n\nActual results: FREERUN\n\nExpected results: HOLDOVER\n\nAdditional info:",
