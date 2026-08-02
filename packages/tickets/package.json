@@ -1,6 +1,6 @@
 {
   "name": "@danypops/tickets",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Unified CLI, daemon, and TypeScript library for issue tracking across GitHub, GitLab, and Jira.",
   "type": "module",
   "license": "MIT",
