@@ -4,7 +4,7 @@ import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { TicketService } from "../../src/application/service.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/daemon/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/daemon/ledger.js";
-import { TICKET_OPERATIONS } from "../../src/daemon/ops.js";
+import { TICKET_OPERATIONS, type TicketOperation } from "../../src/daemon/ops.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/daemon/saved-queries.js";
 import { createTicketsVehicleRegistry } from "../../src/vehicle/tickets-vehicle.js";
 import { FakeRepository } from "../support/fake-repository.js";
@@ -188,5 +188,62 @@ describe("createTicketsVehicleRegistry", () => {
       properties?: Record<string, unknown>;
     };
     expect(Object.keys(schema.properties ?? {})).toEqual(expect.arrayContaining(["name", "backend", "query", "description"]));
+  });
+
+  it("ledger.search's tool schema exposes the same backend scoping its daemon contract, CLI --backend flag, and Ledger.search() itself already support", () => {
+    const { registry } = harness();
+    const schema = registry.manifest().operations.find((op) => op.name === "ledger.search")?.inputSchema as {
+      properties?: Record<string, unknown>;
+    };
+    expect(Object.keys(schema.properties ?? {})).toEqual(expect.arrayContaining(["query", "limit", "backend"]));
+  });
+
+  it("ledger.search actually scopes results to the requested backend when invoked through the tool, not just the CLI", async () => {
+    const { registry, ledger } = harness();
+    ledger.upsertMany("github", [
+      { ref: "github:#9", id: "9", key: "#9", title: "Widget bug", status: "todo", priority: "none", url: "https://example/9" },
+    ]);
+    ledger.upsertMany("jira", [
+      { ref: "jira:PROJ-9", id: "9", key: "PROJ-9", title: "Widget bug", status: "todo", priority: "none", url: "https://example/PROJ-9" },
+    ]);
+    const result = (await registry.invoke("ledger.search", 1, { query: "Widget", backend: "jira" }, PERMS)) as {
+      issues: { ref: string }[];
+    };
+    expect(result.issues.map((i) => i.ref)).toEqual(["jira:PROJ-9"]);
+  });
+
+  it("every operation's tool schema declares exactly the properties its own daemon contract (ops.ts's TicketOpInputs) accepts, except issue.list's deliberate flat reshape via mapInput", () => {
+    const { registry } = harness();
+    const EXPECTED_PROPERTIES: Record<Exclude<TicketOperation, "daemon.shutdown">, string[]> = {
+      "backends.list": [],
+      "issue.list": ["backend", "project", "status", "assignee", "labels", "limit"],
+      "issue.get": ["ref"],
+      "issue.create": ["backend", "input"],
+      "issue.update": ["ref", "input"],
+      "issue.search": ["backend", "query", "limit", "project"],
+      "issue.children": ["ref"],
+      "issue.comments": ["ref"],
+      "issue.comment_add": ["ref", "body"],
+      "ledger.search": ["query", "limit", "backend"],
+      "ledger.stats": [],
+      "focus.set": ["ref"],
+      "focus.get": [],
+      "focus.pause": ["reason"],
+      "focus.unpause": [],
+      "focus.clear": [],
+      "discover.fields": ["backend"],
+      "discover.statuses": ["backend"],
+      "discover.template": ["backend", "project", "issueType", "sampleSize"],
+      "discover.board_quickfilter": ["backend", "boardId", "quickFilterId"],
+      "discover.board_filter": ["backend", "boardId"],
+      "query.save": ["name", "backend", "query", "description"],
+      "query.list": [],
+      "query.remove": ["name"],
+      "query.run": ["name", "limit"],
+    };
+    for (const [op, expected] of Object.entries(EXPECTED_PROPERTIES)) {
+      const schema = registry.manifest().operations.find((o) => o.name === op)?.inputSchema as { properties?: Record<string, unknown> };
+      expect(Object.keys(schema?.properties ?? {}).sort()).toEqual([...expected].sort());
+    }
   });
 });

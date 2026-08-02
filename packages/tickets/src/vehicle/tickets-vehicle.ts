@@ -138,7 +138,7 @@ const OPERATIONS: readonly OperationSpec[] = [
     action: "ledger.search",
     description: "Searches the local pooled-issue ledger (no live backend call).",
     effect: "read",
-    properties: { query: stringProp, limit: numberProp },
+    properties: { query: stringProp, limit: numberProp, backend: stringProp },
     required: ["query"],
   },
   {
