@@ -6,7 +6,6 @@
  */
 import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../domain/issue.js";
 import { parseRef } from "../domain/issue.js";
-import type { Template } from "../domain/template.js";
 import {
   hasBoardFilterDiscovery,
   hasBoardQuickFilterDiscovery,
@@ -17,7 +16,8 @@ import {
   hasSyncScopeExpansion,
   hasTemplateDiscovery,
   type IssueRepository,
-} from "../ports/repository.js";
+} from "../domain/repository.js";
+import type { Template } from "../domain/template.js";
 
 export interface BackendCapabilities {
   readonly name: string;
@@ -92,7 +92,7 @@ export class TicketService {
 
   /**
    * Fetches issues for the poller's own background sync pass (see
-   * daemon/poller.ts). Prefers a backend's own expanded sync scope
+   * process/poller.ts). Prefers a backend's own expanded sync scope
    * (SyncScopeExpandable -- Jira: multiple configured projects plus
    * everything assigned to the authenticated user, unioned into one query)
    * over its plain default-project list() when one is configured; falls

@@ -3,8 +3,8 @@ import { installTicketsService, renderSystemdUnit, systemctlTickets, systemdUnit
 
 describe("renderSystemdUnit", () => {
   it("points ExecStart at the exact bun binary and daemon entry path given, with an always-restart policy", () => {
-    const unit = renderSystemdUnit({ bunBin: "/home/x/.bun/bin/bun", daemonMainPath: "/opt/tickets/src/daemon/main.ts" });
-    expect(unit).toContain("ExecStart=/home/x/.bun/bin/bun run /opt/tickets/src/daemon/main.ts");
+    const unit = renderSystemdUnit({ bunBin: "/home/x/.bun/bin/bun", daemonMainPath: "/opt/tickets/src/process/main.ts" });
+    expect(unit).toContain("ExecStart=/home/x/.bun/bin/bun run /opt/tickets/src/process/main.ts");
     expect(unit).toContain("Restart=always");
     expect(unit).toContain("WantedBy=default.target");
   });
@@ -48,7 +48,7 @@ describe("installTicketsService", () => {
 
     const { unitPath } = installTicketsService({
       bunBin: "/home/x/.bun/bin/bun",
-      daemonMainPath: "/opt/tickets/src/daemon/main.ts",
+      daemonMainPath: "/opt/tickets/src/process/main.ts",
       env: { XDG_CONFIG_HOME: "/home/x/.config" },
       ensureDir: (dir) => dirsEnsured.push(dir),
       writeFile: (path, content) => writes.push({ path, content }),
@@ -59,7 +59,7 @@ describe("installTicketsService", () => {
     expect(dirsEnsured).toEqual(["/home/x/.config/systemd/user"]);
     expect(writes).toHaveLength(1);
     expect(writes[0]?.path).toBe(unitPath);
-    expect(writes[0]?.content).toContain("ExecStart=/home/x/.bun/bin/bun run /opt/tickets/src/daemon/main.ts");
+    expect(writes[0]?.content).toContain("ExecStart=/home/x/.bun/bin/bun run /opt/tickets/src/process/main.ts");
     // Order matters: the unit file must exist on disk before daemon-reload,
     // and the daemon must be reloaded before systemd will accept enable/restart.
     expect(systemctlCalls).toEqual([
@@ -78,6 +78,6 @@ describe("installTicketsService", () => {
       runner: () => {},
     });
     expect(writes[0]?.content).toContain(`ExecStart=${process.execPath} run `);
-    expect(writes[0]?.content).toContain("src/daemon/main.ts");
+    expect(writes[0]?.content).toContain("src/process/main.ts");
   });
 });

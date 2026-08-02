@@ -64,14 +64,14 @@ import { listSecretsContributors, mergeSecretsContributions, runSecretsCommand }
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Envelope, TabbedContainer, type TextMeasure } from "malevich-tui-components";
-import { BackendTabGroupComponent } from "./backend-tab-group.js";
+import { BackendTabGroupComponent } from "./backends/backend-tab-group.js";
+import { activeScopedTab, handleHorizontalArrow, handleMnemonicJump, type ScopedTab } from "./backends/tab-dispatch.js";
 import { BoardTabComponent } from "./board-view.js";
-import { IssueDetailComponent } from "./issue-detail-view.js";
-import { IssueListComponent } from "./issue-list-view.js";
+import { IssueDetailComponent } from "./issues/issue-detail-view.js";
+import { IssueListComponent } from "./issues/issue-list-view.js";
 import { tabBarTheme } from "./menu-theme.js";
 import { pushView } from "./navigation.js";
-import { SavedQueryTabComponent } from "./saved-query-view.js";
-import { activeScopedTab, handleHorizontalArrow, handleMnemonicJump, type ScopedTab } from "./tab-dispatch.js";
+import { SavedQueryTabComponent } from "./saved-queries/saved-query-view.js";
 import { TICKETS_TOOL_PREFIXES } from "./vehicle-client.js";
 
 const BROWSE_LIMIT = 100;

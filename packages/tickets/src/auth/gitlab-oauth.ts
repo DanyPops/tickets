@@ -5,7 +5,7 @@
  * Requires a "non-confidential" GitLab OAuth application (no client secret
  * for this flow, same shape as GitHub's device flow / RFC 8628).
  */
-import type { FetchLike } from "../adapters/http.js";
+import type { FetchLike } from "../http-client.js";
 import { type DeviceFlowConfig, type DeviceFlowToken, type PollOptions, pollForToken, requestDeviceAuthorization } from "./device-flow.js";
 import type { DevicePrompt } from "./github-oauth.js";
 

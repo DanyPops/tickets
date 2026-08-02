@@ -17,7 +17,7 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { FetchLike } from "../adapters/http.js";
+import type { FetchLike } from "../http-client.js";
 
 export const ATLASSIAN_AUTHORIZE_URL = "https://auth.atlassian.com/authorize";
 export const ATLASSIAN_TOKEN_URL = "https://auth.atlassian.com/oauth/token";

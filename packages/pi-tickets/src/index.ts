@@ -2,7 +2,7 @@
  * pi-tickets — exposes the tickets daemon (GitHub/GitLab/Jira issue tracking)
  * two ways: real per-operation Pi tools (issue_list, focus_set,
  * discover_fields, ...) projected from the daemon's own VehicleRegistry
- * (see vehicle-client.ts and @danypops/tickets' src/vehicle/tickets-vehicle.ts),
+ * (see vehicle-client.ts and @danypops/tickets' src/agent-tools/tickets-vehicle.ts),
  * and a `/tickets` interactive TUI for the human (see tui.ts) — a browsable
  * list of pooled issues across every backend, with a persistent footer status
  * showing the current focus. Neither ever talks to a backend or opens the

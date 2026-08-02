@@ -23,7 +23,7 @@ import {
   Spinner,
   type TextMeasure,
 } from "malevich-tui-components";
-import { SavedQueryPickerComponent } from "./saved-query-picker.js";
+import { SavedQueryPickerComponent } from "./saved-queries/saved-query-picker.js";
 
 const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 /** malevich's KeyMatcher takes a plain string keyId; pi-tui's matchesKey narrows it to its own closed KeyId union -- Board only ever calls this with the fixed small set ('up'/'down'/'left'/'right'/'enter'/'escape') that's a real KeyId, so the cast is safe. */

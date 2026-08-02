@@ -1,7 +1,3 @@
-export * from "./adapters/errors.js";
-export { type GitHubOptions, GitHubRepository } from "./adapters/github.js";
-export { type GitLabOptions, GitLabRepository } from "./adapters/gitlab.js";
-export { type JiraOptions, JiraRepository } from "./adapters/jira.js";
 export { NotSupportedError, TicketService, UnknownBackendError } from "./application/service.js";
 export { openUrl } from "./auth/browser.js";
 // Delegated OAuth (device flow for GitHub/GitLab, authorization code for Jira)
@@ -19,7 +15,7 @@ export {
   type TicketsRpcClient,
   ticketsPaths,
   type VehicleClientTarget,
-} from "./client/tickets-client.js";
+} from "./cli/tickets-client.js";
 export {
   type BackendConfig,
   buildRepositories,
@@ -28,7 +24,11 @@ export {
   defaultConfigPath,
   loadConfig,
 } from "./config/config.js";
-export type { FocusStatus, TicketFocusState } from "./daemon/focus.js";
-export type { TicketOperation, TicketOpInputs, TicketOpOutputs } from "./daemon/ops.js";
+export * from "./domain/errors.js";
 export * from "./domain/issue.js";
-export * from "./ports/repository.js";
+export * from "./domain/repository.js";
+export { type GitHubOptions, GitHubRepository } from "./github/github.js";
+export { type GitLabOptions, GitLabRepository } from "./gitlab/gitlab.js";
+export { type JiraOptions, JiraRepository } from "./jira/jira.js";
+export type { TicketOperation, TicketOpInputs, TicketOpOutputs } from "./rpc/ops.js";
+export type { FocusStatus, TicketFocusState } from "./sqlite/focus.js";

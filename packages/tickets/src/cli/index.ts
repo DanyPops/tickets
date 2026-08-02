@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * The tickets CLI is a thin client of the tickets daemon: every command maps
- * 1:1 to a daemon RPC op (see daemon/ops.ts and daemon/server.ts), the same
+ * 1:1 to a daemon RPC op (see rpc/ops.ts and rpc/server.ts), the same
  * ops the pi-tickets extension calls. Nothing here opens the daemon's SQLite
  * ledger or a backend adapter directly.
  */
@@ -13,10 +13,10 @@ import { loginWithGitLabDeviceFlow } from "../auth/gitlab-oauth.js";
 import { loginWithJiraAuthorizationCode } from "../auth/jira-oauth.js";
 import { promptMaskedSecret } from "../auth/masked-prompt.js";
 import { deleteToken, isTokenFresh, listStoredBackends, loadToken, saveToken } from "../auth/token-store.js";
-import { createTicketsClient, type TicketsRpcClient } from "../client/tickets-client.js";
 import type { CreateInput, ListFilter, Priority, Status, UpdateInput } from "../domain/issue.js";
 import { parseStatus } from "../domain/issue.js";
 import { installTicketsService, systemctlTickets, systemdUnitPath } from "./systemd-service.js";
+import { createTicketsClient, type TicketsRpcClient } from "./tickets-client.js";
 
 function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
