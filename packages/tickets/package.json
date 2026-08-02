@@ -1,6 +1,6 @@
 {
   "name": "@danypops/tickets",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "description": "Unified CLI, daemon, and TypeScript library for issue tracking across GitHub, GitLab, and Jira.",
   "type": "module",
   "license": "MIT",
@@ -24,9 +24,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@danypops/vehicle-core": "^0.1.1",
-    "@danypops/vehicle-server": "^0.2.1",
-    "@danypops/vehicle-client": "^0.1.1",
+    "@danypops/vehicle-core": "^0.10.0",
+    "@danypops/vehicle-server": "^0.13.0",
+    "@danypops/vehicle-client": "^0.5.0",
     "@danypops/enigma-client": "^0.3.0",
     "@gitbeaker/rest": "^43.8.0",
     "commander": "^12.1.0",
