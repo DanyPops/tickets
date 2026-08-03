@@ -285,9 +285,12 @@ export function syncDiscoverAvailability(registry: VehicleRegistry, service: Tic
 export function createTicketsVehicleRegistry(deps: Omit<TicketsAppDeps, "vehicleRegistry">): VehicleRegistry {
   const registry = new VehicleRegistry({
     name: "tickets",
-    version: "1.0.0",
+    version: deps.version,
     description: "Unified issue tracking across GitHub, GitLab, and Jira.",
   });
+  // setExposeHandlerFailureDetails left off: ApiError (issue/errors.ts) embeds the raw HTTP
+  // response body, untrusted external content from GitHub/GitLab/Jira. No error-parity wrapper
+  // here either -- TICKET_OP_HANDLERS' real errors reach the registry's own catch-all as-is.
 
   for (const spec of OPERATIONS) {
     const operation = defineVehicleOperation({

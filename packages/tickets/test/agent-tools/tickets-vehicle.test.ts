@@ -40,6 +40,11 @@ function harness() {
 }
 
 describe("createTicketsVehicleRegistry", () => {
+  it("reports the real deps.version in the manifest identity, not a hardcoded placeholder", () => {
+    const { registry } = harness();
+    expect(registry.manifest().version).toBe("0.0.0-test");
+  });
+
   it("registers every real ticket operation, dotted names preserved, daemon.shutdown deliberately excluded", () => {
     const { registry } = harness();
     const names = registry
