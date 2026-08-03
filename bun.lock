@@ -15,12 +15,12 @@
     },
     "packages/pi-tickets": {
       "name": "@danypops/pi-tickets",
-      "version": "0.19.5",
+      "version": "0.19.7",
       "dependencies": {
-        "@danypops/tickets": "^0.8.0",
+        "@danypops/tickets": "^0.8.6",
         "@danypops/vehicle-client": "^0.5.0",
         "@danypops/vehicle-client-pi": "^0.15.0",
-        "@danypops/vehicle-core": "^0.11.0",
+        "@danypops/vehicle-core": "^0.12.1",
         "malevich-tui-components": "0.19.1",
         "typebox": "^1.1.34",
       },
@@ -36,7 +36,7 @@
     },
     "packages/tickets": {
       "name": "@danypops/tickets",
-      "version": "0.8.4",
+      "version": "0.8.6",
       "bin": {
         "tickets": "./src/cli/index.ts",
         "tickets-daemon": "./src/process/main.ts",
@@ -44,8 +44,8 @@
       "dependencies": {
         "@danypops/enigma-client": "^0.3.0",
         "@danypops/vehicle-client": "^0.5.0",
-        "@danypops/vehicle-core": "^0.11.0",
-        "@danypops/vehicle-server": "^0.16.0",
+        "@danypops/vehicle-core": "^0.12.1",
+        "@danypops/vehicle-server": "^0.17.0",
         "@gitbeaker/rest": "^43.8.0",
         "commander": "^12.1.0",
         "jira.js": "^5.4.0",
@@ -148,9 +148,9 @@
 
     "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.15.0", "", { "dependencies": { "@danypops/vehicle-client": "^0.5.0", "@danypops/vehicle-core": "^0.10.0", "@danypops/vehicle-server": "^0.11.0", "malevich-tui-components": "^0.19.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-hfSE/MozKZr3SYm7rM7UndtkANVNEERKo8SUtMthc0959TSs8EmgPepJzYAIbEO0mlMvrCzGWLd07BnafRUMhw=="],
 
-    "@danypops/vehicle-core": ["@danypops/vehicle-core@0.11.0", "", {}, "sha512-tgWknuwRm6xjn8e6kHEbbXRjnDmfQuQwW+k/93e/0RNBoHEoSPNgyHQ9xVnSzCicv0Hf1ytozReGQmGu/tJBaw=="],
+    "@danypops/vehicle-core": ["@danypops/vehicle-core@0.12.3", "", {}, "sha512-rKq/hxtqCXzauGjshd35GyJnr6l71aBfm0KWMvy2YWlysEHXKi2wvCwBKF93uYLKz4x+NCoslbPBDfHVMujtMQ=="],
 
-    "@danypops/vehicle-server": ["@danypops/vehicle-server@0.16.0", "", { "dependencies": { "@danypops/armada": "^0.2.0", "@danypops/vehicle-core": "^0.11.0", "pino": "^10.3.1" } }, "sha512-E1qkw80XF8xYgXAJTtbo8WrV/Xmw/bPNjdPy6pAButHjKStLjq1mrLhQGPjLQBDk1PVXtUdbCX3TJoKdr5I+tQ=="],
+    "@danypops/vehicle-server": ["@danypops/vehicle-server@0.17.1", "", { "dependencies": { "@danypops/armada": "^0.2.0", "@danypops/vehicle-core": "^0.12.3", "pino": "^10.3.1" } }, "sha512-r+w8KWYFrW3vC5qSV9TXIvyMBKrCxCsBtR0MIZjGUqV1DEzvjnKs/Cx4a/rj7zTLH5ij0bjoMCGePpTIFT2xTg=="],
 
     "@earendil-works/pi-agent-core": ["@earendil-works/pi-agent-core@0.82.1", "", { "dependencies": { "@earendil-works/pi-ai": "^0.82.1", "diff": "8.0.4", "ignore": "7.0.5", "typebox": "1.1.38", "yaml": "2.9.0" } }, ""],
 

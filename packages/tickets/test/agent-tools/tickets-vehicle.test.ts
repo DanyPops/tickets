@@ -159,15 +159,12 @@ describe("createTicketsVehicleRegistry", () => {
     await expect(registry.invoke("issue.get", 1, {}, PERMS)).rejects.toThrow();
   });
 
-  it("rejects an unknown backend -- the real UnknownBackendError survives as the wrapped VehicleError's cause, not swallowed", async () => {
+  it("maps an unknown backend to validation instead of a generic internal failure", async () => {
     const { registry } = harness();
-    try {
-      await registry.invoke("issue.list", 1, { backend: "not-configured" }, PERMS);
-      throw new Error("expected invoke to reject");
-    } catch (error) {
-      expect((error as Error).message).toContain("handler failed");
-      expect(((error as Error).cause as Error)?.message).toMatch(/unknown backend/);
-    }
+    const failure = await registry.invoke("issue.list", 1, { backend: "not-configured" }, PERMS).catch((error: unknown) => error);
+    expect((failure as { category?: string }).category).toBe("validation");
+    expect((failure as { code?: string }).code).toBe("operation-rejected");
+    expect((failure as Error).message).toMatch(/unknown backend/);
   });
 
   it("query.save/list/run/remove round-trip a saved query through the real SavedQueryStore and TicketService", async () => {

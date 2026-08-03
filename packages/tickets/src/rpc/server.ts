@@ -11,12 +11,12 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
-import { AuthRequiredError, IssueNotFoundError } from "../issue/errors.js";
 import { parseRef } from "../issue/issue.js";
-import { NotSupportedError, type TicketService, UnknownBackendError } from "../issue/service.js";
+import type { TicketService } from "../issue/service.js";
 import { FocusError, type FocusStore } from "../sqlite/focus.js";
 import type { Ledger } from "../sqlite/ledger.js";
 import { SavedQueryNotFoundError, type SavedQueryStore } from "../sqlite/saved-queries.js";
+import { statusForKnownTicketError } from "./error-status.js";
 import { TICKET_OPERATIONS, type TicketOperation, type TicketOpInputs, type TicketOpOutputs } from "./ops.js";
 
 export interface TicketsAppDeps {
@@ -117,10 +117,7 @@ function isTicketOperation(value: unknown): value is TicketOperation {
 }
 
 function statusFor(error: unknown): number {
-  if (error instanceof IssueNotFoundError || error instanceof SavedQueryNotFoundError) return 404;
-  if (error instanceof UnknownBackendError || error instanceof NotSupportedError || error instanceof FocusError) return 400;
-  if (error instanceof AuthRequiredError) return 422;
-  return 500;
+  return statusForKnownTicketError(error) ?? 500;
 }
 
 export function buildApp(deps: TicketsAppDeps): { fetch(request: Request): Promise<Response> } {
