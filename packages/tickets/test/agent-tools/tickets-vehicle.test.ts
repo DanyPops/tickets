@@ -7,9 +7,38 @@ import { TICKET_OPERATIONS, type TicketOperation } from "../../src/rpc/ops.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";
+import { StageStore } from "../../src/stage/store.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
 const PERMS = { permissions: ["tickets:read", "tickets:write"] };
+const PERMS_WITH_APPROVAL = { permissions: ["tickets:read", "tickets:write", "vehicle:approvals:resolve"] };
+
+/**
+ * Drives a gated operation through the real approval-required/resolve dance
+ * this environment's tickets-vehicle.ts turns on via configureApprovals():
+ * invoke() once (expecting approval-required), grant it through
+ * vehicle.approval.resolve, then retry with the minted capability -- the
+ * same sequence registerVehicleTools' own ctx.ui.confirm() dance performs
+ * automatically for a real Pi session with a human at the keyboard.
+ */
+async function invokeApproved(
+  registry: ReturnType<typeof harness>["registry"],
+  name: string,
+  input: Record<string, unknown>,
+): Promise<unknown> {
+  const failure = await registry.invoke(name, 1, input, PERMS).then(
+    () => {
+      throw new Error(`expected ${name} to require approval`);
+    },
+    (error: unknown) => error as { details?: { requestId?: string } },
+  );
+  const requestId = failure.details?.requestId;
+  if (!requestId) throw new Error(`expected a requestId in ${name}'s approval-required failure`);
+  const resolved = (await registry.invoke("vehicle.approval.resolve", 1, { requestId, decision: "granted" }, PERMS_WITH_APPROVAL)) as {
+    capability?: string;
+  };
+  return registry.invoke(name, 1, input, { ...PERMS, approvalCapability: resolved.capability });
+}
 
 let db: Database | undefined;
 
@@ -23,6 +52,7 @@ function harness() {
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
+  const stageStore = new StageStore();
   const github = new FakeRepository("github", [
     {
       ref: "github:#1",
@@ -35,8 +65,16 @@ function harness() {
     },
   ]);
   const service = new TicketService({ github });
-  const registry = createTicketsVehicleRegistry({ service, ledger, focusStore, queries, token: "test-token", version: "0.0.0-test" });
-  return { registry, service, ledger, focusStore, queries };
+  const registry = createTicketsVehicleRegistry({
+    service,
+    ledger,
+    focusStore,
+    queries,
+    stageStore,
+    token: "test-token",
+    version: "0.0.0-test",
+  });
+  return { registry, service, ledger, focusStore, queries, stageStore };
 }
 
 describe("createTicketsVehicleRegistry", () => {
@@ -51,7 +89,10 @@ describe("createTicketsVehicleRegistry", () => {
       .manifest()
       .operations.map((op) => op.name)
       .sort();
-    const expected = TICKET_OPERATIONS.filter((op) => op !== "daemon.shutdown").sort();
+    // vehicle.approval.resolve is VehicleRegistry's own built-in, registered by
+    // configureApprovals() -- never a tickets operation itself, and (per
+    // vehicle-client-pi's own exclusion) never projected as a callable Pi tool.
+    const expected = [...TICKET_OPERATIONS.filter((op) => op !== "daemon.shutdown"), "vehicle.approval.resolve"].sort();
     expect(names).toEqual(expected);
     expect(names).not.toContain("daemon.shutdown");
   });
@@ -75,6 +116,14 @@ describe("createTicketsVehicleRegistry", () => {
     expect(effectOf("issue.comment_add")).toBe("external-write");
     expect(effectOf("focus.set")).toBe("local-write");
     expect(effectOf("focus.clear")).toBe("local-write");
+    // Drafting is free: staging and editing a draft never touch a live backend.
+    expect(effectOf("stage.add")).toBe("local-write");
+    expect(effectOf("stage.list")).toBe("read");
+    expect(effectOf("stage.show")).toBe("read");
+    expect(effectOf("stage.patch")).toBe("local-write");
+    expect(effectOf("stage.drop")).toBe("local-write");
+    // Committing is not: pushing a staged payload is the same real write issue.create/update/comment_add are.
+    expect(effectOf("stage.push")).toBe("external-write");
   });
 
   it("marks every read operation safely idempotent and every write operation unsafe", () => {
@@ -105,11 +154,20 @@ describe("createTicketsVehicleRegistry", () => {
     const ledger = new Ledger(db);
     const focusStore = new FocusStore(db);
     const queries = new SavedQueryStore(db);
+    const stageStore = new StageStore();
     const jira = new FakeRepository("jira", [
       { ref: "jira:PROJ-1", id: "1", key: "PROJ-1", title: "First", status: "todo", priority: "none", url: "https://example/PROJ-1" },
     ]);
     const service = new TicketService({ jira });
-    const registry = createTicketsVehicleRegistry({ service, ledger, focusStore, queries, token: "test-token", version: "0.0.0-test" });
+    const registry = createTicketsVehicleRegistry({
+      service,
+      ledger,
+      focusStore,
+      queries,
+      stageStore,
+      token: "test-token",
+      version: "0.0.0-test",
+    });
 
     await registry.invoke("issue.list", 1, { backend: "jira", project: "ENG", status: "todo", limit: 5 }, PERMS);
 
@@ -139,9 +197,18 @@ describe("createTicketsVehicleRegistry", () => {
     expect(afterClear.focus).toBeNull();
   });
 
-  it("issue.create performs a real, externally-visible write through the fake backend", async () => {
+  it("issue.create requires approval before it commits -- a bare call with no capability gets approval-required, not the real write", async () => {
     const { registry } = harness();
-    const result = (await registry.invoke("issue.create", 1, { backend: "github", input: { title: "New one" } }, PERMS)) as {
+    await expect(registry.invoke("issue.create", 1, { backend: "github", input: { title: "New one" } }, PERMS)).rejects.toMatchObject({
+      code: "approval-required",
+    });
+    const listed = (await registry.invoke("issue.list", 1, { backend: "github" }, PERMS)) as { issues: { title: string }[] };
+    expect(listed.issues.map((i) => i.title)).not.toContain("New one");
+  });
+
+  it("issue.create performs a real, externally-visible write through the fake backend once approved", async () => {
+    const { registry } = harness();
+    const result = (await invokeApproved(registry, "issue.create", { backend: "github", input: { title: "New one" } })) as {
       issue: { title: string; ref: string };
     };
     expect(result.issue.title).toBe("New one");
@@ -242,10 +309,73 @@ describe("createTicketsVehicleRegistry", () => {
       "query.list": [],
       "query.remove": ["name"],
       "query.run": ["name", "limit"],
+      "stage.add": ["payload"],
+      "stage.list": [],
+      "stage.show": ["id"],
+      "stage.patch": ["id", "fields"],
+      "stage.drop": ["id"],
+      "stage.push": ["id"],
     };
     for (const [op, expected] of Object.entries(EXPECTED_PROPERTIES)) {
       const schema = registry.manifest().operations.find((o) => o.name === op)?.inputSchema as { properties?: Record<string, unknown> };
       expect(Object.keys(schema?.properties ?? {}).sort()).toEqual([...expected].sort());
     }
+  });
+});
+
+describe("staging: drafting is free, committing requires approval", () => {
+  it("stage.add/list/show/patch/drop never require approval -- no capability needed, they never fail with approval-required", async () => {
+    const { registry } = harness();
+    const added = (await registry.invoke("stage.add", 1, { payload: { kind: "comment", ref: "github:#1", body: "draft" } }, PERMS)) as {
+      item: { id: string };
+    };
+    await registry.invoke("stage.list", 1, {}, PERMS);
+    await registry.invoke("stage.show", 1, { id: added.item.id }, PERMS);
+    await registry.invoke("stage.patch", 1, { id: added.item.id, fields: { body: "revised draft" } }, PERMS);
+    const dropped = (await registry.invoke("stage.drop", 1, { id: added.item.id }, PERMS)) as { dropped: boolean };
+    expect(dropped.dropped).toBe(true);
+  });
+
+  it("stage.push requires approval before it commits, exactly like a direct issue.create call", async () => {
+    const { registry } = harness();
+    const added = (await registry.invoke(
+      "stage.add",
+      1,
+      { payload: { kind: "create", backend: "github", input: { title: "Staged" } } },
+      PERMS,
+    )) as {
+      item: { id: string };
+    };
+    await expect(registry.invoke("stage.push", 1, { id: added.item.id }, PERMS)).rejects.toMatchObject({ code: "approval-required" });
+    const listed = (await registry.invoke("issue.list", 1, { backend: "github" }, PERMS)) as { issues: { title: string }[] };
+    expect(listed.issues.map((i) => i.title)).not.toContain("Staged");
+  });
+
+  it("a too-verbose staged comment can be revised for free before it's ever committed, then commits only once approved", async () => {
+    const { registry, stageStore } = harness();
+    const staged = stageStore.add({ kind: "comment", ref: "github:#1", body: "way too verbose, needs trimming" });
+
+    await registry.invoke("stage.patch", 1, { id: staged.id, fields: { body: "concise" } }, PERMS);
+
+    const result = (await invokeApproved(registry, "stage.push", { id: staged.id })) as { result: { comment: { body: string } } };
+    expect(result.result.comment.body).toBe("concise");
+    expect(stageStore.list()).toEqual([]);
+  });
+
+  it("a denied approval leaves the staged item in place, still editable and re-pushable", async () => {
+    const { registry, stageStore } = harness();
+    const staged = stageStore.add({ kind: "comment", ref: "github:#1", body: "draft" });
+
+    const failure = await registry.invoke("stage.push", 1, { id: staged.id }, PERMS).then(
+      () => {
+        throw new Error("expected approval-required");
+      },
+      (error: unknown) => error as { details?: { requestId?: string } },
+    );
+    const requestId = failure.details?.requestId;
+    await registry.invoke("vehicle.approval.resolve", 1, { requestId, decision: "denied" }, PERMS_WITH_APPROVAL);
+
+    expect(stageStore.list().map((item) => item.id)).toEqual([staged.id]);
+    await expect(registry.invoke("stage.push", 1, { id: staged.id }, PERMS)).rejects.toMatchObject({ code: "approval-required" });
   });
 });

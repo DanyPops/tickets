@@ -16,8 +16,9 @@ import type { TicketService } from "../issue/service.js";
 import { FocusError, type FocusStore } from "../sqlite/focus.js";
 import type { Ledger } from "../sqlite/ledger.js";
 import { SavedQueryNotFoundError, type SavedQueryStore } from "../sqlite/saved-queries.js";
+import type { StagePayload, StageStore } from "../stage/store.js";
 import { statusForKnownTicketError } from "./error-status.js";
-import { TICKET_OPERATIONS, type TicketOperation, type TicketOpInputs, type TicketOpOutputs } from "./ops.js";
+import { type StagePushResult, TICKET_OPERATIONS, type TicketOperation, type TicketOpInputs, type TicketOpOutputs } from "./ops.js";
 
 export interface TicketsAppDeps {
   service: TicketService;
@@ -43,6 +44,7 @@ export interface TicketsAppDeps {
    * from this file).
    */
   vehicleRegistry: VehicleRegistry;
+  stageStore: StageStore;
 }
 
 // Narrower than TicketsAppDeps on purpose: no real handler reads
@@ -104,6 +106,20 @@ export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
     if (!saved) throw new SavedQueryNotFoundError(input.name);
     return { issues: await deps.service.runQuery(saved.backend, saved.query, input.limit) };
   },
+  "stage.add": async (deps, input) => ({ item: deps.stageStore.add(input.payload) }),
+  "stage.list": async (deps) => ({ items: deps.stageStore.list() }),
+  "stage.show": async (deps, input) => ({ item: deps.stageStore.show(input.id) }),
+  "stage.patch": async (deps, input) => ({ item: deps.stageStore.patch(input.id, input.fields) }),
+  "stage.drop": async (deps, input) => ({ dropped: deps.stageStore.drop(input.id) }),
+  "stage.push": async (deps, input) => {
+    // Left staged (not dropped) on a live-write failure -- e.g. a field that
+    // failed backend validation -- so it can be patched and retried, per
+    // this feature's own emcee-ported motivation.
+    const item = deps.stageStore.show(input.id);
+    const result = await pushStagedPayload(deps, item.payload);
+    deps.stageStore.drop(item.id);
+    return { result };
+  },
   "daemon.shutdown": async (deps) => {
     // Deferred so this handler's own response has already been handed back
     // to Bun.serve before the process starts tearing down.
@@ -111,6 +127,22 @@ export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
     return { stopping: true };
   },
 };
+
+/** stage.push's real dispatch: whichever live op a staged payload's kind maps to, never reimplemented -- same TicketService methods issue.create/issue.update/issue.comment_add already call. */
+async function pushStagedPayload(deps: Omit<TicketsAppDeps, "vehicleRegistry">, payload: StagePayload): Promise<StagePushResult> {
+  switch (payload.kind) {
+    case "create":
+      return { issue: await deps.service.create(payload.backend, payload.input) };
+    case "update":
+      return { issue: await deps.service.update(payload.ref, payload.input) };
+    case "comment":
+      return { comment: await deps.service.addComment(payload.ref, payload.body) };
+    default: {
+      const _exhaustive: never = payload;
+      throw new Error(`unhandled staged payload kind: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
+}
 
 function isTicketOperation(value: unknown): value is TicketOperation {
   return typeof value === "string" && (TICKET_OPERATIONS as string[]).includes(value);

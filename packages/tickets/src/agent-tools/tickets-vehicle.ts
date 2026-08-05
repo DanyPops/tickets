@@ -236,6 +236,51 @@ const OPERATIONS: readonly OperationSpec[] = [
     properties: { name: stringProp, limit: numberProp },
     required: ["name"],
   },
+  {
+    action: "stage.add",
+    description:
+      "Stages a create/update/comment payload locally for review -- no live backend call. Free: never gated by the approval requirement stage.push carries.",
+    effect: "local-write",
+    properties: { payload: { type: "object" } },
+    required: ["payload"],
+  },
+  {
+    action: "stage.list",
+    description: "Lists every currently staged (not yet pushed) payload.",
+    effect: "read",
+    properties: {},
+    required: [],
+  },
+  {
+    action: "stage.show",
+    description: "Shows one staged payload by id.",
+    effect: "read",
+    properties: { id: stringProp },
+    required: ["id"],
+  },
+  {
+    action: "stage.patch",
+    description:
+      "Edits a staged payload's text fields in place before pushing it -- e.g. fixing a field that would otherwise fail backend validation.",
+    effect: "local-write",
+    properties: { id: stringProp, fields: { type: "object" } },
+    required: ["id", "fields"],
+  },
+  {
+    action: "stage.drop",
+    description: "Discards a staged payload without ever sending it to a live backend.",
+    effect: "local-write",
+    properties: { id: stringProp },
+    required: ["id"],
+  },
+  {
+    action: "stage.push",
+    description:
+      "Commits a staged payload to its live backend (create, update, or comment) -- a real, externally visible write, gated the same as issue.create/issue.update/issue.comment_add.",
+    effect: "external-write",
+    properties: { id: stringProp },
+    required: ["id"],
+  },
 ];
 
 /**
@@ -301,6 +346,13 @@ export function createTicketsVehicleRegistry(deps: Omit<TicketsAppDeps, "vehicle
   });
   // Every handler passes through the reviewed mapper above; unmatched failures stay redacted.
   registry.setExposeHandlerFailureDetails(true);
+  // Drafting (stage.add/list/show/patch/drop) stays local-write/read -- free,
+  // never gated. Committing a write to a live backend -- issue.create,
+  // issue.update, issue.comment_add, or stage.push landing a staged payload --
+  // is external-write, and this is what actually turns the gate on for that
+  // effect: registerVehicleTools' own ctx.ui.confirm() dance (see @danypops/vehicle-client-pi)
+  // then requires a real human decision before any of those four run.
+  registry.configureApprovals({ requireApprovalForEffects: ["destructive", "open-world", "external-write"] });
   for (const spec of OPERATIONS) {
     const operation = defineVehicleOperation({
       name: spec.action,

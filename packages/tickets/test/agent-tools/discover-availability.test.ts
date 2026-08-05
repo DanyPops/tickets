@@ -6,6 +6,7 @@ import { TicketService } from "../../src/issue/service.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";
+import { StageStore } from "../../src/stage/store.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
 /** Implements every discover.* optional capability, unlike FakeRepository -- proves availability tracks real capability, not a hardcoded "jira" name. */
@@ -41,8 +42,17 @@ function harness(repos: Record<string, FakeRepository>) {
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
+  const stageStore = new StageStore();
   const service = new TicketService(repos);
-  const registry = createTicketsVehicleRegistry({ service, ledger, focusStore, queries, token: "test-token", version: "0.0.0-test" });
+  const registry = createTicketsVehicleRegistry({
+    service,
+    ledger,
+    focusStore,
+    queries,
+    stageStore,
+    token: "test-token",
+    version: "0.0.0-test",
+  });
   return { registry, service };
 }
 

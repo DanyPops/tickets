@@ -19,6 +19,7 @@ import { buildApp, type TicketsAppDeps } from "../rpc/server.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../sqlite/saved-queries.js";
+import { StageStore } from "../stage/store.js";
 import { createSyncTask } from "./poller.js";
 
 export interface BootstrapOptions {
@@ -52,6 +53,7 @@ export interface BootstrappedDaemon {
   ledger: Ledger;
   focusStore: FocusStore;
   queries: SavedQueryStore;
+  stageStore: StageStore;
   service: TicketService;
   options: StartDaemonOptions;
 }
@@ -67,6 +69,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
+  const stageStore = new StageStore();
   const logger = opts.logger ?? createLogger("tickets-daemon", { levelEnvVar: "TICKETS_LOG_LEVEL" });
   const config = opts.config ?? loadConfig();
   const buildRepos = opts.buildRepositories ?? buildRepositories;
@@ -84,6 +87,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
     ledger,
     focusStore,
     queries,
+    stageStore,
     token,
     version,
     logger,
@@ -122,6 +126,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
         ledger,
         focusStore,
         queries,
+        stageStore,
         token,
         version,
         logger,
@@ -133,5 +138,5 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
     },
   };
 
-  return { db, ledger, focusStore, queries, service, options };
+  return { db, ledger, focusStore, queries, stageStore, service, options };
 }

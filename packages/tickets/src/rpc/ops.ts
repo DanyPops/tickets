@@ -8,6 +8,7 @@ import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../is
 import type { Template } from "../issue/template.js";
 import type { TicketFocusState } from "../sqlite/focus.js";
 import type { SavedQuery } from "../sqlite/saved-queries.js";
+import type { StagedItem, StagePatchFields, StagePayload } from "../stage/store.js";
 
 export type TicketOperation =
   | "backends.list"
@@ -35,6 +36,12 @@ export type TicketOperation =
   | "query.list"
   | "query.remove"
   | "query.run"
+  | "stage.add"
+  | "stage.list"
+  | "stage.show"
+  | "stage.patch"
+  | "stage.drop"
+  | "stage.push"
   | "daemon.shutdown";
 
 export interface TicketOpInputs extends Record<TicketOperation, unknown> {
@@ -63,8 +70,17 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "query.list": Record<string, never>;
   "query.remove": { name: string };
   "query.run": { name: string; limit?: number };
+  "stage.add": { payload: StagePayload };
+  "stage.list": Record<string, never>;
+  "stage.show": { id: string };
+  "stage.patch": { id: string; fields: StagePatchFields };
+  "stage.drop": { id: string };
+  "stage.push": { id: string };
   "daemon.shutdown": Record<string, never>;
 }
+
+/** stage.push's own output shape -- whichever real op the staged payload's kind maps to (issue.create/issue.update/issue.comment_add). */
+export type StagePushResult = { issue: Issue } | { comment: Comment };
 
 export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
   "backends.list": { backends: { name: string; supportsRawQuery: boolean }[] };
@@ -92,6 +108,12 @@ export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
   "query.list": { queries: SavedQuery[] };
   "query.remove": { removed: boolean };
   "query.run": { issues: Issue[] };
+  "stage.add": { item: StagedItem };
+  "stage.list": { items: StagedItem[] };
+  "stage.show": { item: StagedItem };
+  "stage.patch": { item: StagedItem };
+  "stage.drop": { dropped: boolean };
+  "stage.push": { result: StagePushResult };
   "daemon.shutdown": { stopping: true };
 }
 
@@ -121,6 +143,12 @@ export const TICKET_OPERATIONS: TicketOperation[] = [
   "query.list",
   "query.remove",
   "query.run",
+  "stage.add",
+  "stage.list",
+  "stage.show",
+  "stage.patch",
+  "stage.drop",
+  "stage.push",
   "daemon.shutdown",
 ];
 

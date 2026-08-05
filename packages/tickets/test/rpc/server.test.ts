@@ -7,6 +7,7 @@ import { buildApp } from "../../src/rpc/server.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";
+import { StageStore } from "../../src/stage/store.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
 const TOKEN = "test-token";
@@ -22,6 +23,7 @@ function makeApp() {
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
+  const stageStore = new StageStore();
   const github = new FakeRepository("github", [
     {
       ref: "github:#1",
@@ -34,9 +36,9 @@ function makeApp() {
     },
   ]);
   const service = new TicketService({ github });
-  const baseDeps = { service, ledger, focusStore, queries, token: TOKEN, version: "0.0.0-test" };
+  const baseDeps = { service, ledger, focusStore, queries, stageStore, token: TOKEN, version: "0.0.0-test" };
   const app = buildApp({ ...baseDeps, vehicleRegistry: createTicketsVehicleRegistry(baseDeps) });
-  return { app, ledger, focusStore, queries, service };
+  return { app, ledger, focusStore, queries, stageStore, service };
 }
 
 function req(path: string, init: RequestInit = {}, token = TOKEN): Request {
@@ -200,6 +202,7 @@ describe("daemon HTTP surface", () => {
     const ledger = new Ledger(db);
     const focusStore = new FocusStore(db);
     const queries = new SavedQueryStore(db);
+    const stageStore = new StageStore();
     const service = new TicketService({});
     let calls = 0;
     const baseDeps = {
@@ -207,6 +210,7 @@ describe("daemon HTTP surface", () => {
       ledger,
       focusStore,
       queries,
+      stageStore,
       token: TOKEN,
       version: "0.0.0-test",
       onShutdownRequested: () => {
@@ -281,5 +285,104 @@ describe("daemon HTTP surface", () => {
     const listRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "query.list", input: {} }) }));
     const listBody = (await listRes.json()) as { result: { queries: unknown[] } };
     expect(listBody.result.queries).toEqual([]);
+  });
+
+  it("stage.add then stage.show round-trips a staged create payload", async () => {
+    const { app } = makeApp();
+    const payload = { kind: "create", backend: "github", input: { title: "Draft issue" } };
+    const addRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "stage.add", input: { payload } }) }));
+    expect(addRes.status).toBe(200);
+    const addBody = (await addRes.json()) as { result: { item: { id: string; payload: unknown } } };
+    expect(addBody.result.item.payload).toEqual(payload);
+
+    const showRes = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "stage.show", input: { id: addBody.result.item.id } }) }),
+    );
+    const showBody = (await showRes.json()) as { result: { item: { id: string } } };
+    expect(showBody.result.item.id).toBe(addBody.result.item.id);
+  });
+
+  it("stage.list lists everything currently staged; stage.drop removes one item", async () => {
+    const { app } = makeApp();
+    const add = async (body: string) =>
+      (
+        (await app
+          .fetch(
+            req("/api/v1/ops", {
+              method: "POST",
+              body: JSON.stringify({ op: "stage.add", input: { payload: { kind: "comment", ref: "github:#1", body } } }),
+            }),
+          )
+          .then((res) => res.json())) as { result: { item: { id: string } } }
+      ).result.item;
+    const first = await add("draft one");
+    await add("draft two");
+
+    const listRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "stage.list", input: {} }) }));
+    const listBody = (await listRes.json()) as { result: { items: unknown[] } };
+    expect(listBody.result.items).toHaveLength(2);
+
+    const dropRes = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "stage.drop", input: { id: first.id } }) }),
+    );
+    const dropBody = (await dropRes.json()) as { result: { dropped: boolean } };
+    expect(dropBody.result.dropped).toBe(true);
+
+    const afterRes = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "stage.list", input: {} }) }));
+    const afterBody = (await afterRes.json()) as { result: { items: unknown[] } };
+    expect(afterBody.result.items).toHaveLength(1);
+  });
+
+  it("stage.patch edits a staged payload's text fields in place before it's pushed", async () => {
+    const { app } = makeApp();
+    const addRes = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "stage.add", input: { payload: { kind: "comment", ref: "github:#1", body: "too verbose comment" } } }),
+      }),
+    );
+    const addBody = (await addRes.json()) as { result: { item: { id: string } } };
+
+    const patchRes = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "stage.patch", input: { id: addBody.result.item.id, fields: { body: "concise comment" } } }),
+      }),
+    );
+    expect(patchRes.status).toBe(200);
+    const patchBody = (await patchRes.json()) as { result: { item: { payload: { body: string } } } };
+    expect(patchBody.result.item.payload.body).toBe("concise comment");
+  });
+
+  it("stage.show on an unknown id maps to 404, same as issue.get", async () => {
+    const { app } = makeApp();
+    const res = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "stage.show", input: { id: "nope" } }) }));
+    expect(res.status).toBe(404);
+  });
+
+  it("stage.push commits a staged create payload to the real backend and drops it from the stage", async () => {
+    const { app, stageStore } = makeApp();
+    const staged = stageStore.add({ kind: "create", backend: "github", input: { title: "Pushed from stage" } });
+
+    const pushRes = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "stage.push", input: { id: staged.id } }) }),
+    );
+    expect(pushRes.status).toBe(200);
+    const pushBody = (await pushRes.json()) as { result: { result: { issue: { title: string; ref: string } } } };
+    expect(pushBody.result.result.issue.title).toBe("Pushed from stage");
+
+    expect(stageStore.list()).toEqual([]);
+
+    const listRes = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "issue.list", input: { backend: "github" } }) }),
+    );
+    const listBody = (await listRes.json()) as { result: { issues: { title: string }[] } };
+    expect(listBody.result.issues.map((i) => i.title)).toContain("Pushed from stage");
+  });
+
+  it("stage.push on an unknown/expired id maps to 404 and never touches the backend", async () => {
+    const { app } = makeApp();
+    const res = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "stage.push", input: { id: "nope" } }) }));
+    expect(res.status).toBe(404);
   });
 });

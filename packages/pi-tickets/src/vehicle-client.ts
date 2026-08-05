@@ -68,7 +68,7 @@ function legacyActionFor(operationName: string): string {
  * Exported so tui.ts's own footer-status refresh shares the exact same
  * list instead of keeping a second copy in sync by hand.
  */
-export const TICKETS_TOOL_PREFIXES = ["issue_", "focus_", "ledger_", "discover_", "backends_"];
+export const TICKETS_TOOL_PREFIXES = ["issue_", "focus_", "ledger_", "discover_", "backends_", "stage_"];
 
 export function isTicketsVehicleTool(toolName: string): boolean {
   return TICKETS_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix));
@@ -111,7 +111,16 @@ export async function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehi
       return createClient(resolved);
     });
     const options: RegisterVehicleToolsOptions = {
-      permissions: ["tickets:read", "tickets:write"],
+      // vehicle:approvals:resolve is required alongside tickets:read/write: once
+      // the tickets VehicleRegistry gates external-write behind an approval (see
+      // its own configureApprovals() call), registerVehicleTools' interactive
+      // ctx.ui.confirm()-then-resolve dance calls vehicle.approval.resolve with
+      // this exact options.permissions -- without this permission that resolve
+      // call itself gets denied, and a human's real "yes" in the confirm dialog
+      // would have no effect. vehicle-client-pi never projects
+      // vehicle.approval.resolve as a directly LLM-callable tool regardless of
+      // this grant, so this does not let the model resolve its own requests.
+      permissions: ["tickets:read", "tickets:write", "vehicle:approvals:resolve"],
       principal: { id: "pi-tickets" },
       renderers: (descriptor: VehicleOperationDescriptor) => ({
         renderCall: (args, theme) => renderTicketsCall(descriptor.name, args, theme),

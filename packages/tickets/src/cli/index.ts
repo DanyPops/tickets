@@ -15,6 +15,7 @@ import { promptMaskedSecret } from "../auth/masked-prompt.js";
 import { deleteToken, isTokenFresh, listStoredBackends, loadToken, saveToken } from "../auth/token-store.js";
 import type { CreateInput, ListFilter, Priority, Status, UpdateInput } from "../issue/issue.js";
 import { parseStatus } from "../issue/issue.js";
+import type { StagePatchFields, StagePayload } from "../stage/store.js";
 import { installTicketsService, systemctlTickets, systemdUnitPath } from "./systemd-service.js";
 import { createTicketsClient, type TicketsRpcClient } from "./tickets-client.js";
 
@@ -297,6 +298,133 @@ discoverCmd
     await withClient((client) =>
       client.call("discover.board_quickfilter", { backend: opts.backend, boardId: opts.board, quickFilterId: opts.quickFilter }),
     );
+  });
+
+function definedEntriesOnly<T extends Record<string, unknown>>(input: T): Partial<T> {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as Partial<T>;
+}
+
+function buildStagePayload(opts: {
+  kind?: string;
+  backend?: string;
+  ref?: string;
+  title?: string;
+  description?: string;
+  status?: string;
+  priority?: Priority;
+  label?: string[];
+  assignee?: string;
+  project?: string;
+  body?: string;
+}): StagePayload {
+  if (opts.kind === "create") {
+    if (!opts.backend) throw new Error("stage add --kind create requires --backend");
+    if (!opts.title) throw new Error("stage add --kind create requires --title");
+    const input: CreateInput = definedEntriesOnly({
+      title: opts.title,
+      description: opts.description,
+      priority: opts.priority,
+      labels: opts.label,
+      assignee: opts.assignee,
+      project: opts.project,
+    }) as CreateInput;
+    return { kind: "create", backend: opts.backend, input };
+  }
+  if (opts.kind === "update") {
+    if (!opts.ref) throw new Error("stage add --kind update requires --ref");
+    const input: UpdateInput = definedEntriesOnly({
+      title: opts.title,
+      description: opts.description,
+      status: opts.status ? parseStatus(opts.status) : undefined,
+      priority: opts.priority,
+      labels: opts.label,
+      assignee: opts.assignee,
+    });
+    return { kind: "update", ref: opts.ref, input };
+  }
+  if (opts.kind === "comment") {
+    if (!opts.ref) throw new Error("stage add --kind comment requires --ref");
+    if (!opts.body) throw new Error("stage add --kind comment requires --body");
+    return { kind: "comment", ref: opts.ref, body: opts.body };
+  }
+  throw new Error(`stage add: unsupported --kind "${opts.kind}" (expected create, update, or comment)`);
+}
+
+const stage = program
+  .command("stage")
+  .description(
+    "stage a create/update/comment payload locally for review -- free, no live backend call. Committing it (stage push) requires approval, same as issue create/update/comment add.",
+  );
+
+stage
+  .command("add")
+  .description("stage a new create, update, or comment payload")
+  .requiredOption("--kind <kind>", "create | update | comment")
+  .option("-b, --backend <name>", "backend name (kind=create)")
+  .option("--ref <ref>", "target issue ref (kind=update|comment)")
+  .option("--title <text>", "title (kind=create|update)")
+  .option("--description <text>", "description (kind=create|update)")
+  .option("--status <status>", "new status (kind=update)")
+  .option("--priority <priority>", "priority: none|urgent|high|medium|low (kind=create|update)")
+  .option("--label <label...>", "label(s) (kind=create|update)")
+  .option("--assignee <user>", "assignee (kind=create|update)")
+  .option("--project <project>", "project key/id (kind=create)")
+  .option("--body <text>", "comment body (kind=comment)")
+  .action(async (opts) => {
+    await withClient((client) => client.call("stage.add", { payload: buildStagePayload(opts) }));
+  });
+
+stage
+  .command("list")
+  .description("list every currently staged payload")
+  .action(async () => {
+    await withClient((client) => client.call("stage.list", {}));
+  });
+
+stage
+  .command("show <id>")
+  .description("show one staged payload by id")
+  .action(async (id: string) => {
+    await withClient((client) => client.call("stage.show", { id }));
+  });
+
+stage
+  .command("patch <id>")
+  .description(
+    "edit a staged payload's text fields in place before pushing it -- e.g. fixing a field that would otherwise fail backend validation",
+  )
+  .option("--title <text>", "new title (create/update payloads)")
+  .option("--description <text>", "new description (create/update payloads)")
+  .option("--status <status>", "new status (update payloads)")
+  .option("--priority <priority>", "new priority (create/update payloads)")
+  .option("--label <label...>", "replace labels (create/update payloads)")
+  .option("--assignee <user>", "new assignee (create/update payloads)")
+  .option("--body <text>", "new comment body (comment payloads)")
+  .action(async (id: string, opts) => {
+    const fields: StagePatchFields = definedEntriesOnly({
+      title: opts.title,
+      description: opts.description,
+      status: opts.status ? parseStatus(opts.status) : undefined,
+      priority: opts.priority,
+      labels: opts.label,
+      assignee: opts.assignee,
+      body: opts.body,
+    });
+    await withClient((client) => client.call("stage.patch", { id, fields }));
+  });
+
+stage
+  .command("drop <id>")
+  .description("discard a staged payload without ever sending it to a live backend")
+  .action(async (id: string) => {
+    await withClient((client) => client.call("stage.drop", { id }));
+  });
+
+stage
+  .command("push <id>")
+  .description("commit a staged payload to its live backend -- requires approval, same as issue create/update/comment add")
+  .action(async (id: string) => {
+    await withClient((client) => client.call("stage.push", { id }));
   });
 
 const daemon = program.command("daemon").description("manage the tickets daemon process");

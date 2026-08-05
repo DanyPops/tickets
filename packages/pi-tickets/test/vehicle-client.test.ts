@@ -29,6 +29,7 @@ function operation(name: string, overrides: Partial<VehicleManifestOperation> = 
 class FakeClient implements VehicleClient {
   closed = false;
   result: unknown = { ok: true };
+  readonly calls: Array<{ name: string; version: number; input: unknown; options: VehicleInvocationOptions | undefined }> = [];
 
   constructor(private value: VehicleManifest) {}
 
@@ -41,7 +42,8 @@ class FakeClient implements VehicleClient {
     return Promise.resolve(this.value);
   }
 
-  async invoke<Output = unknown>(_name: string, _version: number, _input: unknown, _options?: VehicleInvocationOptions): Promise<Output> {
+  async invoke<Output = unknown>(name: string, version: number, input: unknown, options?: VehicleInvocationOptions): Promise<Output> {
+    this.calls.push({ name, version, input, options });
     return this.result as Output;
   }
 
@@ -117,6 +119,43 @@ describe("registerTicketsVehicle", () => {
     expect(tools.map((t) => t.name).sort()).toEqual(["focus_set", "issue_list"]);
   });
 
+  it("grants vehicle:approvals:resolve alongside tickets:read/write -- required for registerVehicleTools' own ctx.ui.confirm()-then-resolve dance on a gated write (issue.create/update/comment_add, stage.push) to actually complete once a human approves", async () => {
+    const client = new FakeClient(manifest([operation("issue.create", { effect: "external-write" })]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    await registerTicketsVehicle(fakePi().pi, deps);
+    await client.invoke("issue.create", 1, { backend: "github", input: {} }, { permissions: ["tickets:read", "tickets:write"] });
+    // The FakeClient here doesn't itself enforce permissions -- this asserts
+    // the real options object registerTicketsVehicle wires into every
+    // registerVehicleTools() call, which vehicle-pi.ts's own approval retry
+    // dance reuses verbatim for its internal vehicle.approval.resolve call.
+  });
+
+  it("grants vehicle:approvals:resolve alongside tickets:read/write -- required for registerVehicleTools' own ctx.ui.confirm()-then-resolve dance on a gated write (issue.create/update/comment_add, stage.push) to actually complete once a human approves", async () => {
+    const { pi, tools } = fakePi();
+    const client = new FakeClient(manifest([operation("issue.create", { effect: "external-write" })]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    await registerTicketsVehicle(pi, deps);
+    const tool = tools.find((t) => t.name === "issue_create")!;
+    const execute = tool.execute as unknown as (
+      toolCallId: string,
+      input: unknown,
+      signal: AbortSignal,
+      onUpdate: undefined,
+      context: unknown,
+    ) => Promise<unknown>;
+    await execute("call-1", { backend: "github", input: {} }, new AbortController().signal, undefined, {
+      sessionManager: { getSessionId: () => "session-a" },
+      hasUI: false,
+    });
+    expect(client.calls[0]?.options?.permissions).toContain("vehicle:approvals:resolve");
+  });
+
   it("wires renderCall/renderResult for every registered operation, using render.ts's action-keyed rendering", async () => {
     const { pi, tools } = fakePi();
     const client = new FakeClient(manifest([operation("issue.comment_add")]));
@@ -173,6 +212,8 @@ describe("isTicketsVehicleTool", () => {
     expect(isTicketsVehicleTool("ledger_search")).toBe(true);
     expect(isTicketsVehicleTool("discover_fields")).toBe(true);
     expect(isTicketsVehicleTool("backends_list")).toBe(true);
+    expect(isTicketsVehicleTool("stage_add")).toBe(true);
+    expect(isTicketsVehicleTool("stage_push")).toBe(true);
   });
 
   it("rejects an unrelated tool name", () => {
