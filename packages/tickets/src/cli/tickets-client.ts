@@ -29,14 +29,22 @@ async function isAlive(handle: DaemonHandle, token: string): Promise<boolean> {
   }
 }
 
-/** Absolute path to the daemon's real entry point, resolved from this package's own root. Used both to spawn it on demand and to point a systemd unit's ExecStart at it (see cli/systemd-service.ts). */
+/** Absolute path to the daemon's real entry point, resolved from this package's own root. Used to spawn it on demand -- Armada's own ServiceSpec (see cli/systemd-service.ts) launches the CLI's own `serve` command instead, not this path directly. */
 export function resolveDaemonEntryPath(): string {
   const root = packageRoot(dirname(fileURLToPath(import.meta.url)));
   return join(root, "src", "process", "main.ts");
 }
 
-function spawnDaemon(): void {
+// A spawn() failure surfaces asynchronously as an unlistened "error" event under Node, which is
+// an uncaught exception that kills the whole host process. createTicketsClient (which calls
+// this via ensureDaemonRunning) runs from inside the long-lived pi-tickets extension host
+// (tui.ts) as well as the CLI, so a missing/misconfigured `bun` binary would otherwise crash
+// the whole Pi session, not just this one connect attempt.
+export function spawnDaemon(): void {
   const child = spawn("bun", ["run", resolveDaemonEntryPath()], { detached: true, stdio: "ignore" });
+  child.on("error", (error) => {
+    console.error(`tickets daemon auto-spawn failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
   child.unref();
 }
 

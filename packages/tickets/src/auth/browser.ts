@@ -9,8 +9,15 @@ import { spawn } from "node:child_process";
 
 export type Spawner = (command: string, args: string[]) => void;
 
-const defaultSpawner: Spawner = (command, args) => {
+// A spawn() failure (e.g. no `xdg-open` on a minimal Linux install) surfaces asynchronously as
+// an unlistened "error" event under Node, which is an uncaught exception that kills the whole
+// host process -- this runs from inside the long-lived pi-tickets extension host (tui.ts), not
+// just the standalone CLI, so that crash is a real live risk, not just a CLI inconvenience.
+export const defaultSpawner: Spawner = (command, args) => {
   const child = spawn(command, args, { stdio: "ignore", detached: true });
+  child.on("error", (error) => {
+    console.error(`failed to open URL via ${command}: ${error instanceof Error ? error.message : String(error)}`);
+  });
   child.unref();
 };
 
