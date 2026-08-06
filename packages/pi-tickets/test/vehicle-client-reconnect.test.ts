@@ -58,7 +58,13 @@ function fakePi() {
     getAllTools: () => [],
     getActiveTools: () => [],
     setActiveTools: () => {},
-    on: () => {},
+    // registerTicketsVehicle now defers its resolve+register sequence to a
+    // session_start handler internally (registerVehicleToolsWhenReady) --
+    // firing it immediately here matches this test's own intent (register
+    // once, right away) without needing a real Pi session lifecycle.
+    on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) => {
+      if (event === "session_start") void handler({}, { ui: { notify: () => {} } });
+    },
   } as unknown as ExtensionAPI;
   return { pi, tools };
 }

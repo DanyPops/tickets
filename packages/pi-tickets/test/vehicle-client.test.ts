@@ -80,67 +80,88 @@ function fakePi() {
       handlers[event].push(handler);
     },
   } as unknown as ExtensionAPI;
+  const notifications: Array<{ message: string; type: string }> = [];
   const fire = async (event: string, toolName?: string) => {
-    for (const handler of handlers[event] ?? []) await handler({ toolName }, {});
+    const ctx = { ui: { notify: (message: string, type: string) => notifications.push({ message, type }) } };
+    for (const handler of handlers[event] ?? []) await handler({ toolName }, ctx);
   };
-  return { pi, tools, active: () => active, fire };
+  return { pi, tools, active: () => active, fire, notifications };
 }
 
 describe("registerTicketsVehicle", () => {
-  it("does nothing when the daemon has never started (no target resolves)", async () => {
-    const { pi, tools } = fakePi();
-    const deps: TicketsVehicleDeps = { resolveTarget: () => undefined };
-    const result = await registerTicketsVehicle(pi, deps);
+  it("logs client-unavailable (not silently returning) when the daemon has never started (no target resolves), and settles to undefined", async () => {
+    const { pi, tools, fire } = fakePi();
+    const events: unknown[] = [];
+    const deps: TicketsVehicleDeps = { resolveTarget: () => undefined, retry: { attempts: 1 }, onReadyEvent: (e) => events.push(e) };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    const result = await ready;
     expect(result).toBeUndefined();
     expect(tools).toHaveLength(0);
+    expect((events[0] as { kind: string }).kind).toBe("client-unavailable");
   });
 
-  it("degrades silently when the client construction or manifest fetch throws", async () => {
-    const { pi } = fakePi();
+  it("logs registration-failed (not silently swallowing) when the client construction or manifest fetch throws", async () => {
+    const { pi, fire } = fakePi();
+    const events: unknown[] = [];
     const deps: TicketsVehicleDeps = {
       resolveTarget: () => ({ baseUrl: "http://127.0.0.1:1", token: "t" }),
       createClient: () => {
         throw new Error("connection refused");
       },
+      retry: { attempts: 1 },
+      onReadyEvent: (e) => events.push(e),
     };
-    const result = await registerTicketsVehicle(pi, deps);
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    const result = await ready;
     expect(result).toBeUndefined();
+    expect(events.some((e) => (e as { kind: string }).kind === "registration-failed")).toBe(true);
   });
 
-  it("registers one Pi tool per real operation when a target resolves", async () => {
-    const { pi, tools } = fakePi();
+  it("registers one Pi tool per real operation once session_start fires and a target resolves", async () => {
+    const { pi, tools, fire } = fakePi();
     const client = new FakeClient(manifest([operation("issue.list"), operation("focus.set")]));
     const deps: TicketsVehicleDeps = {
       resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
       createClient: () => client,
     };
-    const result = await registerTicketsVehicle(pi, deps);
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    const result = await ready;
     expect(result?.tools.map((t) => t.toolName).sort()).toEqual(["focus_set", "issue_list"]);
     expect(tools.map((t) => t.name).sort()).toEqual(["focus_set", "issue_list"]);
   });
 
-  it("grants vehicle:approvals:resolve alongside tickets:read/write -- required for registerVehicleTools' own ctx.ui.confirm()-then-resolve dance on a gated write (issue.create/update/comment_add, stage.push) to actually complete once a human approves", async () => {
-    const client = new FakeClient(manifest([operation("issue.create", { effect: "external-write" })]));
+  it("retries with bounded backoff and eventually registers once the daemon becomes reachable", async () => {
+    const { pi, tools, fire } = fakePi();
+    const client = new FakeClient(manifest([operation("issue.list")]));
+    let calls = 0;
     const deps: TicketsVehicleDeps = {
-      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      resolveTarget: () => {
+        calls++;
+        return calls < 3 ? undefined : { baseUrl: "http://127.0.0.1:9", token: "t" };
+      },
       createClient: () => client,
+      retry: { attempts: 5, initialDelayMs: 1, maxDelayMs: 2 },
     };
-    await registerTicketsVehicle(fakePi().pi, deps);
-    await client.invoke("issue.create", 1, { backend: "github", input: {} }, { permissions: ["tickets:read", "tickets:write"] });
-    // The FakeClient here doesn't itself enforce permissions -- this asserts
-    // the real options object registerTicketsVehicle wires into every
-    // registerVehicleTools() call, which vehicle-pi.ts's own approval retry
-    // dance reuses verbatim for its internal vehicle.approval.resolve call.
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    const result = await ready;
+    expect(result?.tools.map((t) => t.toolName)).toEqual(["issue_list"]);
+    expect(tools.map((t) => t.name)).toEqual(["issue_list"]);
   });
 
   it("grants vehicle:approvals:resolve alongside tickets:read/write -- required for registerVehicleTools' own ctx.ui.confirm()-then-resolve dance on a gated write (issue.create/update/comment_add, stage.push) to actually complete once a human approves", async () => {
-    const { pi, tools } = fakePi();
+    const { pi, tools, fire } = fakePi();
     const client = new FakeClient(manifest([operation("issue.create", { effect: "external-write" })]));
     const deps: TicketsVehicleDeps = {
       resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
       createClient: () => client,
     };
-    await registerTicketsVehicle(pi, deps);
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
     const tool = tools.find((t) => t.name === "issue_create")!;
     const execute = tool.execute as unknown as (
       toolCallId: string,
@@ -157,13 +178,15 @@ describe("registerTicketsVehicle", () => {
   });
 
   it("wires renderCall/renderResult for every registered operation, using render.ts's action-keyed rendering", async () => {
-    const { pi, tools } = fakePi();
+    const { pi, tools, fire } = fakePi();
     const client = new FakeClient(manifest([operation("issue.comment_add")]));
     const deps: TicketsVehicleDeps = {
       resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
       createClient: () => client,
     };
-    await registerTicketsVehicle(pi, deps);
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
     const tool = tools[0];
     expect(tool?.renderCall).toBeDefined();
     expect(tool?.renderResult).toBeDefined();
@@ -178,7 +201,9 @@ describe("registerTicketsVehicle's availability refresh", () => {
       resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
       createClient: () => client,
     };
-    await registerTicketsVehicle(pi, deps);
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
     expect(active().sort()).toEqual(["discover_fields", "issue_list"]);
 
     // A backend refresh removed the only Jira-like backend -- tickets-vehicle.ts's
@@ -196,12 +221,25 @@ describe("registerTicketsVehicle's availability refresh", () => {
       resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
       createClient: () => client,
     };
-    await registerTicketsVehicle(pi, deps);
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
 
     client.setManifest(manifest([operation("discover.fields", { available: false })]));
     await fire("tool_execution_end", "read");
 
     expect(active()).toEqual(["discover_fields"]);
+  });
+});
+
+describe("registerTicketsVehicle's default notification", () => {
+  it("notifies the human once retries are exhausted, instead of leaving zero tools with zero signal", async () => {
+    const { pi, fire, notifications } = fakePi();
+    const deps: TicketsVehicleDeps = { resolveTarget: () => undefined, retry: { attempts: 2, initialDelayMs: 1, maxDelayMs: 2 } };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+    expect(notifications.some((n) => n.type === "warning" && n.message.includes("tickets"))).toBe(true);
   });
 });
 

@@ -30,18 +30,12 @@ export default function (pi: ExtensionAPI, deps: PiTicketsDeps = {}) {
   registerTicketsTui(pi);
   registerTicketsSecretsCommand(pi);
   const registerVehicle = deps.registerVehicle ?? registerTicketsVehicle;
-  // registerVehicleTools() (which registerTicketsVehicle wraps) needs
-  // pi.getAllTools()/getActiveTools()/setActiveTools() -- Pi's extension
-  // runtime only finishes initializing after every extension's top-level
-  // factory (this one included) has resolved, so calling it directly from
-  // here throws "Extension runtime not initialized" (previously silently
-  // swallowed by registerTicketsVehicle's own daemon-unreachable try/catch,
-  // making every projected tool invisible to the model with zero visible
-  // sign why -- confirmed live). session_start fires only after that
-  // initialization completes, and Pi awaits every session_start handler
-  // before the model's first turn, so registering here is both safe and
-  // still visible on turn one.
-  pi.on("session_start", async () => {
-    await registerVehicle(pi);
-  });
+  // registerTicketsVehicle defers the actual registerVehicleTools() call to
+  // session_start internally (via registerVehicleToolsWhenReady), since Pi's
+  // extension runtime only finishes initializing (pi.getAllTools()/etc.
+  // becoming callable) after every extension's top-level factory has
+  // resolved. Calling it here, at factory time, is therefore safe -- and
+  // deliberately not awaited, so a slow-starting daemon's bounded retries
+  // never block this synchronous factory or session_start itself.
+  void registerVehicle(pi);
 }

@@ -29,9 +29,11 @@ import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import {
   type RegisteredPiVehicle,
-  type RegisterVehicleToolsOptions,
+  type RegisterVehicleToolsWhenReadyOptions,
   refreshVehicleToolAvailability,
-  registerVehicleTools,
+  registerVehicleToolsWhenReady,
+  type VehicleReadyEvent,
+  type VehicleReadyRetryOptions,
 } from "@danypops/vehicle-client-pi";
 import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-status-refresh";
 import type { VehicleClient, VehicleOperationDescriptor } from "@danypops/vehicle-core";
@@ -92,43 +94,96 @@ export interface TicketsVehicleDeps {
   resolveTarget?: () => VehicleClientTarget | undefined;
   /** Overridden in tests instead of constructing a real HTTP client. */
   createClient?: (target: VehicleClientTarget) => VehicleClient;
+  /** Bounded retry/backoff for the daemon becoming reachable -- see registerVehicleToolsWhenReady. */
+  retry?: VehicleReadyRetryOptions;
+  /** Overridden in tests to inspect every resolution/registration outcome directly instead of only its ctx.ui.notify side effect. */
+  onReadyEvent?: (event: VehicleReadyEvent) => void;
 }
 
-export async function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDeps = {}): Promise<RegisteredPiVehicle | undefined> {
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Surfaces the outcomes worth a human seeing: a real resolution/registration
+ * error (not just "daemon isn't up yet"), and the terminal exhausted state
+ * (the case that used to leave zero tickets tools registered for the whole
+ * session with no visible sign why). A daemon merely still starting up
+ * (repeated client-unavailable before the last attempt) stays quiet --
+ * that's the expected common case right after `tickets daemon start`, not
+ * something worth a warning on every retry.
+ */
+function notifyReadyEvent(event: VehicleReadyEvent): void {
+  switch (event.kind) {
+    case "client-resolution-failed":
+      event.ctx.ui.notify(`tickets daemon target resolution failed: ${errorMessage(event.error)}`, "warning");
+      return;
+    case "registration-failed":
+      event.ctx.ui.notify(`tickets tool registration failed: ${errorMessage(event.error)}`, "warning");
+      return;
+    case "exhausted":
+      event.ctx.ui.notify(
+        `tickets tools unavailable this session -- the daemon never became reachable after ${event.attempts} attempts`,
+        "warning",
+      );
+      return;
+    case "client-unavailable":
+    case "registered":
+      return;
+  }
+}
+
+/**
+ * Registers every real ticket operation as a Pi tool once the daemon is
+ * reachable. Defers the whole resolve+register sequence to session_start
+ * internally (via registerVehicleToolsWhenReady) with bounded retry --
+ * a daemon that is merely slow to start no longer permanently blanks out
+ * every tickets tool for the rest of the session, and every failure logs
+ * through onReadyEvent/ctx.ui.notify instead of vanishing.
+ */
+export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDeps = {}): Promise<RegisteredPiVehicle | undefined> {
   const resolveTarget = deps.resolveTarget ?? resolveVehicleClientTarget;
-  const target = resolveTarget();
-  if (!target) return undefined;
-
   const createClient = deps.createClient ?? ((t: VehicleClientTarget) => new RemoteVehicleClient({ baseUrl: t.baseUrl, token: t.token }));
-  try {
-    // Re-resolves resolveTarget()/createClient fresh on every reconnect attempt rather than
-    // closing over the `target` captured above: the daemon rebinds a new random port on every
-    // restart, and a bare client built once has no way to notice its baseUrl died, breaking
-    // every tickets tool call for the rest of the Pi session until a full extension reload.
-    const client = createReconnectingVehicleClient(async () => {
-      const resolved = resolveTarget();
-      if (!resolved) throw new Error("Tickets daemon is not running");
-      return createClient(resolved);
-    });
-    const options: RegisterVehicleToolsOptions = {
-      // vehicle:approvals:resolve is required alongside tickets:read/write: once
-      // the tickets VehicleRegistry gates external-write behind an approval (see
-      // its own configureApprovals() call), registerVehicleTools' interactive
-      // ctx.ui.confirm()-then-resolve dance calls vehicle.approval.resolve with
-      // this exact options.permissions -- without this permission that resolve
-      // call itself gets denied, and a human's real "yes" in the confirm dialog
-      // would have no effect. vehicle-client-pi never projects
-      // vehicle.approval.resolve as a directly LLM-callable tool regardless of
-      // this grant, so this does not let the model resolve its own requests.
-      permissions: ["tickets:read", "tickets:write", "vehicle:approvals:resolve"],
-      principal: { id: "pi-tickets" },
-      renderers: (descriptor: VehicleOperationDescriptor) => ({
-        renderCall: (args, theme) => renderTicketsCall(descriptor.name, args, theme),
-        renderResult: (result, _options, theme, context) => renderTicketsResult(descriptor.name, result, theme, context.isError),
-      }),
-    };
-    let registered = await registerVehicleTools(pi, client, options);
 
+  // Built once and reused across every attempt (including the eventual
+  // status-refresh calls below) rather than per-attempt: createReconnectingVehicleClient
+  // re-resolves resolveTarget()/createClient fresh on every reconnect itself, so
+  // one instance already tolerates the daemon rebinding a new random port on
+  // restart -- no need to rebuild it just because an earlier attempt found no
+  // target yet.
+  const client = createReconnectingVehicleClient(async () => {
+    const resolved = resolveTarget();
+    if (!resolved) throw new Error("Tickets daemon is not running");
+    return createClient(resolved);
+  });
+
+  const options: RegisterVehicleToolsWhenReadyOptions = {
+    // vehicle:approvals:resolve is required alongside tickets:read/write: once
+    // the tickets VehicleRegistry gates external-write behind an approval (see
+    // its own configureApprovals() call), registerVehicleTools' interactive
+    // ctx.ui.confirm()-then-resolve dance calls vehicle.approval.resolve with
+    // this exact options.permissions -- without this permission that resolve
+    // call itself gets denied, and a human's real "yes" in the confirm dialog
+    // would have no effect. vehicle-client-pi never projects
+    // vehicle.approval.resolve as a directly LLM-callable tool regardless of
+    // this grant, so this does not let the model resolve its own requests.
+    permissions: ["tickets:read", "tickets:write", "vehicle:approvals:resolve"],
+    principal: { id: "pi-tickets" },
+    renderers: (descriptor: VehicleOperationDescriptor) => ({
+      renderCall: (args, theme) => renderTicketsCall(descriptor.name, args, theme),
+      renderResult: (result, _options, theme, context) => renderTicketsResult(descriptor.name, result, theme, context.isError),
+    }),
+    retry: deps.retry,
+    log: (event) => {
+      notifyReadyEvent(event);
+      deps.onReadyEvent?.(event);
+    },
+  };
+
+  return registerVehicleToolsWhenReady(pi, () => Promise.resolve(resolveTarget() ? client : undefined), options).then((registered) => {
+    if (!registered) return undefined;
+
+    let current = registered;
     // A backend added/removed via /secrets since the last check (a Jira
     // credential configured or removed) flips discover.*'s availability on
     // the daemon side (see tickets-vehicle.ts's syncDiscoverAvailability) --
@@ -137,15 +192,10 @@ export async function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehi
     registerVehicleStatusRefresh(pi, {
       ownToolPrefixes: TICKETS_TOOL_PREFIXES,
       refresh: async () => {
-        registered = await refreshVehicleToolAvailability(pi, client, registered, options);
+        current = await refreshVehicleToolAvailability(pi, client, current, options);
       },
     });
 
-    return registered;
-  } catch {
-    // Daemon state stale/unreachable between resolveTarget() and the real
-    // manifest fetch -- degrade silently, matching refreshStatus's own
-    // tolerance for the same condition in tui.ts.
-    return undefined;
-  }
+    return current;
+  });
 }
