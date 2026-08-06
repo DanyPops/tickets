@@ -24,7 +24,7 @@
     "@danypops/vehicle-client": "^0.6.1",
     "@danypops/vehicle-client-pi": "^0.18.2",
     "@danypops/vehicle-core": "^0.12.4",
-    "malevich-tui-components": "0.19.1",
+    "malevich-tui-components": "^0.24.0",
     "typebox": "^1.1.34"
   },
   "peerDependencies": {

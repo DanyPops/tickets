@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { Component } from "@earendil-works/pi-tui";
-import { TabbedContainer } from "malevich-tui-components";
+import { asciiTextMeasure, TabbedContainer } from "malevich-tui-components";
 import { activeScopedTab, handleHorizontalArrow, handleMnemonicJump, type ScopedTab } from "../../src/backends/tab-dispatch.js";
 
 const theme = { tab: (s: string) => s, activeTab: (s: string) => s, mnemonic: (s: string) => s };
@@ -10,7 +10,7 @@ function fakeLeaf(): Component & { handleInput: ReturnType<typeof mock> } {
 }
 
 function buildContainer(tabs: ScopedTab[], initialKey?: string) {
-  const container = new TabbedContainer({ tabs, theme, initialKey });
+  const container = new TabbedContainer({ tabs, theme, measure: asciiTextMeasure, initialKey });
   const tabByKey = new Map(tabs.map((t) => [t.key, t] as const));
   return { container, tabByKey };
 }

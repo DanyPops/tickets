@@ -18,7 +18,7 @@
  */
 
 import type { Component } from "@earendil-works/pi-tui";
-import { matchesKey } from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { type TabBarTheme, TabbedContainer } from "malevich-tui-components";
 import { activeScopedTab, handleHorizontalArrow, handleMnemonicJump, type ScopedTab } from "./tab-dispatch.js";
 
@@ -31,6 +31,13 @@ export class BackendTabGroupComponent implements Component {
     this.container = new TabbedContainer({
       tabs,
       theme,
+      // measure must be explicit: TabbedContainer's own default is ASCII-only
+      // (raw .length, blind to ANSI escape codes) and the tab bar is styled
+      // through theme.tab/theme.activeTab/theme.mnemonic -- without this, a
+      // narrow render width truncates the styled bar by raw byte count,
+      // landing mid-escape-sequence (confirmed live: pi-tickets' own
+      // tui.test.ts width-consistency regression).
+      measure: { visibleWidth, truncateToWidth },
       // Malevich's own default matcher only recognizes legacy CSI sequences;
       // pi-tui's real matchesKey also covers the Kitty keyboard protocol and
       // xterm's modifyOtherKeys encodings for the same keys.

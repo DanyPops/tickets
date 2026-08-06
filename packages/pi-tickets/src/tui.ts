@@ -289,23 +289,25 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       const homeKey = tabs[0]!.key;
       const tabByKey = new Map(tabs.map((t) => [t.key, t] as const));
 
+      // measure must be explicit: both Envelope and TabbedContainer default to
+      // ASCII-only (raw .length, blind to ANSI escape codes), and every tab's own
+      // content/label is styled through theme.fg/theme.bold/theme.underline --
+      // without this, Envelope pads each line against its own escape-code-inflated
+      // "length" instead of its real visible width (confirmed live in pi-packed's
+      // own identical panel), and TabbedContainer truncates the styled bar by raw
+      // byte count, landing mid-escape-sequence (confirmed live: this file's own
+      // tui.test.ts width-consistency regression).
+      const measure: TextMeasure = { visibleWidth, truncateToWidth };
       const tabbedContainer = new TabbedContainer({
         tabs,
         theme: tabBarTheme(theme),
+        measure,
         // Malevich's own default matcher only recognizes legacy CSI sequences;
         // pi-tui's real matchesKey also covers the Kitty keyboard protocol and
         // xterm's modifyOtherKeys encodings for the same keys.
         matchesKey: (data, keyId) => matchesKey(data, keyId as Parameters<typeof matchesKey>[1]),
       });
 
-      // measure must be explicit: Envelope's own default is ASCII-only (raw
-      // .length, blind to ANSI escape codes) and every tab's own content is
-      // styled through theme.fg/theme.bold/theme.underline -- without this,
-      // Envelope pads each line against its own escape-code-inflated "length"
-      // instead of its real visible width, so the right border lands at a
-      // different column on every line depending on how much styling it
-      // carries (confirmed live in pi-packed's own identical panel).
-      const measure: TextMeasure = { visibleWidth, truncateToWidth };
       const envelope = new Envelope({
         title: "tickets",
         borderStyle: "rounded",
