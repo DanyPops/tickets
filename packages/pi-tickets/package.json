@@ -20,10 +20,10 @@
     ]
   },
   "dependencies": {
-    "@danypops/vehicle-client": "^0.6.1",
-    "@danypops/vehicle-client-pi": "^0.18.1",
-    "@danypops/vehicle-core": "^0.12.4",
     "@danypops/tickets": "^0.10.0",
+    "@danypops/vehicle-client": "^0.6.1",
+    "@danypops/vehicle-client-pi": "^0.18.2",
+    "@danypops/vehicle-core": "^0.12.4",
     "malevich-tui-components": "0.19.1",
     "typebox": "^1.1.34"
   },

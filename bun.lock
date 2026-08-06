@@ -15,11 +15,11 @@
     },
     "packages/pi-tickets": {
       "name": "@danypops/pi-tickets",
-      "version": "0.19.9",
+      "version": "0.21.0",
       "dependencies": {
-        "@danypops/tickets": "^0.9.0",
+        "@danypops/tickets": "^0.10.0",
         "@danypops/vehicle-client": "^0.6.1",
-        "@danypops/vehicle-client-pi": "^0.18.1",
+        "@danypops/vehicle-client-pi": "^0.18.2",
         "@danypops/vehicle-core": "^0.12.4",
         "malevich-tui-components": "0.19.1",
         "typebox": "^1.1.34",
@@ -36,7 +36,7 @@
     },
     "packages/tickets": {
       "name": "@danypops/tickets",
-      "version": "0.9.0",
+      "version": "0.10.0",
       "bin": {
         "tickets": "./src/cli/index.ts",
         "tickets-daemon": "./src/process/main.ts",
@@ -144,7 +144,7 @@
 
     "@danypops/vehicle-client": ["@danypops/vehicle-client@0.6.1", "", { "dependencies": { "@danypops/vehicle-core": "^0.12.3", "@danypops/vehicle-server": "^0.18.0" } }, "sha512-p//WRUXAh4O52Hlnobuq1HKYKQx8W/SWJ9NWC1WtkTAjSj1UMuMvPnCZY8ekrwHNgHzTc5oHnq+YPFHLMOwfEw=="],
 
-    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.18.1", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.4.0", "@danypops/vehicle-client": "^0.6.1", "@danypops/vehicle-core": "^0.12.4", "@danypops/vehicle-server": "^0.18.1", "malevich-tui-components": "^0.20.3" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-L+2JALX94wVs+nDPnC0JXV4OJXQAEL+kEu5zEG3TJ0Ir4oKSDjBIzE+p0Ipb6tMoB2vJhwSqvBU84KFCKKBDrQ=="],
+    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.18.2", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.6.1", "@danypops/vehicle-client": "^0.6.2", "@danypops/vehicle-core": "^0.12.4", "@danypops/vehicle-server": "^0.18.1", "malevich-tui-components": "^0.20.3" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-b68togneaz6MkHirN8TEMNHe7jlpg4raRINLdmVPE+3G2OE5as3Kyd3I+BiLpmc5UhraGZy6QKjkxbcvFcobHg=="],
 
     "@danypops/vehicle-core": ["@danypops/vehicle-core@0.12.4", "", {}, "sha512-fefdWpjCZMm2AP5oAf1ee7rcnEK2o5/iwu+pIX7BQXZaiq/atK2i/1aKwul9xPutsPx4qSPZNPls7t90uw1EfQ=="],
 
@@ -750,7 +750,9 @@
 
     "@danypops/vehicle-client/@danypops/vehicle-server": ["@danypops/vehicle-server@0.18.1", "", { "dependencies": { "@danypops/armada": "^0.3.1", "@danypops/vehicle-core": "^0.12.3", "pino": "^10.3.1" } }, "sha512-HGj96DomArw8gPJdLp0/UHlHHaP6RixvI+CN8t/d0SitgaEQoXZCRc0O1kS7pNUTD09oKKMC/vHReCfCh+64ew=="],
 
-    "@danypops/vehicle-client-pi/@danypops/pi-extension-harness": ["@danypops/pi-extension-harness@0.4.0", "", { "dependencies": { "jiti": "^2.7.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-BzLMi3DH7IelnYMx66rnjb3cgW++xwxmpnlxcZZuaz6LvY++85J8C+qSAG9PEuMeE/mhoItBdNCEWAZASpqeig=="],
+    "@danypops/vehicle-client-pi/@danypops/pi-extension-harness": ["@danypops/pi-extension-harness@0.6.1", "", { "dependencies": { "jiti": "^2.7.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-AOhTN05dxOVxvp5k050umJMplPdLHoiBJD5CE7DFAixy7Kk+LdShDOnJSCJCEhdpDM4vNrmSQxL9sdw3g6DEiA=="],
+
+    "@danypops/vehicle-client-pi/@danypops/vehicle-client": ["@danypops/vehicle-client@0.6.2", "", { "dependencies": { "@danypops/vehicle-core": "^0.12.4", "@danypops/vehicle-server": "^0.18.1" } }, "sha512-HEL4pd35oiE8dcuxpIoLZ2vnZvXwZlrVULrepiO64bdYK2Eiq5+SEDS4ZB/n+7nRoZ/76dAn7G9gqbIaJSm7UQ=="],
 
     "@danypops/vehicle-client-pi/@danypops/vehicle-server": ["@danypops/vehicle-server@0.18.1", "", { "dependencies": { "@danypops/armada": "^0.3.1", "@danypops/vehicle-core": "^0.12.3", "pino": "^10.3.1" } }, "sha512-HGj96DomArw8gPJdLp0/UHlHHaP6RixvI+CN8t/d0SitgaEQoXZCRc0O1kS7pNUTD09oKKMC/vHReCfCh+64ew=="],
 
