@@ -103,7 +103,7 @@ export async function preferredAuth(
   const fromEnigma = await tryEnigma(name, { env, token: env.ENIGMA_CLIENT_TOKEN });
   if (fromEnigma) return { token: fromEnigma.accessToken, oauth: true, extra: fromEnigma.extra };
 
-  const stored = loadToken(name, { env });
+  const stored = await loadToken(name, { env });
   if (stored && isTokenFresh(stored)) {
     return { token: stored.accessToken, oauth: true, extra: stored.extra };
   }

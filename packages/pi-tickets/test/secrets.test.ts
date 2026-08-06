@@ -29,7 +29,7 @@ describe("buildTicketsSecretsBackends", () => {
   it("returns a local backend over tickets' own oauth token-store directory, and an env backend for github/gitlab/jira static fallbacks", async () => {
     const { root, env } = tempEnv();
     try {
-      saveToken("github", { accessToken: "gho_x" }, { env });
+      await saveToken("github", { accessToken: "gho_x" }, { env });
       const backends = buildTicketsSecretsBackends(env);
       expect(backends.map((b) => b.source).sort()).toEqual(["env", "local"]);
 

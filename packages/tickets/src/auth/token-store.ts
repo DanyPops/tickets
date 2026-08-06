@@ -5,9 +5,14 @@
  * *to* GitHub/GitLab/Jira on the user's behalf. Same security posture as
  * vehicle-server's ensureAuthToken: 0700 directory, 0600 files, atomic write.
  */
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { createAtomicJsonWriter } from "@danypops/vehicle-core";
+import { createNodeAtomicJsonFsAdapter } from "@danypops/vehicle-server/atomic-json";
+
+const atomicJson = createAtomicJsonWriter({ fs: createNodeAtomicJsonFsAdapter() });
 
 export interface StoredToken {
   accessToken: string;
@@ -35,21 +40,19 @@ function tokenPath(backend: string, opts: TokenStoreEnv = {}): string {
   return join(tokenStoreDir(opts), `${backend}.json`);
 }
 
-export function saveToken(backend: string, token: StoredToken, opts: TokenStoreEnv = {}): void {
+export async function saveToken(backend: string, token: StoredToken, opts: TokenStoreEnv = {}): Promise<void> {
   const path = tokenPath(backend, opts);
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const temp = `${path}.${process.pid}.tmp`;
-  writeFileSync(temp, `${JSON.stringify(token, null, 2)}\n`, { mode: 0o600 });
-  renameSync(temp, path);
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await atomicJson.write(path, token, { mode: 0o600, pretty: true, trailingNewline: true });
 }
 
-export function loadToken(backend: string, opts: TokenStoreEnv = {}): StoredToken | undefined {
+export async function loadToken(backend: string, opts: TokenStoreEnv = {}): Promise<StoredToken | undefined> {
   const path = tokenPath(backend, opts);
-  if (!existsSync(path)) return undefined;
-  chmodSync(path, 0o600);
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as StoredToken;
+    return (await atomicJson.read(path)) as StoredToken | undefined;
   } catch {
+    // A corrupt/malformed token file is treated the same as no token --
+    // the caller re-authenticates rather than crashing on a parse error.
     return undefined;
   }
 }

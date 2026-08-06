@@ -550,7 +550,7 @@ auth
       if (type === "github" && opts.ghCli !== undefined) {
         const result = await readGhCliToken(opts.ghCli === true ? undefined : opts.ghCli);
         if (!result.ok) throw new Error(result.reason);
-        saveToken(opts.backend, { accessToken: result.token });
+        await saveToken(opts.backend, { accessToken: result.token });
         printJson({
           backend: opts.backend,
           status: "authorized",
@@ -577,7 +577,7 @@ auth
             }
           },
         });
-        saveToken(opts.backend, {
+        await saveToken(opts.backend, {
           accessToken: token.accessToken,
           refreshToken: token.refreshToken,
           expiresAt: token.expiresAt,
@@ -600,7 +600,7 @@ auth
             }
           },
         });
-        saveToken(opts.backend, {
+        await saveToken(opts.backend, {
           accessToken: token.accessToken,
           refreshToken: token.refreshToken,
           expiresAt: token.expiresAt,
@@ -627,7 +627,7 @@ auth
             }
           },
         });
-        saveToken(opts.backend, {
+        await saveToken(opts.backend, {
           accessToken: token.accessToken,
           refreshToken: token.refreshToken,
           expiresAt: token.expiresAt,
@@ -661,7 +661,7 @@ auth
       process.exitCode = 1;
       return;
     }
-    saveToken(backend, { accessToken: value });
+    await saveToken(backend, { accessToken: value });
     printJson({
       backend,
       status: "stored",
@@ -672,18 +672,20 @@ auth
 auth
   .command("status")
   .description("list backends with a locally stored delegated token")
-  .action(() => {
+  .action(async () => {
     const backends = listStoredBackends();
     printJson(
-      backends.map((backend) => {
-        const token = loadToken(backend);
-        return {
-          backend,
-          fresh: token ? isTokenFresh(token) : false,
-          expiresAt: token?.expiresAt ?? null,
-          scope: token?.scope ?? null,
-        };
-      }),
+      await Promise.all(
+        backends.map(async (backend) => {
+          const token = await loadToken(backend);
+          return {
+            backend,
+            fresh: token ? isTokenFresh(token) : false,
+            expiresAt: token?.expiresAt ?? null,
+            scope: token?.scope ?? null,
+          };
+        }),
+      ),
     );
   });
 
