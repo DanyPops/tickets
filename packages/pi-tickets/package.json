@@ -1,6 +1,6 @@
 {
   "name": "@danypops/pi-tickets",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "Pi extension exposing the tickets daemon (GitHub/GitLab/Jira issue tracking) as an LLM-callable tool.",
   "license": "MIT",
   "type": "module",
