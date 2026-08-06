@@ -15,8 +15,9 @@ import { promptMaskedSecret } from "../auth/masked-prompt.js";
 import { deleteToken, isTokenFresh, listStoredBackends, loadToken, saveToken } from "../auth/token-store.js";
 import type { CreateInput, ListFilter, Priority, Status, UpdateInput } from "../issue/issue.js";
 import { parseStatus } from "../issue/issue.js";
+import { serveMain } from "../process/main.js";
 import type { StagePatchFields, StagePayload } from "../stage/store.js";
-import { installTicketsService, systemctlTickets, systemdUnitPath } from "./systemd-service.js";
+import { ticketsServiceCli } from "./systemd-service.js";
 import { createTicketsClient, type TicketsRpcClient } from "./tickets-client.js";
 
 function printJson(value: unknown): void {
@@ -489,45 +490,59 @@ daemon
     }
   });
 
+program
+  .command("serve")
+  .description("run the tickets daemon in the foreground -- Armada's service spec launches exactly this (see ./systemd-service.js)")
+  .action(async () => {
+    await serveMain();
+  });
+
 const service = program
   .command("service")
   .description(
-    "deploy the tickets daemon as a persistent systemd --user service (Linux; survives logout/reboot, unlike `daemon start`'s on-demand spawn)",
+    "deploy the tickets daemon as a persistent, Armada-supervised service (Linux/macOS/Windows; survives logout/reboot and restarts on crash, unlike `daemon start`'s on-demand spawn)",
   );
 
 service
   .command("install")
-  .description("write, enable, and (re)start a tickets-daemon.service systemd --user unit pointed at this install")
+  .description("register this install with Armada as the tickets vehicle and reconcile it (write/enable/start its systemd unit)")
   .action(() => {
-    try {
-      const { unitPath } = installTicketsService();
-      printJson({ status: "installed", unitPath });
-    } catch (err) {
-      process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
+    const cli = ticketsServiceCli();
+    const result = cli.install();
+    if (!result.installed) {
+      process.stderr.write(`error: ${result.reason}\n`);
       process.exitCode = 1;
+      return;
     }
+    printJson({ status: "installed", unitName: cli.unitName, via: "armada" });
+  });
+
+service
+  .command("uninstall")
+  .description("remove this vehicle from Armada's fleet (stops and un-enrolls the tickets-daemon service)")
+  .action(() => {
+    const result = ticketsServiceCli().uninstall();
+    if (!result.installed) {
+      process.stderr.write(`error: ${result.reason}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    printJson({ status: "uninstalled", via: "armada" });
   });
 
 for (const action of ["start", "stop", "restart", "status"] as const) {
   service
     .command(action)
-    .description(`systemctl --user ${action} tickets-daemon.service`)
+    .description(`systemctl --user ${action} the Armada-managed tickets unit`)
     .action(() => {
       try {
-        systemctlTickets(action);
+        ticketsServiceCli().action(action);
       } catch (err) {
         process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
         process.exitCode = 1;
       }
     });
 }
-
-service
-  .command("path")
-  .description("print where the systemd unit file would be written")
-  .action(() => {
-    printJson({ unitPath: systemdUnitPath() });
-  });
 
 const auth = program.command("auth").description("delegated OAuth login (device flow for GitHub/GitLab, authorization code for Jira)");
 

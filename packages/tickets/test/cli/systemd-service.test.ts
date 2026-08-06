@@ -1,83 +1,52 @@
+/**
+ * ticketsServiceSpec()'s own values feed vehicle-server's shared
+ * createServiceCli, which owns install/uninstall/systemctl wiring and unit
+ * naming (armada-<name>.service) -- covered by vehicle-server's own test
+ * suite. This only proves the spec itself is right, plus that
+ * ticketsServiceCli() actually wires createServiceCli up.
+ */
 import { describe, expect, it } from "bun:test";
-import { installTicketsService, renderSystemdUnit, systemctlTickets, systemdUnitPath } from "../../src/cli/systemd-service.js";
+import { armadaUnitName, generateSystemdUnit } from "@danypops/vehicle-server/service";
+import { ticketsServiceCli, ticketsServiceSpec } from "../../src/cli/systemd-service.js";
 
-describe("renderSystemdUnit", () => {
-  it("points ExecStart at the exact bun binary and daemon entry path given, with an always-restart policy", () => {
-    const unit = renderSystemdUnit({ bunBin: "/home/x/.bun/bin/bun", daemonMainPath: "/opt/tickets/src/process/main.ts" });
-    expect(unit).toContain("ExecStart=/home/x/.bun/bin/bun run /opt/tickets/src/process/main.ts");
+describe("ticketsServiceSpec", () => {
+  it("runs `<cli entry> serve` with no extra args", () => {
+    const spec = ticketsServiceSpec();
+    expect(spec.args).toEqual([expect.stringContaining("index"), "serve"]);
+  });
+
+  it("declares restartOnFailure -- Armada's systemd projection is the only crash-recovery path for a service-launched daemon", () => {
+    const unit = generateSystemdUnit(ticketsServiceSpec());
     expect(unit).toContain("Restart=always");
-    expect(unit).toContain("WantedBy=default.target");
+    expect(unit).toContain("RestartSec=2");
+  });
+
+  it("names the service after tickets, with a real handlePath for Armada's own readiness check", () => {
+    const spec = ticketsServiceSpec();
+    expect(spec.name).toBe("tickets");
+    expect(spec.handlePath).toContain("tickets");
+    expect(spec.version).toBeTruthy();
+  });
+
+  it("accepts an injected version/cliEntryPath for tests instead of resolving this install's own paths", () => {
+    const spec = ticketsServiceSpec({ version: "9.9.9", cliEntryPath: "/opt/tickets/cli/index.js" });
+    expect(spec.version).toBe("9.9.9");
+    expect(spec.args).toEqual(["/opt/tickets/cli/index.js", "serve"]);
   });
 });
 
-describe("systemdUnitPath", () => {
-  it("resolves under XDG_CONFIG_HOME/systemd/user/tickets-daemon.service", () => {
-    const path = systemdUnitPath({ XDG_CONFIG_HOME: "/home/x/.config" });
-    expect(path).toBe("/home/x/.config/systemd/user/tickets-daemon.service");
-  });
-
-  it("falls back to ~/.config when XDG_CONFIG_HOME is unset", () => {
-    const path = systemdUnitPath({ HOME: "/home/x" });
-    expect(path).toBe("/home/x/.config/systemd/user/tickets-daemon.service");
+describe("ticketsServiceCli", () => {
+  it("targets the real Armada-generated unit name", () => {
+    expect(ticketsServiceCli().unitName).toBe(armadaUnitName("tickets"));
+    expect(ticketsServiceCli().unitName).toBe("armada-tickets.service");
   });
 });
 
-describe("systemctlTickets", () => {
-  it("always runs against the tickets unit name, under --user scope", () => {
-    const calls: { command: string; args: string[] }[] = [];
-    systemctlTickets("restart", (command, args) => calls.push({ command, args }));
-    expect(calls).toEqual([{ command: "systemctl", args: ["--user", "restart", "tickets-daemon.service"] }]);
-  });
-
-  it("daemon-reload and enable omit the unit name / take it as documented by systemctl itself", () => {
-    const calls: { command: string; args: string[] }[] = [];
-    systemctlTickets("daemon-reload", (command, args) => calls.push({ command, args }));
-    systemctlTickets("enable", (command, args) => calls.push({ command, args }));
-    expect(calls).toEqual([
-      { command: "systemctl", args: ["--user", "daemon-reload"] },
-      { command: "systemctl", args: ["--user", "enable", "tickets-daemon.service"] },
-    ]);
-  });
-});
-
-describe("installTicketsService", () => {
-  it("writes the unit file, then reloads, enables, and restarts it in that order — never starting before the file exists", () => {
-    const writes: { path: string; content: string }[] = [];
-    const dirsEnsured: string[] = [];
-    const systemctlCalls: string[] = [];
-
-    const { unitPath } = installTicketsService({
-      bunBin: "/home/x/.bun/bin/bun",
-      daemonMainPath: "/opt/tickets/src/process/main.ts",
-      env: { XDG_CONFIG_HOME: "/home/x/.config" },
-      ensureDir: (dir) => dirsEnsured.push(dir),
-      writeFile: (path, content) => writes.push({ path, content }),
-      runner: (_command, args) => systemctlCalls.push(args.join(" ")),
-    });
-
-    expect(unitPath).toBe("/home/x/.config/systemd/user/tickets-daemon.service");
-    expect(dirsEnsured).toEqual(["/home/x/.config/systemd/user"]);
-    expect(writes).toHaveLength(1);
-    expect(writes[0]?.path).toBe(unitPath);
-    expect(writes[0]?.content).toContain("ExecStart=/home/x/.bun/bin/bun run /opt/tickets/src/process/main.ts");
-    // Order matters: the unit file must exist on disk before daemon-reload,
-    // and the daemon must be reloaded before systemd will accept enable/restart.
-    expect(systemctlCalls).toEqual([
-      "--user daemon-reload",
-      "--user enable tickets-daemon.service",
-      "--user restart tickets-daemon.service",
-    ]);
-  });
-
-  it("defaults bunBin to the current process's own executable and daemonMainPath to the real resolver", () => {
-    const writes: { path: string; content: string }[] = [];
-    installTicketsService({
-      env: { XDG_CONFIG_HOME: "/home/x/.config" },
-      ensureDir: () => {},
-      writeFile: (path, content) => writes.push({ path, content }),
-      runner: () => {},
-    });
-    expect(writes[0]?.content).toContain(`ExecStart=${process.execPath} run `);
-    expect(writes[0]?.content).toContain("src/process/main.ts");
+describe("tickets service (real subprocess): usage", () => {
+  it("exits non-zero for an unrecognized service action", async () => {
+    const cliPath = new URL("../../src/cli/index.ts", import.meta.url).pathname;
+    const proc = Bun.spawn(["bun", cliPath, "service", "bogus"], { stdout: "pipe", stderr: "pipe" });
+    const [, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+    expect(code).not.toBe(0);
   });
 });
