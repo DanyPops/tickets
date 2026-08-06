@@ -621,6 +621,62 @@ describe("JiraRepository", () => {
     });
   });
 
+  describe("list()/search() default scope (defaultProjects -- shared with buildSyncQuery)", () => {
+    it("list() with no explicit project defaults to project + syncProjects combined, not just the single `project` field", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        const body = JSON.parse(String(config.data)) as { jql: string };
+        expect(body.jql).toContain('project in ("WIDGET", "ENG")');
+        return { data: { issues: [] }, status: 200 };
+      });
+      const repo = new JiraRepository("jira", {
+        baseUrl: "https://acme.atlassian.net",
+        email: "me@acme.com",
+        token: "tok",
+        project: "WIDGET",
+        syncProjects: ["ENG"],
+        axiosAdapter,
+      });
+      await repo.list({});
+    });
+
+    it("list() with an explicit filter.project still narrows to exactly that one project, ignoring syncProjects", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        const body = JSON.parse(String(config.data)) as { jql: string };
+        expect(body.jql).toContain('project = "OPS"');
+        expect(body.jql).not.toContain("WIDGET");
+        expect(body.jql).not.toContain("ENG");
+        return { data: { issues: [] }, status: 200 };
+      });
+      const repo = new JiraRepository("jira", {
+        baseUrl: "https://acme.atlassian.net",
+        email: "me@acme.com",
+        token: "tok",
+        project: "WIDGET",
+        syncProjects: ["ENG"],
+        axiosAdapter,
+      });
+      await repo.list({ project: "OPS" });
+    });
+
+    it("search() with no explicit project also defaults to project + syncProjects combined", async () => {
+      const axiosAdapter = mockAdapter((config) => {
+        const body = JSON.parse(String(config.data)) as { jql: string };
+        expect(body.jql).toContain('project in ("WIDGET", "ENG")');
+        expect(body.jql).toContain('text ~ "PTP"');
+        return { data: { issues: [] }, status: 200 };
+      });
+      const repo = new JiraRepository("jira", {
+        baseUrl: "https://acme.atlassian.net",
+        email: "me@acme.com",
+        token: "tok",
+        project: "WIDGET",
+        syncProjects: ["ENG"],
+        axiosAdapter,
+      });
+      await repo.search("PTP");
+    });
+  });
+
   describe("buildSyncQuery (SyncScopeExpandable)", () => {
     it("returns undefined when only the single default project is configured -- the poller's plain list() behavior is unchanged", () => {
       const repo = new JiraRepository("jira", {
@@ -667,7 +723,10 @@ describe("JiraRepository", () => {
         project: "WIDGET",
         syncMine: true,
       });
-      expect(repo.buildSyncQuery()).toBe('project in ("WIDGET") OR assignee = currentUser() ORDER BY created DESC');
+      // A single project uses the same singular "project = X" form list()/search() use --
+      // projectClause() is shared, so the OR-combined form only switches to "project in (...)"
+      // once there's more than one project.
+      expect(repo.buildSyncQuery()).toBe('project = "WIDGET" OR assignee = currentUser() ORDER BY created DESC');
     });
 
     it("syncMine alone (no project at all) still expands the scope, without an empty 'project in ()' clause", () => {

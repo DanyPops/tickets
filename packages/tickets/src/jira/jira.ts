@@ -39,9 +39,9 @@ export interface JiraBasicAuthOptions {
   email: string;
   token: string;
   project?: string;
-  /** Additional project keys the poller's background sync also pools into the ledger, beyond the single default `project` above -- see buildSyncQuery(). */
+  /** Additional default project keys, beyond the single `project` above -- widens list()/search()'s own default scope (no explicit project given) as well as the background poller's sync, both via defaultProjects(). See buildSyncQuery(). */
   syncProjects?: string[];
-  /** When true, the poller's background sync also pools everything assigned to the authenticated user (JQL `assignee = currentUser()`), regardless of project -- covers projects not listed in `project`/`syncProjects`. */
+  /** When true, the poller's background sync also pools everything assigned to the authenticated user (JQL `assignee = currentUser()`), regardless of project -- covers projects not listed in `project`/`syncProjects`. list()/search() are unaffected -- pass an explicit assignee filter for that. */
   syncMine?: boolean;
   timeoutMs?: number;
   /** Injected in tests instead of a real network call — see axios's AxiosRequestConfig.adapter. */
@@ -180,15 +180,21 @@ export class JiraRepository {
     this.client = new Version2Client(this.clientConfig);
   }
 
+  /**
+   * An explicit filter.project always wins and narrows to exactly that one
+   * project; with none given, defaults to every project this repository
+   * cares about (defaultProjects() -- the same set buildSyncQuery() pools in
+   * the background), not just the single legacy `project` config field.
+   */
   async list(filter: ListFilter): Promise<Issue[]> {
-    const project = filter.project ?? this.project;
+    const projects = filter.project ? [filter.project] : this.defaultProjects();
     const clauses: string[] = [];
-    if (project) clauses.push(`project = ${jqlQuote(project)}`);
+    const scope = projectClause(projects);
+    if (scope) clauses.push(scope);
     if (filter.status) clauses.push(`status = ${jqlQuote(mapStatusToJira(filter.status))}`);
     if (filter.assignee) clauses.push(`assignee = ${jqlQuote(filter.assignee)}`);
     for (const label of filter.labels ?? []) clauses.push(`labels = ${jqlQuote(label)}`);
-    const jql = `${clauses.join(" AND ")} ORDER BY created DESC`.trim();
-    return this.searchJql(jql, filter.limit ?? 50);
+    return this.searchJql(buildJql(clauses, "AND"), filter.limit ?? 50);
   }
 
   async get(key: string): Promise<Issue> {
@@ -259,10 +265,12 @@ export class JiraRepository {
   }
 
   async search(query: string, limit = 50, project?: string): Promise<Issue[]> {
-    const effectiveProject = project ?? this.project;
-    const scope = effectiveProject ? `project = ${jqlQuote(effectiveProject)} AND ` : "";
-    const jql = `${scope}text ~ ${jqlQuote(query)} ORDER BY created DESC`;
-    return this.searchJql(jql, limit);
+    const projects = project ? [project] : this.defaultProjects();
+    const clauses: string[] = [];
+    const scope = projectClause(projects);
+    if (scope) clauses.push(scope);
+    clauses.push(`text ~ ${jqlQuote(query)}`);
+    return this.searchJql(buildJql(clauses, "AND"), limit);
   }
 
   async listChildren(key: string): Promise<Issue[]> {
@@ -285,22 +293,32 @@ export class JiraRepository {
   }
 
   /**
+   * Every project this repository defaults to when a caller doesn't name one
+   * explicitly -- the single `project` config plus `syncProjects`, deduped.
+   * Shared by list()/search()'s own default-scope resolution and by
+   * buildSyncQuery() below, so "which projects do we care about" is answered
+   * in exactly one place instead of once per method.
+   */
+  private defaultProjects(): string[] {
+    return [...new Set([this.project, ...this.syncProjects].filter((p): p is string => Boolean(p)))];
+  }
+
+  /**
    * SyncScopeExpandable -- widens what the poller's own background sync pools
-   * into the local ledger beyond the single default `project` list() falls
-   * back to: every configured project (default plus syncProjects) ORed with
+   * into the local ledger beyond defaultProjects() alone: ORs in
    * "assignee = currentUser()" when syncMine is set, so issues assigned to
-   * you in a project nobody thought to list still get pooled. Returns
-   * undefined -- letting the poller fall back to plain list() -- when
-   * neither syncProjects nor syncMine adds anything beyond the default
-   * project's own existing behavior.
+   * you in a project nobody listed still get pooled. Returns undefined --
+   * letting the poller fall back to plain list() -- when syncMine adds
+   * nothing beyond what list() already does with 0-1 default projects.
    */
   buildSyncQuery(): string | undefined {
-    const projects = [...new Set([this.project, ...this.syncProjects].filter((p): p is string => Boolean(p)))];
+    const projects = this.defaultProjects();
     if (projects.length <= 1 && !this.syncMine) return undefined;
     const clauses: string[] = [];
-    if (projects.length > 0) clauses.push(`project in (${projects.map(jqlQuote).join(", ")})`);
+    const scope = projectClause(projects);
+    if (scope) clauses.push(scope);
     if (this.syncMine) clauses.push("assignee = currentUser()");
-    return `${clauses.join(" OR ")} ORDER BY created DESC`;
+    return buildJql(clauses, "OR");
   }
 
   /**
@@ -584,6 +602,18 @@ function redact(text: string): string {
 
 function jqlQuote(value: string): string {
   return `"${value.replace(/"/g, '\\"')}"`;
+}
+
+/** Shared by list()/search()/buildSyncQuery() -- `project = X` for one project, `project in (...)` for several, undefined for none. */
+function projectClause(projects: readonly string[]): string | undefined {
+  if (projects.length === 0) return undefined;
+  if (projects.length === 1) return `project = ${jqlQuote(projects[0]!)}`;
+  return `project in (${projects.map(jqlQuote).join(", ")})`;
+}
+
+/** Shared by list()/search()/buildSyncQuery() -- clauses joined by `joiner`, always ordered by `orderBy`. An empty clause list still yields valid JQL ("ORDER BY ..."), matching every one of this file's own pre-existing unscoped queries. */
+function buildJql(clauses: readonly string[], joiner: "AND" | "OR", orderBy = "created DESC"): string {
+  return `${clauses.join(` ${joiner} `)} ORDER BY ${orderBy}`.trim();
 }
 
 function mapStatusToJira(status: Status): string {
