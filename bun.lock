@@ -21,7 +21,7 @@
         "@danypops/vehicle-client": "^0.6.1",
         "@danypops/vehicle-client-pi": "^0.18.2",
         "@danypops/vehicle-core": "^0.12.4",
-        "malevich-tui-components": "0.19.1",
+        "malevich-tui-components": "^0.24.0",
         "typebox": "^1.1.34",
       },
       "devDependencies": {
@@ -36,7 +36,7 @@
     },
     "packages/tickets": {
       "name": "@danypops/tickets",
-      "version": "0.10.1",
+      "version": "0.10.3",
       "bin": {
         "tickets": "./src/cli/index.ts",
         "tickets-daemon": "./src/process/main.ts",
@@ -580,7 +580,7 @@
 
     "lru-cache": ["lru-cache@11.5.2", "", {}, ""],
 
-    "malevich-tui-components": ["malevich-tui-components@0.19.1", "", {}, "sha512-4WPZ268h3dhz2deI+bdcmkxNG+DRrjGS4R71wLLDQwyrOPCmOjefgNvNbTthfBcu+wy4ih40vglmuVOt9I+xag=="],
+    "malevich-tui-components": ["malevich-tui-components@0.24.0", "", {}, "sha512-1uvz9bC5Joe2zNF/uugT8/nCyhLoubu+zYXZuE2M9yl5has41yQjy7QFDX5cOd5SIj123q/3nXXfSK0J9dwn3w=="],
 
     "marked": ["marked@18.0.5", "", { "bin": "bin/marked.js" }, ""],
 
