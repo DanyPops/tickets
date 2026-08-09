@@ -15,9 +15,9 @@
     },
     "packages/pi-tickets": {
       "name": "@danypops/pi-tickets",
-      "version": "0.21.4",
+      "version": "0.21.5",
       "dependencies": {
-        "@danypops/tickets": "^0.10.5",
+        "@danypops/tickets": "^0.11.0",
         "@danypops/vehicle-client": "^0.7.1",
         "@danypops/vehicle-client-pi": "^0.20.1",
         "@danypops/vehicle-core": "^0.13.0",
@@ -36,7 +36,7 @@
     },
     "packages/tickets": {
       "name": "@danypops/tickets",
-      "version": "0.10.5",
+      "version": "0.11.0",
       "bin": {
         "tickets": "./src/cli/index.ts",
         "tickets-daemon": "./src/process/main.ts",
