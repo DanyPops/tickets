@@ -8,7 +8,7 @@ import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";
 import { StageStore } from "../../src/stage/store.js";
-import { FakeRepository } from "../support/fake-repository.js";
+import { ReviewableFakeRepository } from "../support/fake-repository.js";
 
 const TOKEN = "test-token";
 let db: Database | undefined;
@@ -24,7 +24,7 @@ function makeApp() {
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
   const stageStore = new StageStore();
-  const github = new FakeRepository("github", [
+  const github = new ReviewableFakeRepository("github", [
     {
       ref: "github:#1",
       id: "1",
@@ -34,11 +34,20 @@ function makeApp() {
       priority: "none",
       url: "https://github.com/acme/widgets/issues/1",
     },
+    {
+      ref: "github:#5",
+      id: "5",
+      key: "#5",
+      title: "A PR",
+      status: "todo",
+      priority: "none",
+      url: "https://github.com/acme/widgets/pull/5",
+    },
   ]);
   const service = new TicketService({ github });
   const baseDeps = { service, ledger, focusStore, queries, stageStore, token: TOKEN, version: "0.0.0-test" };
   const app = buildApp({ ...baseDeps, vehicleRegistry: createTicketsVehicleRegistry(baseDeps) });
-  return { app, ledger, focusStore, queries, stageStore, service };
+  return { app, ledger, focusStore, queries, stageStore, service, github };
 }
 
 function req(path: string, init: RequestInit = {}, token = TOKEN): Request {
@@ -81,6 +90,42 @@ describe("daemon HTTP surface", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { result: { issue: { title: string } } };
     expect(body.result.issue.title).toBe("First");
+  });
+
+  it("dispatches issue.approve, returning the reviewed issue", async () => {
+    const { app, github } = makeApp();
+    const res = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "issue.approve", input: { ref: "github:#5", body: "lgtm" } }) }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: { issue: { pullRequest?: { reviewers?: unknown[] } } } };
+    expect(body.result.issue.pullRequest?.reviewers).toEqual([{ username: "approver", state: "approved" }]);
+    expect(github.lastApproveCall).toEqual({ key: "#5", body: "lgtm" });
+  });
+
+  it("dispatches issue.merge with a method, returning the merged issue", async () => {
+    const { app, github } = makeApp();
+    const res = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "issue.merge", input: { ref: "github:#5", method: "squash" } }) }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: { issue: { pullRequest?: { merged?: boolean } } } };
+    expect(body.result.issue.pullRequest?.merged).toBe(true);
+    expect(github.lastMergeCall).toEqual({ key: "#5", method: "squash" });
+  });
+
+  it("dispatches issue.request_changes, returning the reviewed issue", async () => {
+    const { app, github } = makeApp();
+    const res = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "issue.request_changes", input: { ref: "github:#5", body: "fix the tests" } }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: { issue: { pullRequest?: { reviewers?: unknown[] } } } };
+    expect(body.result.issue.pullRequest?.reviewers).toEqual([{ username: "reviewer", state: "changes_requested" }]);
+    expect(github.lastRequestChangesCall).toEqual({ key: "#5", body: "fix the tests" });
   });
 
   it("maps UnknownBackendError to HTTP 400, not 500", async () => {

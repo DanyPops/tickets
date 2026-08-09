@@ -21,6 +21,9 @@ export type TicketOperation =
   | "issue.children"
   | "issue.comments"
   | "issue.comment_add"
+  | "issue.approve"
+  | "issue.request_changes"
+  | "issue.merge"
   | "ledger.search"
   | "ledger.stats"
   | "focus.set"
@@ -55,6 +58,9 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "issue.children": { ref: string };
   "issue.comments": { ref: string };
   "issue.comment_add": { ref: string; body: string };
+  "issue.approve": { ref: string; body?: string };
+  "issue.request_changes": { ref: string; body: string };
+  "issue.merge": { ref: string; method?: "merge" | "squash" | "rebase" };
   "ledger.search": { query: string; limit?: number; backend?: string };
   "ledger.stats": Record<string, never>;
   "focus.set": { ref: string };
@@ -93,6 +99,9 @@ export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
   "issue.children": { issues: Issue[] };
   "issue.comments": { comments: Comment[] };
   "issue.comment_add": { comment: Comment };
+  "issue.approve": { issue: Issue };
+  "issue.request_changes": { issue: Issue };
+  "issue.merge": { issue: Issue };
   "ledger.search": { issues: Issue[] };
   "ledger.stats": { backends: { backend: string; count: number }[] };
   "focus.set": { focus: TicketFocusState };
@@ -128,6 +137,9 @@ export const TICKET_OPERATIONS: TicketOperation[] = [
   "issue.children",
   "issue.comments",
   "issue.comment_add",
+  "issue.approve",
+  "issue.request_changes",
+  "issue.merge",
   "ledger.search",
   "ledger.stats",
   "focus.set",

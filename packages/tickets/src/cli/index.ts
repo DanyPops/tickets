@@ -124,6 +124,32 @@ program
     await withClient((client) => client.call("issue.children", { ref }));
   });
 
+program
+  .command("approve <ref>")
+  .description("approve a pull request / merge request (GitHub, GitLab)")
+  .option("--body <text>", "optional review comment (GitHub only -- GitLab's approve endpoint has no comment body)")
+  .action(async (ref: string, opts) => {
+    await withClient((client) => client.call("issue.approve", { ref, body: opts.body }));
+  });
+
+program
+  .command("request-changes <ref> <body>")
+  .description("request changes on a pull request -- GitHub only, GitLab has no such REST endpoint")
+  .action(async (ref: string, body: string) => {
+    await withClient((client) => client.call("issue.request_changes", { ref, body }));
+  });
+
+program
+  .command("merge <ref>")
+  .description("merge a pull request / merge request (GitHub, GitLab)")
+  .option(
+    "--method <method>",
+    "merge | squash | rebase (GitLab: only squash is distinct from a plain merge; rebase falls back to a plain merge)",
+  )
+  .action(async (ref: string, opts) => {
+    await withClient((client) => client.call("issue.merge", { ref, method: opts.method }));
+  });
+
 const comment = program.command("comment").description("comment operations");
 
 comment

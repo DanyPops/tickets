@@ -54,12 +54,143 @@ describe("GitHubRepository", () => {
     expect(a.title).not.toBe(b.title);
   });
 
-  it("filters out pull requests from list()", async () => {
-    const fetchImpl = mockFetch(() => jsonResponse([RAW_ISSUE(1, "Real issue"), { ...RAW_ISSUE(2, "A PR"), pull_request: {} }]));
+  it("includes pull requests in list(), populating only what the Issues API's own schema actually carries (draft/merged) -- no extra call", async () => {
+    let calls = 0;
+    const fetchImpl = mockFetch(() => {
+      calls += 1;
+      return jsonResponse([RAW_ISSUE(1, "Real issue"), { ...RAW_ISSUE(2, "A PR"), draft: true, pull_request: { merged_at: null } }]);
+    });
     const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl });
     const issues = await repo.list({});
-    expect(issues).toHaveLength(1);
-    expect(issues[0]?.title).toBe("Real issue");
+    expect(issues).toHaveLength(2);
+    expect(issues[0]?.pullRequest).toBeUndefined();
+    expect(issues[1]?.pullRequest).toEqual({ draft: true, merged: false, mergedAt: undefined });
+    expect(calls).toBe(1);
+  });
+
+  it("get() on a pull request makes one additional pulls.get() call and one pulls.listReviews() call for the full shape", async () => {
+    const fetchImpl = mockFetch((url) => {
+      if (url.endsWith("/issues/9")) return jsonResponse({ ...RAW_ISSUE(9, "A PR"), pull_request: { merged_at: null } });
+      if (url.endsWith("/pulls/9/reviews")) return jsonResponse([{ user: { login: "carol" }, state: "APPROVED" }]);
+      if (url.endsWith("/pulls/9")) {
+        return jsonResponse({
+          base: { ref: "main", sha: "base-sha" },
+          head: { ref: "feature", sha: "head-sha" },
+          draft: false,
+          merged: false,
+          merged_at: null,
+          mergeable: true,
+          mergeable_state: "clean",
+          additions: 10,
+          deletions: 2,
+          changed_files: 3,
+          requested_reviewers: [{ login: "dave" }],
+        });
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl });
+    const issue = await repo.get("#9");
+    expect(issue.pullRequest).toEqual({
+      baseBranch: "main",
+      headBranch: "feature",
+      baseSha: "base-sha",
+      headSha: "head-sha",
+      draft: false,
+      merged: false,
+      mergedAt: undefined,
+      requestedReviewers: ["dave"],
+      mergeableState: "mergeable",
+      diffStat: { filesChanged: 3, additions: 10, deletions: 2 },
+      reviewers: [{ username: "carol", state: "approved" }],
+    });
+  });
+
+  it("get() on a plain issue never calls the Pulls API", async () => {
+    const fetchImpl = mockFetch((url) => {
+      if (url.endsWith("/issues/7")) return jsonResponse(RAW_ISSUE(7, "Fix the thing"));
+      throw new Error(`unexpected url ${url}`);
+    });
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl });
+    const issue = await repo.get("#7");
+    expect(issue.pullRequest).toBeUndefined();
+  });
+
+  // get() on a PR always enriches via pulls.get()/pulls.listReviews() (see the dedicated test
+  // above) -- every review-action test below re-fetches through the same path, so both must be
+  // mocked too, not just the action's own endpoint.
+  const PULL_FULL = {
+    base: { ref: "main", sha: "base-sha" },
+    head: { ref: "feature", sha: "head-sha" },
+    draft: false,
+    merged: false,
+    merged_at: null as string | null,
+    mergeable: true,
+    mergeable_state: "clean",
+    additions: 1,
+    deletions: 1,
+    changed_files: 1,
+  };
+
+  it("approvePullRequest() posts event: APPROVE then re-fetches the issue", async () => {
+    let reviewBody: Record<string, unknown> | undefined;
+    const fetchImpl = mockFetch((url, init) => {
+      if (url.endsWith("/pulls/9/reviews") && init?.method === "POST") {
+        reviewBody = JSON.parse(String(init.body));
+        return jsonResponse({});
+      }
+      if (url.endsWith("/pulls/9/reviews")) return jsonResponse([]);
+      if (url.endsWith("/pulls/9")) return jsonResponse(PULL_FULL);
+      if (url.endsWith("/issues/9")) return jsonResponse({ ...RAW_ISSUE(9, "A PR"), pull_request: { merged_at: null } });
+      throw new Error(`unexpected url ${url}`);
+    });
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", token: "t", fetchImpl });
+    const issue = await repo.approvePullRequest("#9");
+    expect(reviewBody?.event).toBe("APPROVE");
+    expect(issue.title).toBe("A PR");
+  });
+
+  it("requestPullRequestChanges() posts event: REQUEST_CHANGES with the required body", async () => {
+    let reviewBody: Record<string, unknown> | undefined;
+    const fetchImpl = mockFetch((url, init) => {
+      if (url.endsWith("/pulls/9/reviews") && init?.method === "POST") {
+        reviewBody = JSON.parse(String(init.body));
+        return jsonResponse({});
+      }
+      if (url.endsWith("/pulls/9/reviews")) return jsonResponse([]);
+      if (url.endsWith("/pulls/9")) return jsonResponse(PULL_FULL);
+      if (url.endsWith("/issues/9")) return jsonResponse({ ...RAW_ISSUE(9, "A PR"), pull_request: { merged_at: null } });
+      throw new Error(`unexpected url ${url}`);
+    });
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", token: "t", fetchImpl });
+    await repo.requestPullRequestChanges("#9", "please fix the tests");
+    expect(reviewBody?.event).toBe("REQUEST_CHANGES");
+    expect(reviewBody?.body).toBe("please fix the tests");
+  });
+
+  it("mergePullRequest() puts merge_method then re-fetches the issue", async () => {
+    let mergeBody: Record<string, unknown> | undefined;
+    const fetchImpl = mockFetch((url, init) => {
+      if (url.endsWith("/pulls/9/merge") && init?.method === "PUT") {
+        mergeBody = JSON.parse(String(init.body));
+        return jsonResponse({ sha: "abc", merged: true, message: "Merged" });
+      }
+      if (url.endsWith("/pulls/9/reviews")) return jsonResponse([]);
+      if (url.endsWith("/pulls/9")) return jsonResponse({ ...PULL_FULL, merged: true, merged_at: "2024-01-03T00:00:00Z" });
+      if (url.endsWith("/issues/9")) return jsonResponse({ ...RAW_ISSUE(9, "A PR"), pull_request: { merged_at: "2024-01-03T00:00:00Z" } });
+      throw new Error(`unexpected url ${url}`);
+    });
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", token: "t", fetchImpl });
+    const issue = await repo.mergePullRequest("#9", "squash");
+    expect(mergeBody?.merge_method).toBe("squash");
+    expect(issue.pullRequest?.merged).toBe(true);
+  });
+
+  it("review actions require a token, matching every other write", async () => {
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl: mockFetch(() => jsonResponse({})) });
+    await expect(repo.approvePullRequest("#9")).rejects.toThrow(AuthRequiredError);
+    await expect(repo.requestPullRequestChanges("#9", "x")).rejects.toThrow(AuthRequiredError);
+    await expect(repo.mergePullRequest("#9")).rejects.toThrow(AuthRequiredError);
   });
 
   it("refuses to create/update without a token (read-only mode)", async () => {

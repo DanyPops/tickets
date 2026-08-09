@@ -137,6 +137,28 @@ const OPERATIONS: readonly OperationSpec[] = [
     required: ["ref", "body"],
   },
   {
+    action: "issue.approve",
+    description: "Approves a pull request / merge request on a live backend (GitHub, GitLab) -- a real, externally visible write.",
+    effect: "external-write",
+    properties: { ref: stringProp, body: stringProp },
+    required: ["ref"],
+  },
+  {
+    action: "issue.request_changes",
+    description:
+      "Requests changes on a pull request on a live backend -- a real, externally visible write. GitHub only: GitLab has no REST endpoint for this.",
+    effect: "external-write",
+    properties: { ref: stringProp, body: stringProp },
+    required: ["ref", "body"],
+  },
+  {
+    action: "issue.merge",
+    description: "Merges a pull request / merge request on a live backend (GitHub, GitLab) -- a real, externally visible write.",
+    effect: "external-write",
+    properties: { ref: stringProp, method: stringProp },
+    required: ["ref"],
+  },
+  {
     action: "ledger.search",
     description: "Searches the local pooled-issue ledger (no live backend call).",
     effect: "read",
@@ -275,13 +297,14 @@ const OPERATIONS: readonly OperationSpec[] = [
 ];
 
 /**
- * The five discover.* operations only ever succeed against a backend whose
- * repository implements the matching optional capability (Jira today,
- * structurally -- never a hardcoded backend name). An operation none of the
- * currently configured backends could possibly satisfy is marked
- * unavailable so it never appears in the LLM's callable tool list in the
- * first place, instead of being offered and then failing with
- * NotSupportedError on the first real call.
+ * The five discover.* operations, plus the three pull-request-review operations below,
+ * only ever succeed against a backend whose repository implements the matching optional
+ * capability (structurally -- never a hardcoded backend name: discover.* is Jira-only
+ * today, issue.approve/issue.merge need PullRequestReviewable (GitHub, GitLab both),
+ * issue.request_changes needs PullRequestChangesRequestable (GitHub only)). An operation
+ * none of the currently configured backends could possibly satisfy is marked unavailable
+ * so it never appears in the LLM's callable tool list in the first place, instead of being
+ * offered and then failing with NotSupportedError on the first real call.
  */
 const DISCOVER_AVAILABILITY: readonly { action: TicketOperation; capability: keyof BackendCapabilities; reason: string }[] = [
   { action: "discover.fields", capability: "supportsFieldDiscovery", reason: "no configured backend supports field discovery (Jira only)" },
@@ -305,14 +328,31 @@ const DISCOVER_AVAILABILITY: readonly { action: TicketOperation; capability: key
     capability: "supportsBoardFilterDiscovery",
     reason: "no configured backend supports board filter discovery (Jira only)",
   },
+  {
+    action: "issue.approve",
+    capability: "supportsPullRequestReview",
+    reason: "no configured backend supports pull request review (GitHub, GitLab)",
+  },
+  {
+    action: "issue.merge",
+    capability: "supportsPullRequestReview",
+    reason: "no configured backend supports pull request review (GitHub, GitLab)",
+  },
+  {
+    action: "issue.request_changes",
+    capability: "supportsPullRequestChangesRequest",
+    reason: "no configured backend supports requesting changes on a pull request (GitHub only)",
+  },
 ];
 
 /**
- * Re-syncs the five discover.* operations' availability against the
- * service's current backend set -- called once right after the registry is
- * built, and again after every live backend refresh (config.ts's
- * createBackendRefreshTask), so a Jira credential added or removed at
- * runtime flips these tools' visibility without a daemon restart.
+ * Re-syncs every capability-gated operation's availability (the five discover.* operations
+ * plus issue.approve/issue.request_changes/issue.merge) against the service's current
+ * backend set -- called once right after the registry is built, and again after every live
+ * backend refresh (config.ts's createBackendRefreshTask), so a Jira credential added or a
+ * GitHub/GitLab backend added or removed at runtime flips these tools' visibility without a
+ * daemon restart. Name kept from before pull-request support existed -- still exported and
+ * called by that name from bootstrap.ts and existing tests.
  */
 export function syncDiscoverAvailability(registry: VehicleRegistry, service: TicketService): void {
   const capabilities = service.backendCapabilities();

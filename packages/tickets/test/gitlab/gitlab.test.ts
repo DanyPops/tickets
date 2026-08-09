@@ -157,6 +157,121 @@ describe("GitLabRepository", () => {
     expect(mapped.message).not.toContain("must-not-leak");
   });
 
+  const RAW_MR = (iid: number, title: string) => ({
+    id: iid,
+    iid,
+    title,
+    description: "mr desc",
+    state: "opened",
+    web_url: `https://gitlab.com/acme/widgets/-/merge_requests/${iid}`,
+    author: { id: 1, username: "alice", name: "Alice" },
+    assignee: { id: 2, username: "bob", name: "Bob" },
+    labels: ["feature"],
+    created_at: "2024-01-01T00:00:00Z",
+    updated_at: "2024-01-02T00:00:00Z",
+    source_branch: "feature",
+    target_branch: "main",
+    sha: "head-sha",
+    draft: false,
+    merged_at: null as string | null,
+    merge_status: "can_be_merged",
+    reviewers: [{ id: 3, username: "carol", name: "Carol" }],
+    changes_count: "5",
+    diff_refs: { base_sha: "base-sha", head_sha: "head-sha" },
+  });
+  const RAW_REVIEWERS = [{ user: { id: 3, username: "carol", name: "Carol" }, state: "approved" }];
+
+  it("get() on a !-prefixed key fetches the merge request and its reviewers, populating the full PullRequestDetails", async () => {
+    const requesterFn = mockRequesterFn((endpoint) => {
+      if (endpoint === "projects/acme%2Fwidgets/merge_requests/5") return { body: RAW_MR(5, "Add feature"), status: 200, headers: {} };
+      if (endpoint === "projects/acme%2Fwidgets/merge_requests/5/reviewers") return { body: RAW_REVIEWERS, status: 200, headers: {} };
+      throw new Error(`unexpected endpoint ${endpoint}`);
+    });
+    const repo = new GitLabRepository("gitlab", { projectId: "acme/widgets", requesterFn });
+    const issue = await repo.get("!5");
+    expect(issue.ref).toBe("gitlab:!5");
+    expect(issue.key).toBe("!5");
+    expect(issue.pullRequest).toEqual({
+      baseBranch: "main",
+      headBranch: "feature",
+      headSha: "head-sha",
+      baseSha: "base-sha",
+      draft: false,
+      merged: false,
+      mergedAt: undefined,
+      requestedReviewers: ["carol"],
+      mergeableState: "mergeable",
+      diffStat: { filesChanged: 5 },
+      reviewers: [{ username: "carol", state: "approved" }],
+    });
+  });
+
+  it("get() on a plain #-prefixed key never calls the MergeRequests endpoint", async () => {
+    const requesterFn = mockRequesterFn((endpoint) => {
+      if (endpoint === "projects/acme%2Fwidgets/issues/7") return { body: RAW_ISSUE(7, "Fix it"), status: 200, headers: {} };
+      throw new Error(`unexpected endpoint ${endpoint}`);
+    });
+    const repo = new GitLabRepository("gitlab", { projectId: "acme/widgets", requesterFn });
+    const issue = await repo.get("#7");
+    expect(issue.pullRequest).toBeUndefined();
+  });
+
+  it("approvePullRequest() posts to the approve endpoint then re-fetches the merge request", async () => {
+    let approveCalled = false;
+    const requesterFn = mockRequesterFn((endpoint, options) => {
+      if (endpoint === "projects/acme%2Fwidgets/merge_requests/5/approve" && options.method === "POST") {
+        approveCalled = true;
+        return { body: { approved: true }, status: 201, headers: {} };
+      }
+      if (endpoint === "projects/acme%2Fwidgets/merge_requests/5") return { body: RAW_MR(5, "Add feature"), status: 200, headers: {} };
+      if (endpoint === "projects/acme%2Fwidgets/merge_requests/5/reviewers") return { body: RAW_REVIEWERS, status: 200, headers: {} };
+      throw new Error(`unexpected endpoint ${endpoint}`);
+    });
+    const repo = new GitLabRepository("gitlab", { projectId: "acme/widgets", token: "t", requesterFn });
+    const issue = await repo.approvePullRequest("!5");
+    expect(approveCalled).toBe(true);
+    expect(issue.title).toBe("Add feature");
+  });
+
+  it("mergePullRequest() PUTs squash: true for method 'squash' and uses the merge response directly (no extra show() call)", async () => {
+    let mergeBody: Record<string, unknown> | undefined;
+    let showCalled = false;
+    const requesterFn = mockRequesterFn((endpoint, options) => {
+      if (endpoint === "projects/acme%2Fwidgets/merge_requests/5/merge" && options.method === "PUT") {
+        mergeBody = JSON.parse(String(options.body));
+        return { body: { ...RAW_MR(5, "Add feature"), state: "merged", merged_at: "2024-01-03T00:00:00Z" }, status: 200, headers: {} };
+      }
+      if (endpoint === "projects/acme%2Fwidgets/merge_requests/5") {
+        showCalled = true;
+        return { body: RAW_MR(5, "Add feature"), status: 200, headers: {} };
+      }
+      if (endpoint === "projects/acme%2Fwidgets/merge_requests/5/reviewers") return { body: RAW_REVIEWERS, status: 200, headers: {} };
+      throw new Error(`unexpected endpoint ${endpoint}`);
+    });
+    const repo = new GitLabRepository("gitlab", { projectId: "acme/widgets", token: "t", requesterFn });
+    const issue = await repo.mergePullRequest("!5", "squash");
+    expect(mergeBody?.squash).toBe(true);
+    expect(showCalled).toBe(false);
+    expect(issue.pullRequest?.merged).toBe(true);
+  });
+
+  it("does not implement PullRequestChangesRequestable -- GitLab has no REST endpoint for it", async () => {
+    const repo = new GitLabRepository("gitlab", {
+      projectId: "acme/widgets",
+      requesterFn: mockRequesterFn(() => ({ body: [], status: 200, headers: {} })),
+    });
+    expect((repo as unknown as { requestPullRequestChanges?: unknown }).requestPullRequestChanges).toBeUndefined();
+  });
+
+  it("review actions require a token, matching every other write", async () => {
+    const repo = new GitLabRepository("gitlab", {
+      projectId: "acme/widgets",
+      requesterFn: mockRequesterFn(() => ({ body: [], status: 200, headers: {} })),
+    });
+    await expect(repo.approvePullRequest("!5")).rejects.toThrow(/token|auth/i);
+    await expect(repo.mergePullRequest("!5")).rejects.toThrow(/token|auth/i);
+  });
+
   describe("validateUrl (SSRF guard)", () => {
     it("accepts https and localhost http", () => {
       expect(() => validateUrl("https://gitlab.example.com")).not.toThrow();

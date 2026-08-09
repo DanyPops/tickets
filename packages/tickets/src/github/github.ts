@@ -22,7 +22,18 @@
 import { RequestError } from "@octokit/request-error";
 import { Octokit } from "octokit";
 import { ApiError, AuthRequiredError, BackendConfigurationError, BackendConnectionError, IssueNotFoundError } from "../issue/errors.js";
-import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
+import type {
+  Comment,
+  CreateInput,
+  Issue,
+  ListFilter,
+  MergeableState,
+  PullRequestDetails,
+  PullRequestReviewer,
+  parsePriority,
+  Status,
+  UpdateInput,
+} from "../issue/issue.js";
 import type { BackendConfigurationReadiness } from "../issue/repository.js";
 import { classifyBackendTransportFailure } from "../issue/transport-error.js";
 
@@ -56,7 +67,10 @@ interface GhIssue {
   labels: (GhLabel | string)[];
   created_at: string;
   updated_at: string;
-  pull_request?: unknown;
+  /** The Issues API's own PR stub -- confirmed against @octokit/openapi-types' "issue" schema: only these fields, never base/head/mergeable/diffStat/requestedReviewers. See github.ts's get()/pullRequestDetailsFromIssue for why those need a dedicated pulls.get() call instead. */
+  pull_request?: { merged_at: string | null };
+  /** A real top-level field on the Issues API's own "issue" schema (not nested under pull_request) -- free at list()/get() time. */
+  draft?: boolean;
 }
 interface GhComment {
   id: number;
@@ -64,6 +78,24 @@ interface GhComment {
   created_at: string;
   updated_at: string;
   user: GhUser | null;
+}
+/** The dedicated Pulls API's full shape (GET /pulls/{pull_number}) -- only reachable via a second call from get(), never from the Issues API list()/get() calls above. */
+interface GhPullRequestFull {
+  base: { ref: string; sha: string };
+  head: { ref: string; sha: string };
+  draft?: boolean;
+  merged: boolean;
+  merged_at: string | null;
+  mergeable: boolean | null;
+  mergeable_state: string;
+  additions: number;
+  deletions: number;
+  changed_files: number;
+  requested_reviewers?: GhUser[] | null;
+}
+interface GhReview {
+  user: GhUser | null;
+  state: string;
 }
 
 export class GitHubRepository {
@@ -145,7 +177,7 @@ export class GitHubRepository {
         request: { signal },
       }),
     );
-    return (raw as GhIssue[]).filter((i) => !i.pull_request).map(toDomain);
+    return (raw as GhIssue[]).map((i) => toDomain(i));
   }
 
   async get(key: string): Promise<Issue> {
@@ -153,8 +185,26 @@ export class GitHubRepository {
     const raw = (await this.call((signal) =>
       this.client.rest.issues.get({ owner: this.owner, repo: this.repoName(), issue_number, request: { signal } }),
     )) as GhIssue;
-    if (raw.pull_request) throw new Error(`github: #${issue_number} is a pull request, not an issue`);
-    return toDomain(raw);
+    if (!raw.pull_request) return toDomain(raw);
+    // A PR's full shape (base/head/mergeable/diffStat/requestedReviewers) is not on the Issues
+    // API's own "issue" schema at all -- only reachable via the dedicated Pulls API, and only
+    // fetched here (the single-item path), never from list()/search(), per this project's own
+    // N+1-avoidance discipline. See the research Doc's correction for why this differs from
+    // list()'s zero-extra-call population below.
+    const [pull, reviews] = await Promise.all([this.fetchPullRequest(issue_number), this.fetchReviews(issue_number)]);
+    return toDomain(raw, pullRequestDetailsFromFull(pull, reviews));
+  }
+
+  private async fetchPullRequest(pull_number: number): Promise<GhPullRequestFull> {
+    return (await this.call((signal) =>
+      this.client.rest.pulls.get({ owner: this.owner, repo: this.repoName(), pull_number, request: { signal } }),
+    )) as GhPullRequestFull;
+  }
+
+  private async fetchReviews(pull_number: number): Promise<GhReview[]> {
+    return (await this.call((signal) =>
+      this.client.rest.pulls.listReviews({ owner: this.owner, repo: this.repoName(), pull_number, request: { signal } }),
+    )) as GhReview[];
   }
 
   async create(input: CreateInput): Promise<Issue> {
@@ -199,12 +249,53 @@ export class GitHubRepository {
     const result = (await this.call((signal) =>
       this.client.rest.search.issuesAndPullRequests({ q: `${scope} ${query}`, per_page: limit, request: { signal } }),
     )) as { items: GhIssue[] };
-    return result.items.filter((i) => !i.pull_request).map(toDomain);
+    return result.items.map((i) => toDomain(i));
   }
 
   // GitHub has no native sub-issue relationship exposed via REST v3.
   async listChildren(_key: string): Promise<Issue[]> {
     return [];
+  }
+
+  async approvePullRequest(key: string, body?: string): Promise<Issue> {
+    this.requireAuth();
+    const pull_number = parseIssueNumber(key);
+    await this.call((signal) =>
+      this.client.rest.pulls.createReview({
+        owner: this.owner,
+        repo: this.repoName(),
+        pull_number,
+        event: "APPROVE",
+        body,
+        request: { signal },
+      }),
+    );
+    return this.get(key);
+  }
+
+  async requestPullRequestChanges(key: string, body: string): Promise<Issue> {
+    this.requireAuth();
+    const pull_number = parseIssueNumber(key);
+    await this.call((signal) =>
+      this.client.rest.pulls.createReview({
+        owner: this.owner,
+        repo: this.repoName(),
+        pull_number,
+        event: "REQUEST_CHANGES",
+        body,
+        request: { signal },
+      }),
+    );
+    return this.get(key);
+  }
+
+  async mergePullRequest(key: string, method?: "merge" | "squash" | "rebase"): Promise<Issue> {
+    this.requireAuth();
+    const pull_number = parseIssueNumber(key);
+    await this.call((signal) =>
+      this.client.rest.pulls.merge({ owner: this.owner, repo: this.repoName(), pull_number, merge_method: method, request: { signal } }),
+    );
+    return this.get(key);
   }
 
   async listComments(key: string): Promise<Comment[]> {
@@ -290,7 +381,54 @@ function priorityFromLabels(labels: (GhLabel | string)[]): ReturnType<typeof par
   return "none";
 }
 
-function toDomain(gh: GhIssue): Issue {
+/** Normalizes GitHub's loose mergeable_state string (not a closed enum in its own OpenAPI schema) into this project's own MergeableState. */
+function mapMergeableState(gh: GhPullRequestFull): MergeableState {
+  if (gh.mergeable === null) return "checking";
+  if (!gh.mergeable) return "conflicting";
+  return gh.mergeable_state.toLowerCase() === "unknown" ? "unknown" : "mergeable";
+}
+
+function mapReviewState(state: string): PullRequestReviewer["state"] {
+  switch (state.toUpperCase()) {
+    case "APPROVED":
+      return "approved";
+    case "CHANGES_REQUESTED":
+      return "changes_requested";
+    case "COMMENTED":
+      return "commented";
+    case "PENDING":
+      return "pending";
+    default:
+      return "unreviewed";
+  }
+}
+
+/** get()-only enrichment -- see the research Doc's correction for why this needs a dedicated pulls.get() call, unreachable from list()/search(). */
+function pullRequestDetailsFromFull(pull: GhPullRequestFull, reviews: GhReview[]): PullRequestDetails {
+  return {
+    baseBranch: pull.base.ref,
+    headBranch: pull.head.ref,
+    baseSha: pull.base.sha,
+    headSha: pull.head.sha,
+    draft: pull.draft,
+    merged: pull.merged,
+    mergedAt: pull.merged_at ?? undefined,
+    requestedReviewers: pull.requested_reviewers?.length ? pull.requested_reviewers.map((r) => r.login) : undefined,
+    mergeableState: mapMergeableState(pull),
+    diffStat: { filesChanged: pull.changed_files, additions: pull.additions, deletions: pull.deletions },
+    reviewers: reviews.length
+      ? reviews.filter((r) => r.user).map((r) => ({ username: r.user!.login, state: mapReviewState(r.state) }))
+      : undefined,
+  };
+}
+
+/** list()/search()-cheap population -- only what the Issues API's own "issue" schema actually carries for a PR item (see the research Doc's correction): draft and merged/mergedAt, nothing requiring the dedicated Pulls API. */
+function pullRequestDetailsFromIssue(gh: GhIssue): PullRequestDetails | undefined {
+  if (!gh.pull_request) return undefined;
+  return { draft: gh.draft, merged: gh.pull_request.merged_at !== null, mergedAt: gh.pull_request.merged_at ?? undefined };
+}
+
+function toDomain(gh: GhIssue, pullRequest?: PullRequestDetails): Issue {
   return {
     ref: `github:#${gh.number}`,
     id: String(gh.number),
@@ -305,6 +443,7 @@ function toDomain(gh: GhIssue): Issue {
     url: gh.html_url,
     createdAt: gh.created_at,
     updatedAt: gh.updated_at,
+    pullRequest: pullRequest ?? pullRequestDetailsFromIssue(gh),
   };
 }
 

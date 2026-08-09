@@ -13,6 +13,8 @@ import {
   hasComments,
   hasConfigurationReadiness,
   hasFieldDiscovery,
+  hasPullRequestChangesRequest,
+  hasPullRequestReview,
   hasRawQuery,
   hasStatusDiscovery,
   hasSyncScopeExpansion,
@@ -30,6 +32,10 @@ export interface BackendCapabilities {
   readonly supportsTemplateDiscovery: boolean;
   readonly supportsBoardQuickFilterDiscovery: boolean;
   readonly supportsBoardFilterDiscovery: boolean;
+  /** approvePullRequest/mergePullRequest -- GitHub and GitLab both support this today. */
+  readonly supportsPullRequestReview: boolean;
+  /** requestPullRequestChanges -- GitHub only; GitLab has no such REST endpoint. */
+  readonly supportsPullRequestChangesRequest: boolean;
 }
 
 export class UnknownBackendError extends Error {
@@ -79,6 +85,8 @@ export class TicketService {
       supportsTemplateDiscovery: hasTemplateDiscovery(repo),
       supportsBoardQuickFilterDiscovery: hasBoardQuickFilterDiscovery(repo),
       supportsBoardFilterDiscovery: hasBoardFilterDiscovery(repo),
+      supportsPullRequestReview: hasPullRequestReview(repo),
+      supportsPullRequestChangesRequest: hasPullRequestChangesRequest(repo),
     }));
   }
 
@@ -202,5 +210,29 @@ export class TicketService {
     const repo = this.repo(backend);
     if (!hasBoardFilterDiscovery(repo)) throw new NotSupportedError(backend, "board filter discovery");
     return repo.discoverBoardFilterJql(boardId);
+  }
+
+  /** Approves a pull request / merge request. Both GitHub and GitLab support this today. */
+  async approve(ref: string, body?: string): Promise<Issue> {
+    const { backend, key } = parseRef(ref);
+    const repo = this.repo(backend);
+    if (!hasPullRequestReview(repo)) throw new NotSupportedError(backend, "pull request review");
+    return repo.approvePullRequest(key, body);
+  }
+
+  /** Requests changes on a pull request. GitHub-only -- GitLab has no such REST endpoint (see PullRequestChangesRequestable's own doc comment), so this always throws NotSupportedError there. */
+  async requestChanges(ref: string, body: string): Promise<Issue> {
+    const { backend, key } = parseRef(ref);
+    const repo = this.repo(backend);
+    if (!hasPullRequestChangesRequest(repo)) throw new NotSupportedError(backend, "requesting changes on a pull request");
+    return repo.requestPullRequestChanges(key, body);
+  }
+
+  /** Merges a pull request / merge request. Both GitHub and GitLab support this today. */
+  async merge(ref: string, method?: "merge" | "squash" | "rebase"): Promise<Issue> {
+    const { backend, key } = parseRef(ref);
+    const repo = this.repo(backend);
+    if (!hasPullRequestReview(repo)) throw new NotSupportedError(backend, "pull request review");
+    return repo.mergePullRequest(key, method);
   }
 }

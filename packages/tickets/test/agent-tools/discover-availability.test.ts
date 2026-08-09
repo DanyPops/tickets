@@ -7,7 +7,7 @@ import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";
 import { StageStore } from "../../src/stage/store.js";
-import { FakeRepository } from "../support/fake-repository.js";
+import { FakeRepository, ReviewableFakeRepository, ReviewOnlyFakeRepository } from "../support/fake-repository.js";
 
 /** Implements every discover.* optional capability, unlike FakeRepository -- proves availability tracks real capability, not a hardcoded "jira" name. */
 class DiscoverableRepository extends FakeRepository {
@@ -56,11 +56,11 @@ function harness(repos: Record<string, FakeRepository>) {
   return { registry, service };
 }
 
-function availabilityOf(registry: ReturnType<typeof harness>["registry"]) {
+function availabilityOf(registry: ReturnType<typeof harness>["registry"], ops: readonly string[] = DISCOVER_OPS) {
   return Object.fromEntries(
     registry
       .manifest()
-      .operations.filter((op) => DISCOVER_OPS.includes(op.name))
+      .operations.filter((op) => ops.includes(op.name))
       .map((op) => [op.name, op.available]),
   );
 }
@@ -108,5 +108,34 @@ describe("discover.* tool availability", () => {
     const { registry } = harness({ github: new FakeRepository("github", []) });
     const op = registry.manifest().operations.find((o) => o.name === "issue.list");
     expect(op?.available).toBe(true);
+  });
+});
+
+const PR_OPS = ["issue.approve", "issue.merge", "issue.request_changes"];
+
+describe("pull-request review tool availability", () => {
+  it("hides issue.approve/issue.merge/issue.request_changes when no configured backend supports any of them", () => {
+    const { registry } = harness({ jira: new FakeRepository("jira", []) });
+    expect(availabilityOf(registry, PR_OPS)).toEqual({ "issue.approve": false, "issue.merge": false, "issue.request_changes": false });
+  });
+
+  it("shows issue.approve/issue.merge but not issue.request_changes for a GitLab-shaped (review-only) backend", () => {
+    const { registry } = harness({ gitlab: new ReviewOnlyFakeRepository("gitlab", []) });
+    expect(availabilityOf(registry, PR_OPS)).toEqual({ "issue.approve": true, "issue.merge": true, "issue.request_changes": false });
+  });
+
+  it("shows all three for a GitHub-shaped backend (full PullRequestReviewable + PullRequestChangesRequestable)", () => {
+    const { registry } = harness({ github: new ReviewableFakeRepository("github", []) });
+    expect(availabilityOf(registry, PR_OPS)).toEqual({ "issue.approve": true, "issue.merge": true, "issue.request_changes": true });
+  });
+
+  it("re-syncs when a live backend swap adds a review-capable backend", () => {
+    const { registry, service } = harness({ jira: new FakeRepository("jira", []) });
+    expect(availabilityOf(registry, PR_OPS)["issue.approve"]).toBe(false);
+
+    service.setRepos({ github: new ReviewableFakeRepository("github", []) });
+    syncDiscoverAvailability(registry, service);
+
+    expect(availabilityOf(registry, PR_OPS)["issue.approve"]).toBe(true);
   });
 });

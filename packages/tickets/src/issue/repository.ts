@@ -142,3 +142,39 @@ export interface SyncScopeExpandable {
 export function hasSyncScopeExpansion(repo: IssueRepository): repo is IssueRepository & SyncScopeExpandable {
   return typeof (repo as Partial<SyncScopeExpandable>).buildSyncQuery === "function";
 }
+
+/**
+ * Optional capability -- approve/merge a pull request or merge request. Both GitHub and GitLab
+ * support both actions as real REST endpoints (see the research Doc "Tickets PR/MR support:
+ * grounded GitHub & GitLab API research and domain design"), so both adapters implement this.
+ * Each method returns the refreshed Issue -- neither platform's own review/merge endpoint
+ * response is the full PR/MR object, so implementations re-fetch after acting.
+ */
+export interface PullRequestReviewable {
+  approvePullRequest(key: string, body?: string): Promise<Issue>;
+  mergePullRequest(key: string, method?: "merge" | "squash" | "rebase"): Promise<Issue>;
+}
+
+export function hasPullRequestReview(repo: IssueRepository): repo is IssueRepository & PullRequestReviewable {
+  return (
+    typeof (repo as Partial<PullRequestReviewable>).approvePullRequest === "function" &&
+    typeof (repo as Partial<PullRequestReviewable>).mergePullRequest === "function"
+  );
+}
+
+/**
+ * Optional capability -- request changes on a pull request. GitHub-only: confirmed against
+ * GitLab's own REST API (both gitbeaker's generated types and GitLab's official docs) that
+ * "request changes" has no REST endpoint at all -- it is GraphQL-only on GitLab. Adding a
+ * second HTTP client to gitlab.ts just for this one action is out of proportion to what this
+ * capability needs, so GitLab's repository simply does not implement this interface;
+ * TicketService.requestChanges() throws NotSupportedError via hasPullRequestChangesRequest(),
+ * the same pattern every other GitLab-unsupported action already uses (e.g. hasRawQuery).
+ */
+export interface PullRequestChangesRequestable {
+  requestPullRequestChanges(key: string, body: string): Promise<Issue>;
+}
+
+export function hasPullRequestChangesRequest(repo: IssueRepository): repo is IssueRepository & PullRequestChangesRequestable {
+  return typeof (repo as Partial<PullRequestChangesRequestable>).requestPullRequestChanges === "function";
+}

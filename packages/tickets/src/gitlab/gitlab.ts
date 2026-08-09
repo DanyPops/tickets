@@ -15,7 +15,18 @@ import { isIP } from "node:net";
 import { GitbeakerRequestError, type RequesterType, type ResourceOptions } from "@gitbeaker/requester-utils";
 import { Gitlab } from "@gitbeaker/rest";
 import { ApiError, AuthRequiredError, BackendConnectionError, InvalidUrlError, IssueNotFoundError } from "../issue/errors.js";
-import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
+import type {
+  Comment,
+  CreateInput,
+  Issue,
+  ListFilter,
+  MergeableState,
+  PullRequestDetails,
+  PullRequestReviewer,
+  parsePriority,
+  Status,
+  UpdateInput,
+} from "../issue/issue.js";
 import type { BackendConfigurationReadiness } from "../issue/repository.js";
 import { classifyBackendTransportFailure } from "../issue/transport-error.js";
 
@@ -58,6 +69,48 @@ interface GlNote {
   created_at: string;
   updated_at: string;
   author: GlUser | null;
+}
+
+/**
+ * GitLab's MergeRequests resource is a dedicated endpoint entirely separate from Issues --
+ * issues and merge requests have their own independent `iid` sequences within a project (a
+ * project can have both a `#5` issue and a `!5` merge request, unrelated to each other), unlike
+ * GitHub where a PR *is* an Issue with a `pull_request` stub. list()/search() below stay
+ * Issues-only, unchanged: mixing two independently-numbered collections into one list() call
+ * would be surprising, not the GitHub-shaped "free extra items" case this adapter otherwise
+ * mirrors. Merge requests surface instead via GitLab's own `!<iid>` reference convention
+ * (mirrored by the UI itself) as a key prefix get()/approvePullRequest()/mergePullRequest()
+ * all recognize -- see parseMrIid().
+ */
+interface GlMergeRequest {
+  iid: number;
+  title: string;
+  description: string | null;
+  state: string;
+  web_url: string;
+  author: GlUser | null;
+  assignee: GlUser | null;
+  labels: string[];
+  created_at: string;
+  updated_at: string;
+  source_branch: string;
+  target_branch: string;
+  sha: string;
+  draft: boolean;
+  merged_at: string | null;
+  merge_status: string;
+  /** list()-cheap per the research Doc -- the usernames only; per-reviewer *state* always needs the dedicated showReviewers() call below. */
+  reviewers: GlUser[] | null;
+}
+/** get()-only shape (ExpandedMergeRequestSchema) -- ordinary list()/show() responses don't carry changes_count/diff_refs. */
+interface GlMergeRequestExpanded extends GlMergeRequest {
+  /** A string, not a number -- GitLab caps and reports e.g. "1000+" past its own diff-size limit rather than an exact count. */
+  changes_count: string;
+  diff_refs: { base_sha: string; head_sha: string };
+}
+interface GlMergeRequestReviewerEntry {
+  user: GlUser;
+  state: string;
 }
 
 const DEFAULT_URL = "https://gitlab.com";
@@ -127,9 +180,18 @@ export class GitLabRepository {
   }
 
   async get(key: string): Promise<Issue> {
+    if (isMergeRequestKey(key)) return this.getMergeRequest(parseMrIid(key));
     const iid = parseIid(key);
     const raw = await this.call<GlIssue>(() => this.client.Issues.show(iid, { projectId: this.projectId }));
     return toDomain(raw);
+  }
+
+  private async getMergeRequest(iid: number): Promise<Issue> {
+    const [raw, reviewers] = await Promise.all([
+      this.call<GlMergeRequestExpanded>(() => this.client.MergeRequests.show(this.projectId, iid)),
+      this.call<GlMergeRequestReviewerEntry[]>(() => this.client.MergeRequests.showReviewers(this.projectId, iid)),
+    ]);
+    return mrToDomain(raw, reviewers);
   }
 
   async create(input: CreateInput): Promise<Issue> {
@@ -186,6 +248,39 @@ export class GitLabRepository {
   }
 
   /**
+   * GitLab's approve endpoint (unlike GitHub's createReview) returns only an approval-state
+   * summary, not the full MR -- so this re-fetches the same way get() does, `body` is accepted
+   * for interface parity with GitHub but ignored: GitLab's approve endpoint has no comment-body
+   * parameter at all (confirmed against @gitbeaker/core's ApproveMergeRequestOptions -- just
+   * sha/approvalPassword).
+   */
+  async approvePullRequest(key: string): Promise<Issue> {
+    this.requireAuth();
+    const iid = parseMrIid(key);
+    await this.call(() => this.client.MergeRequestApprovals.approve(this.projectId, iid));
+    return this.getMergeRequest(iid);
+  }
+
+  /**
+   * GitLab's merge endpoint returns the full expanded MR directly (per the research Doc) --
+   * no extra show() call needed for the MR object itself, unlike approve() above. Reviewer
+   * state is still a separate call every time on both backends (see PullRequestReviewer's own
+   * doc comment), so that part isn't free. GitLab's accept endpoint only has a boolean `squash`
+   * option, not a 3-way merge/squash/rebase choice like GitHub's -- "rebase" has no GitLab merge
+   * equivalent (GitLab's own rebase is a distinct pre-merge branch operation), so it falls back
+   * to a plain merge rather than rejecting the call.
+   */
+  async mergePullRequest(key: string, method?: "merge" | "squash" | "rebase"): Promise<Issue> {
+    this.requireAuth();
+    const iid = parseMrIid(key);
+    const [raw, reviewers] = await Promise.all([
+      this.call<GlMergeRequestExpanded>(() => this.client.MergeRequests.merge(this.projectId, iid, { squash: method === "squash" })),
+      this.call<GlMergeRequestReviewerEntry[]>(() => this.client.MergeRequests.showReviewers(this.projectId, iid)),
+    ]);
+    return mrToDomain(raw, reviewers);
+  }
+
+  /**
    * GitLab's assignee write contract takes a numeric user ID, not a username
    * (`assignee_ids: number[]`, confirmed against @gitbeaker/rest's generated
    * types) — the exact gap the old hand-rolled adapter had (never resolved
@@ -228,6 +323,51 @@ function parseIid(key: string): number {
   return Number(key.replace(/^#/, ""));
 }
 
+/** GitLab's own merge-request reference convention, mirrored by its UI: "!5", vs. an issue's "#5". */
+function isMergeRequestKey(key: string): boolean {
+  return key.trim().startsWith("!");
+}
+
+function parseMrIid(key: string): number {
+  return Number(key.replace(/^!/, "").replace(/^#/, ""));
+}
+
+/** Primarily merge_status, not detailed_merge_status -- see MergeableState's own doc comment for the cross-backend normalization this feeds. */
+function mapMergeableState(mergeStatus: string): MergeableState {
+  switch (mergeStatus) {
+    case "can_be_merged":
+      return "mergeable";
+    case "cannot_be_merged":
+    case "cannot_be_merged_recheck":
+      return "conflicting";
+    case "checking":
+      return "checking";
+    default:
+      return "unknown"; // "unchecked"
+  }
+}
+
+/** GitLab's own showReviewers() state enum, mapped onto this project's cross-backend PullRequestReviewer.state. "reviewed" (a completed, non-approve/non-reject review) is the closest fit to "commented"; "review_started" (in progress) maps to "pending". */
+function mapReviewerState(state: string): PullRequestReviewer["state"] {
+  switch (state) {
+    case "approved":
+      return "approved";
+    case "requested_changes":
+      return "changes_requested";
+    case "reviewed":
+      return "commented";
+    case "review_started":
+      return "pending";
+    default:
+      return "unreviewed";
+  }
+}
+
+/** "5" -> 5; GitLab reports "1000+" past its own diff-size limit -- parsed as a floor, not an exact count (see GlMergeRequestExpanded's own doc comment). */
+function parseChangesCount(changesCount: string): number {
+  return Number.parseInt(changesCount, 10) || 0;
+}
+
 function mapStatusToGitLab(status: Status): "opened" | "closed" {
   return status === "done" || status === "canceled" ? "closed" : "opened";
 }
@@ -267,6 +407,43 @@ function toDomain(gl: GlIssue): Issue {
     url: gl.web_url,
     createdAt: gl.created_at,
     updatedAt: gl.updated_at,
+  };
+}
+
+function mrPullRequestDetails(mr: GlMergeRequest | GlMergeRequestExpanded, reviewers: GlMergeRequestReviewerEntry[]): PullRequestDetails {
+  const expanded = "changes_count" in mr ? mr : undefined;
+  return {
+    baseBranch: mr.target_branch,
+    headBranch: mr.source_branch,
+    headSha: mr.sha,
+    baseSha: expanded?.diff_refs.base_sha,
+    draft: mr.draft,
+    merged: mr.state === "merged",
+    mergedAt: mr.merged_at ?? undefined,
+    requestedReviewers: mr.reviewers?.length ? mr.reviewers.map((r) => r.username) : undefined,
+    mergeableState: mapMergeableState(mr.merge_status),
+    diffStat: expanded ? { filesChanged: parseChangesCount(expanded.changes_count) } : undefined,
+    reviewers: reviewers.length ? reviewers.map((r) => ({ username: r.user.username, state: mapReviewerState(r.state) })) : undefined,
+  };
+}
+
+function mrToDomain(mr: GlMergeRequestExpanded, reviewers: GlMergeRequestReviewerEntry[]): Issue {
+  return {
+    ref: `gitlab:!${mr.iid}`,
+    id: String(mr.iid),
+    key: `!${mr.iid}`,
+    title: mr.title,
+    description: mr.description ?? undefined,
+    status: mapStatusFromGitLab(mr.state === "merged" ? "closed" : mr.state),
+    rawStatus: mr.state,
+    priority: priorityFromLabels(mr.labels ?? []),
+    labels: mr.labels?.length ? mr.labels : undefined,
+    assignee: mr.assignee?.username,
+    reporter: mr.author?.username,
+    url: mr.web_url,
+    createdAt: mr.created_at,
+    updatedAt: mr.updated_at,
+    pullRequest: mrPullRequestDetails(mr, reviewers),
   };
 }
 

@@ -1,6 +1,6 @@
 import { IssueNotFoundError } from "../../src/issue/errors.js";
 import type { CreateInput, Issue, ListFilter, UpdateInput } from "../../src/issue/issue.js";
-import type { CommentCapable, IssueRepository } from "../../src/issue/repository.js";
+import type { CommentCapable, IssueRepository, PullRequestChangesRequestable, PullRequestReviewable } from "../../src/issue/repository.js";
 
 /** In-memory IssueRepository test double — no network, deterministic, used across test suites. */
 export class FakeRepository implements IssueRepository, CommentCapable {
@@ -100,5 +100,50 @@ export class FakeRepository implements IssueRepository, CommentCapable {
   async addComment(key: string, body: string) {
     await this.get(key);
     return { id: "c1", body };
+  }
+}
+
+/**
+ * A FakeRepository that also implements PullRequestReviewable + PullRequestChangesRequestable,
+ * modeling GitHub (both interfaces) -- a separate subclass, not a constructor flag on
+ * FakeRepository itself, so every other existing consumer's capability-detection assertions
+ * (e.g. discover-availability.test.ts's "never hides a non-discover operation") stay unaffected
+ * by default: hasPullRequestReview()/hasPullRequestChangesRequest() are pure duck-typing over
+ * method existence, so a plain FakeRepository never accidentally satisfies them.
+ */
+export class ReviewableFakeRepository extends FakeRepository implements PullRequestReviewable, PullRequestChangesRequestable {
+  lastApproveCall?: { key: string; body?: string };
+  lastMergeCall?: { key: string; method?: "merge" | "squash" | "rebase" };
+  lastRequestChangesCall?: { key: string; body: string };
+
+  async approvePullRequest(key: string, body?: string): Promise<Issue> {
+    this.lastApproveCall = { key, body };
+    const issue = await this.get(key);
+    return { ...issue, pullRequest: { ...issue.pullRequest, reviewers: [{ username: "approver", state: "approved" }] } };
+  }
+
+  async mergePullRequest(key: string, method?: "merge" | "squash" | "rebase"): Promise<Issue> {
+    this.lastMergeCall = { key, method };
+    const issue = await this.get(key);
+    return { ...issue, status: "done", pullRequest: { ...issue.pullRequest, merged: true } };
+  }
+
+  async requestPullRequestChanges(key: string, body: string): Promise<Issue> {
+    this.lastRequestChangesCall = { key, body };
+    const issue = await this.get(key);
+    return { ...issue, pullRequest: { ...issue.pullRequest, reviewers: [{ username: "reviewer", state: "changes_requested" }] } };
+  }
+}
+
+/** GitLab-shaped: PullRequestReviewable only, deliberately no PullRequestChangesRequestable -- mirrors gitlab.ts's own real capability gap. */
+export class ReviewOnlyFakeRepository extends FakeRepository implements PullRequestReviewable {
+  async approvePullRequest(key: string): Promise<Issue> {
+    const issue = await this.get(key);
+    return { ...issue, pullRequest: { ...issue.pullRequest, reviewers: [{ username: "approver", state: "approved" }] } };
+  }
+
+  async mergePullRequest(key: string): Promise<Issue> {
+    const issue = await this.get(key);
+    return { ...issue, status: "done", pullRequest: { ...issue.pullRequest, merged: true } };
   }
 }

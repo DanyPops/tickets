@@ -33,6 +33,8 @@ const GITHUB_CAPABILITIES_ONLY_RAW_QUERY: BackendCapabilities = {
   supportsTemplateDiscovery: false,
   supportsBoardQuickFilterDiscovery: false,
   supportsBoardFilterDiscovery: false,
+  supportsPullRequestReview: false,
+  supportsPullRequestChangesRequest: false,
 };
 
 let daemon: RunningDaemon | undefined;

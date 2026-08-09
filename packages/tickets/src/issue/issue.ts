@@ -57,6 +57,60 @@ export interface ExternalLink {
   type?: string;
 }
 
+/**
+ * Normalized across backends even though availability differs: GitHub only reports this on
+ * get() (list/search omit it entirely); GitLab reports merge_status/detailed_merge_status on
+ * both list and get, but is still normalized to get()-only here so callers get one predictable
+ * contract instead of a per-backend availability difference. See the research Doc "Tickets
+ * PR/MR support: grounded GitHub & GitLab API research and domain design" for the source API
+ * fields each state is derived from.
+ */
+export type MergeableState = "mergeable" | "conflicting" | "checking" | "unknown";
+
+/**
+ * get()-only on both backends. GitLab never totals additions/deletions in its merge request
+ * object (only a `changes_count` string like "5" or "1000+") -- getting real added/removed line
+ * counts would need a separate Diffs-API round trip this project's N+1-avoidance discipline
+ * says to skip, so additions/deletions stay undefined for GitLab.
+ */
+export interface PullRequestDiffStat {
+  filesChanged: number;
+  additions?: number;
+  deletions?: number;
+}
+
+/** Per-reviewer review state -- always a dedicated call on both backends (GitHub: listReviews(); GitLab: showReviewers()), never embedded in the list/get response itself. */
+export interface PullRequestReviewer {
+  username: string;
+  /** Only populated by get() -- both backends require the same dedicated call regardless of path. */
+  state?: "approved" | "changes_requested" | "commented" | "pending" | "unreviewed";
+}
+
+/**
+ * The extra fields a GitHub pull request / GitLab merge request carries beyond a plain Issue.
+ * A PR/MR is an issue superset via both platforms' own APIs, so this lives as an optional field
+ * on Issue (see below) rather than a parallel type hierarchy -- every existing Issue consumer
+ * keeps working unchanged for a plain issue, where this is simply undefined.
+ */
+export interface PullRequestDetails {
+  /** Undefined at list()/search() time for a backend whose issue-superset listing endpoint doesn't carry branch refs (GitHub) -- populated by get() there. Always present for a backend with a dedicated MR endpoint (GitLab). */
+  baseBranch?: string;
+  headBranch?: string;
+  baseSha?: string;
+  headSha?: string;
+  draft?: boolean;
+  merged?: boolean;
+  mergedAt?: string;
+  /** list()/search()-cheap on both backends -- populated with zero extra calls. */
+  requestedReviewers?: string[];
+  /** get()-only -- see MergeableState's own doc comment for why this is normalized across backends. */
+  mergeableState?: MergeableState;
+  /** get()-only on both backends. */
+  diffStat?: PullRequestDiffStat;
+  /** get()-only on both backends (a dedicated call every time, on either backend). */
+  reviewers?: PullRequestReviewer[];
+}
+
 /** The unified representation of a work item, regardless of which platform it lives on. */
 export interface Issue {
   /** "backend:key", e.g. "jira:PROJ-42" or "github:#7". */
@@ -87,6 +141,8 @@ export interface Issue {
   externalLinks?: ExternalLink[];
   /** Custom fields keyed by their backend display name (e.g. Jira's "Target Version"), resolved via that backend's field-discovery manifest. Empty until discovery has run at least once for the backend. */
   customFields?: Record<string, string>;
+  /** Present only for a GitHub pull request / GitLab merge request -- undefined for a plain issue. */
+  pullRequest?: PullRequestDetails;
 }
 
 export interface CreateInput {
