@@ -73,7 +73,7 @@ jobs:
       - run: bun install
       - run: bun run lint:ci
 
-      - run: bun run --filter '*' test
+      - run: bun run test
       - run: bun run --filter '*' typecheck
 
       # npm CLI only for the publish step (trusted publishing needs >= 11.5.1).

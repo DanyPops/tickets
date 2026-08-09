@@ -500,12 +500,12 @@ program
 const service = program
   .command("service")
   .description(
-    "deploy the tickets daemon as a persistent, Armada-supervised service (Linux/macOS/Windows; survives logout/reboot and restarts on crash, unlike `daemon start`'s on-demand spawn)",
+    "register the tickets daemon with Armada's cross-platform desired-state fleet (direct start/stop/restart/status actions currently require systemd --user)",
   );
 
 service
   .command("install")
-  .description("register this install with Armada as the tickets vehicle and reconcile it (write/enable/start its systemd unit)")
+  .description("register this install with Armada as the tickets vehicle and reconcile it through the native service manager")
   .action(() => {
     const cli = ticketsServiceCli();
     const result = cli.install();

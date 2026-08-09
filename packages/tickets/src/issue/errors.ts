@@ -12,6 +12,35 @@ export class AuthRequiredError extends Error {
   }
 }
 
+/** A reviewed, user-actionable backend setup failure safe to expose to clients. */
+export class BackendConfigurationError extends Error {
+  constructor(
+    public readonly backend: string,
+    message: string,
+    public readonly recovery: string,
+  ) {
+    super(`${backend}: ${message}`);
+    this.name = "BackendConfigurationError";
+  }
+}
+
+/** A transport failure with no trustworthy HTTP response (DNS, VPN, connection, or timeout). */
+export class BackendConnectionError extends Error {
+  constructor(
+    public readonly backend: string,
+    public readonly kind: "unreachable" | "timeout" = "unreachable",
+    cause?: unknown,
+  ) {
+    super(
+      kind === "timeout"
+        ? `${backend}: backend request timed out; retry or check backend connectivity`
+        : `${backend}: unable to reach the backend API; check the configured URL and network, VPN, or DNS connectivity`,
+      { cause },
+    );
+    this.name = "BackendConnectionError";
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly backend: string,

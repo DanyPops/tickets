@@ -16,7 +16,6 @@
  */
 import {
   bindVehicleOperation,
-  defineErrorMapping,
   defineLooseObjectSchema,
   defineVehicleOperation,
   type LooseObjectProperty,
@@ -25,20 +24,11 @@ import {
 } from "@danypops/vehicle-core";
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import type { BackendCapabilities, TicketService } from "../issue/service.js";
-import { statusForKnownTicketError } from "../rpc/error-status.js";
 import type { TicketOperation } from "../rpc/ops.js";
 import { TICKET_OP_HANDLERS, type TicketsAppDeps } from "../rpc/server.js";
+import { withTicketsErrorParity } from "./error-mapping.js";
 
 const OWNER = "tickets";
-
-const withTicketsErrorParity = defineErrorMapping(
-  [
-    { matches: (error) => statusForKnownTicketError(error) === 404, category: "not_found" },
-    { matches: (error) => statusForKnownTicketError(error) === 400, category: "validation" },
-    { matches: (error) => statusForKnownTicketError(error) === 422, category: "authorization" },
-  ],
-  { fallbackCategory: "internal", fallbackCode: "handler-failed", fallbackMessage: "Tickets operation failed" },
-);
 
 const LIMITS = { defaultTimeoutMs: 10_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
 

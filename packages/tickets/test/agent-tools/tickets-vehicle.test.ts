@@ -2,6 +2,8 @@ import type { Database } from "bun:sqlite";
 import { afterEach, describe, expect, it } from "bun:test";
 import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { createTicketsVehicleRegistry } from "../../src/agent-tools/tickets-vehicle.js";
+import { GitHubRepository } from "../../src/github/github.js";
+import { ApiError, BackendConnectionError } from "../../src/issue/errors.js";
 import { TicketService } from "../../src/issue/service.js";
 import { TICKET_OPERATIONS, type TicketOperation } from "../../src/rpc/ops.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
@@ -232,6 +234,81 @@ describe("createTicketsVehicleRegistry", () => {
     expect((failure as { category?: string }).category).toBe("validation");
     expect((failure as { code?: string }).code).toBe("operation-rejected");
     expect((failure as Error).message).toMatch(/unknown backend/);
+  });
+
+  it("reports a partially configured GitHub backend with an actionable recovery instead of handler-failed", async () => {
+    const { registry, service } = harness();
+    service.setRepos({ github: new GitHubRepository("github", { owner: "acme" }) });
+
+    const failure = await registry.invoke("issue.list", 1, { backend: "github" }, PERMS).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      code: "backend-not-configured",
+      category: "validation",
+      message: "github: repository is not configured; set GITHUB_REPO (or the backend's repo setting) and restart the tickets daemon",
+      recovery: { message: expect.stringContaining("GITHUB_REPO") },
+    });
+  });
+
+  it("classifies backend HTTP failures without exposing an arbitrary response body", async () => {
+    class FailingRepository extends FakeRepository {
+      override async list(): Promise<never> {
+        throw new ApiError("gitlab", "GET", "https://gitlab.example/api/issues", 503, 'credential="must-not-leak"');
+      }
+    }
+    const { registry, service } = harness();
+    service.setRepos({ gitlab: new FailingRepository("gitlab") });
+
+    const failure = await registry.invoke("issue.list", 1, { backend: "gitlab" }, PERMS).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      code: "backend-unavailable",
+      category: "unavailable",
+      message: "gitlab: backend API is unavailable (503)",
+      retryable: true,
+      details: { backend: "gitlab", status: 503 },
+    });
+    expect(JSON.stringify(failure)).not.toContain("must-not-leak");
+  });
+
+  it("classifies DNS/VPN-style connection failures with concrete recovery guidance", async () => {
+    class FailingRepository extends FakeRepository {
+      override async list(): Promise<never> {
+        throw new BackendConnectionError("gitlab", "unreachable", new Error("getaddrinfo token=must-not-leak"));
+      }
+    }
+    const { registry, service } = harness();
+    service.setRepos({ gitlab: new FailingRepository("gitlab") });
+
+    const failure = await registry.invoke("issue.list", 1, { backend: "gitlab" }, PERMS).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      code: "backend-unavailable",
+      category: "unavailable",
+      message: "gitlab: unable to reach the backend API; check the configured URL and network, VPN, or DNS connectivity",
+      retryable: true,
+      recovery: { message: expect.stringMatching(/VPN.*DNS/) },
+    });
+    expect(JSON.stringify(failure)).not.toContain("must-not-leak");
+  });
+
+  it("keeps genuinely unknown exceptions opaque", async () => {
+    class FailingRepository extends FakeRepository {
+      override async list(): Promise<never> {
+        throw new Error("credential=must-not-leak");
+      }
+    }
+    const { registry, service } = harness();
+    service.setRepos({ github: new FailingRepository("github") });
+
+    const failure = await registry.invoke("issue.list", 1, { backend: "github" }, PERMS).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      code: "handler-failed",
+      category: "internal",
+      message: "Tickets operation failed unexpectedly",
+    });
+    expect(JSON.stringify(failure)).not.toContain("must-not-leak");
   });
 
   it("query.save/list/run/remove round-trip a saved query through the real SavedQueryStore and TicketService", async () => {

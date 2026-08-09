@@ -14,7 +14,7 @@
 import { isIP } from "node:net";
 import { GitbeakerRequestError, type RequesterType, type ResourceOptions } from "@gitbeaker/requester-utils";
 import { Gitlab } from "@gitbeaker/rest";
-import { ApiError, AuthRequiredError, InvalidUrlError, IssueNotFoundError } from "../issue/errors.js";
+import { ApiError, AuthRequiredError, BackendConnectionError, InvalidUrlError, IssueNotFoundError } from "../issue/errors.js";
 import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
 
 export interface GitLabOptions {
@@ -183,12 +183,13 @@ export class GitLabRepository {
       return (await fn()) as T;
     } catch (err) {
       if (err instanceof GitbeakerRequestError) {
-        const status = err.cause?.response?.status ?? 500;
+        const status = err.cause?.response?.status;
         const url = err.cause?.request?.url ?? "";
+        if (status === undefined) throw new BackendConnectionError("gitlab", "unreachable", err);
         if (status === 404) throw new IssueNotFoundError("gitlab", url);
         throw new ApiError("gitlab", err.cause?.request?.method ?? "?", url, status, redact(err.message));
       }
-      throw err;
+      throw new BackendConnectionError("gitlab", "unreachable", err);
     }
   }
 }

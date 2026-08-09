@@ -24,7 +24,7 @@ function truncate(text: string, max: number): string {
 
 export function renderResultText(action: string, result: unknown, isError: boolean, theme: Theme): string {
   if (isError) {
-    const text = typeof result === "string" ? result : JSON.stringify(result);
+    const text = typeof result === "string" ? result : (JSON.stringify(result) ?? "Tickets operation failed");
     return theme.fg("error", text);
   }
 

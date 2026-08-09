@@ -16,7 +16,7 @@
 import type { AxiosAdapter } from "axios";
 import type { HttpException, Config as JiraClientConfig } from "jira.js";
 import { AgileClient, Version2Client } from "jira.js";
-import { ApiError, IssueNotFoundError } from "../issue/errors.js";
+import { ApiError, BackendConfigurationError, BackendConnectionError, IssueNotFoundError } from "../issue/errors.js";
 import type { Comment, CreateInput, Issue, IssueLink, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
 import type { Template } from "../issue/template.js";
 import { buildTemplateBody, extractTemplateSections } from "../issue/template.js";
@@ -224,13 +224,19 @@ export class JiraRepository {
         const message = err instanceof Error ? err.message : String(err);
         throw new ApiError("jira", "?", key ?? "?", status, redact(message));
       }
-      throw err;
+      throw new BackendConnectionError("jira", err instanceof DOMException && err.name === "AbortError" ? "timeout" : "unreachable", err);
     }
   }
 
   async create(input: CreateInput): Promise<Issue> {
     const project = input.project ?? this.project;
-    if (!project) throw new Error("jira: project is required (pass project or set a default)");
+    if (!project) {
+      throw new BackendConfigurationError(
+        "jira",
+        "project is required to create an issue; pass input.project or configure JIRA_PROJECT",
+        "Pass input.project or set JIRA_PROJECT (or the backend's project setting), then retry.",
+      );
+    }
     const fields: Record<string, unknown> = {
       project: { key: project },
       summary: input.title,

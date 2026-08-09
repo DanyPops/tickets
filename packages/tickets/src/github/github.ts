@@ -21,7 +21,7 @@
 
 import { RequestError } from "@octokit/request-error";
 import { Octokit } from "octokit";
-import { ApiError, AuthRequiredError, IssueNotFoundError } from "../issue/errors.js";
+import { ApiError, AuthRequiredError, BackendConfigurationError, BackendConnectionError, IssueNotFoundError } from "../issue/errors.js";
 import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -90,7 +90,13 @@ export class GitHubRepository {
   }
 
   private repoName(): string {
-    if (!this.repo) throw new Error("github: repo not set — pass repo, or scope via config");
+    if (!this.repo) {
+      throw new BackendConfigurationError(
+        "github",
+        "repository is not configured; set GITHUB_REPO (or the backend's repo setting) and restart the tickets daemon",
+        "Set GITHUB_REPO (or the backend's repo setting), then restart the tickets daemon.",
+      );
+    }
     return this.repo;
   }
 
@@ -209,11 +215,13 @@ export class GitHubRepository {
       const res = await fn(controller.signal);
       return res.data;
     } catch (err) {
+      if (err instanceof BackendConfigurationError) throw err;
       if (err instanceof RequestError) {
         if (err.status === 404) throw new IssueNotFoundError("github", err.request.url);
         throw new ApiError("github", err.request.method, err.request.url, err.status, redact(err.message));
       }
-      throw err;
+      if (err instanceof DOMException && err.name === "AbortError") throw new BackendConnectionError("github", "timeout", err);
+      throw new BackendConnectionError("github", "unreachable", err);
     } finally {
       clearTimeout(timer);
     }

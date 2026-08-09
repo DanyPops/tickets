@@ -50,6 +50,10 @@ describe("renderResultText", () => {
     expect(text).toBe("boom");
   });
 
+  it("an error with no details still renders a useful fallback instead of undefined", () => {
+    expect(renderResultText("list", undefined, true, fakeTheme)).toBe("Tickets operation failed");
+  });
+
   it("an action with no special-case rendering falls back to a JSON dump", () => {
     const text = renderResultText("backends", { backends: ["jira"] }, false, fakeTheme);
     expect(text).toContain("backends");

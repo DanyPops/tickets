@@ -18,11 +18,12 @@ GitHub/GitLab/Jira or opens the SQLite ledger directly. See
 ## Requirements
 
 - **[Bun](https://bun.sh) 1.1+.** The daemon uses `bun:sqlite` and
-  `Bun.serve` (via `@danypops/daemon-kit`); the CLI, library, and pi-tickets
-  extension are plain TypeScript but currently ship as source, run through
-  Bun rather than a compiled Node build.
-- `@danypops/daemon-kit` comes from the public npm registry (`^0.2.1`) —
-  no local checkout or `file:` path needed, `bun install` fetches it directly.
+  `Bun.serve` through `@danypops/vehicle-server`; the CLI, library, and
+  pi-tickets extension are plain TypeScript but currently ship as source and
+  run through Bun rather than a compiled Node build.
+- The published `@danypops/vehicle-*` packages provide the daemon, authenticated
+  RPC/Vehicle contracts, resilient client, Pi projection, and Armada service
+  integration. No local Vehicle checkout or `file:` dependency is required.
 
 ## Install
 
@@ -76,25 +77,25 @@ bun run src/cli/index.ts discover statuses -b jira
 bun run src/cli/index.ts discover template -b jira --project PROJ --issue-type Bug
 ```
 
-### Running the daemon persistently (systemd --user)
+### Running the daemon persistently (Armada)
 
-`daemon start` spawns the daemon on demand and it lives only as long as
-something keeps it alive. For a daemon that survives logout/reboot, install
-it as a systemd `--user` service instead (Linux only):
+`daemon start` is the on-demand path. For a daemon owned by the native service
+manager and reconciled from desired state, register it with Armada:
 
 ```bash
-bun run src/cli/index.ts service install   # writes + enables + (re)starts the unit
+bun run src/cli/index.ts service install    # Armada upsert + reconcile
+bun run src/cli/index.ts service uninstall  # Armada remove
+
+# Direct lifecycle actions currently target systemd --user (Linux):
 bun run src/cli/index.ts service status
 bun run src/cli/index.ts service stop
 bun run src/cli/index.ts service restart
-bun run src/cli/index.ts service path      # where the unit file lives
 ```
 
-`service install` points `ExecStart` at the exact `bun` binary and package
-checkout currently running the CLI, so re-running it after an upgrade (a new
-`npm`/`bun` global install, or a fresh checkout) picks up the new path
-immediately via `daemon-reload` + `enable` + `restart` — no manual `stop`
-needed first.
+`service install` records the exact Bun binary, CLI entry path, version, handle
+path, restart policy, and readiness probe in Armada's fleet manifest. Armada
+then projects that declaration through systemd, launchd, or Windows Task
+Scheduler. Re-run `service install` after upgrading or moving the package.
 
 Once installed as a package, the same commands are available as `tickets`
 and `tickets-daemon` (see `bin` in `package.json`).
@@ -273,13 +274,13 @@ member directory instead: `{ "packages": ["/path/to/tickets/packages/pi-tickets"
 ```bash
 bun install                # from the repo root -- links both workspace members
 bun run typecheck          # both packages
-bun test                   # both packages
+bun run test               # both packages, sequential isolated test processes
 ```
 
-Tests never hit real GitHub/GitLab/Jira/Atlassian: adapters take an
-injectable `fetchImpl`, and the daemon tests (`test/rpc/`, `test/sqlite/`, `test/process/`) run the real
-`@danypops/daemon-kit` `startDaemon()`/SQLite/HTTP stack against a scratch
-XDG root with a fake `IssueRepository`.
+Tests never hit real GitHub/GitLab/Jira/Atlassian: adapters take injectable
+transport implementations, and the daemon tests (`test/rpc/`, `test/sqlite/`,
+`test/process/`) run the real `@danypops/vehicle-server` daemon/SQLite/HTTP
+stack against a scratch XDG root with a fake `IssueRepository`.
 
 ## Architecture
 
@@ -292,13 +293,14 @@ Driver (inbound)              Application              Driven (outbound)
 └───────────────┘        │   + Ledger      │───────▶│ SQLite (Ledger)  │
                           │   + Poller)     │        └──────────────────┘
                           └─────────────────┘
-                          built on @danypops/daemon-kit
-                          (paths, storage, http, logging, daemon, rpc-client)
+                          built on @danypops/vehicle-server
+                          (Vehicle registry, paths, storage, HTTP, logging,
+                           daemon lifecycle, Armada service integration)
 ```
 
 Hexagonal architecture: `src/domain` has zero I/O, `src/ports` defines the
 outbound contract, `src/adapters` implement it per backend, `src/application`
 orchestrates by parsing `backend:key` refs and routing to the named
 repository, and `src/daemon` is the only place that owns the SQLite ledger,
-wraps it in a Bearer-authenticated HTTP RPC surface, and runs the pooling
-poller as a `daemon-kit` maintenance task.
+wraps it in a Bearer-authenticated HTTP/Vehicle surface, and runs the pooling
+poller as a Vehicle maintenance task.

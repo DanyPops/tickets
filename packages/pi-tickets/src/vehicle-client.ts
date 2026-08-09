@@ -85,7 +85,13 @@ function renderTicketsCall(operationName: string, args: unknown, theme: Theme) {
 
 function renderTicketsResult(operationName: string, result: AgentToolResult<unknown>, theme: Theme, isError: boolean) {
   const output = (result.details as { output?: unknown } | undefined)?.output;
-  const text = renderResultText(legacyActionFor(operationName), output, isError, theme);
+  const errorContent = isError
+    ? result.content
+        .filter((block): block is { type: "text"; text: string } => block.type === "text")
+        .map((block) => block.text)
+        .join("\n")
+    : undefined;
+  const text = renderResultText(legacyActionFor(operationName), output ?? errorContent, isError, theme);
   return new Text(text, 0, 0);
 }
 

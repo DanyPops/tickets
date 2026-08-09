@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "bun run --filter '*' test",
+    "test": "bun run --cwd packages/tickets test && bun run --cwd packages/pi-tickets test",
     "typecheck": "bun run --filter '*' typecheck",
     "format": "biome format --write .",
     "lint": "biome check --write . && eslint packages --max-warnings 0",
