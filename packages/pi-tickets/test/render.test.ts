@@ -59,4 +59,16 @@ describe("renderResultText", () => {
     expect(text).toContain("backends");
     expect(text).toContain("jira");
   });
+
+  it("bounds oversized historical details.output rows", () => {
+    const text = renderResultText("legacy", { body: "x".repeat(20_000) }, false, fakeTheme);
+    expect(text.length).toBeLessThan(8_300);
+    expect(text).toContain("legacy details truncated");
+  });
+
+  it("fails safely when a historical details.output row is cyclic", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(renderResultText("legacy", cyclic, false, fakeTheme)).toContain("legacy details were malformed");
+  });
 });

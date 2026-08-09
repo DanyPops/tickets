@@ -89,11 +89,13 @@ describe("registerTicketsVehicle survives a daemon restart without a Pi extensio
       signal: AbortSignal,
       onUpdate: undefined,
       context: unknown,
-    ) => Promise<{ details?: { output?: unknown } }>;
+    ) => Promise<{ content: Array<{ type: string; text?: string }>; details?: { output?: unknown; presentation?: unknown } }>;
     const toolContext = { sessionManager: { getSessionId: () => "session-a" } };
 
     const first = await execute("call-1", {}, new AbortController().signal, undefined, toolContext);
-    expect(first.details?.output).toEqual({ answeredBy: "first" });
+    expect(first.content[0]?.text).toContain("first");
+    expect(first.details?.output).toBeUndefined();
+    expect(JSON.stringify(first.details?.presentation)).toContain("tickets.tool-details/v1");
 
     // Simulate a real restart: the old process is gone, a new one binds a new random port.
     // The injected resolveTarget stands in for the handle file being rewritten.
@@ -108,7 +110,8 @@ describe("registerTicketsVehicle survives a daemon restart without a Pi extensio
     // No reload, no re-registration -- the SAME tool object, called again, now reconnects
     // and succeeds against the new daemon instance.
     const third = await execute("call-3", {}, new AbortController().signal, undefined, toolContext);
-    expect(third.details?.output).toEqual({ answeredBy: "second" });
+    expect(third.content[0]?.text).toContain("second");
+    expect(third.details?.output).toBeUndefined();
 
     current.stop();
   });

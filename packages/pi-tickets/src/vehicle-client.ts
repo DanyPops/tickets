@@ -17,17 +17,18 @@
  * after the daemon has been started once (via /tickets, or the CLI) picks
  * them up normally.
  *
- * Uses render.ts's existing renderResultText for every operation's result
- * view via the per-operation renderers option, so this migration keeps the
- * exact same hand-tuned rendering the mega-tool already had (comment
- * previews, created/updated confirmations, focus status) instead of
- * falling back to vehicle-client-pi's generic renderer.
+ * Uses a paired Vehicle presentation contract: successful application output
+ * is projected before persistence into the strict bounded
+ * tickets.tool-details/v1 union, and the custom renderer parses only that
+ * curated DTO. Historical details.output rows retain a bounded compatibility
+ * fallback; malformed or future details fail closed to bounded model content.
  */
 
 import { resolveVehicleClientTarget, type VehicleClientTarget } from "@danypops/tickets";
 import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import {
+  type PiVehicleToolDetails,
   type RegisteredPiVehicle,
   type RegisterVehicleToolsWhenReadyOptions,
   refreshVehicleToolAvailability,
@@ -39,6 +40,12 @@ import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-sta
 import type { VehicleClient, VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import {
+  formatTicketsPresentation,
+  parseTicketsPresentation,
+  projectTicketsPresentation,
+  TICKETS_PRESENTATION_MAX_BYTES,
+} from "./presentation.js";
 import { renderResultText } from "./render.js";
 
 /**
@@ -83,16 +90,39 @@ function renderTicketsCall(operationName: string, args: unknown, theme: Theme) {
   return new Text(text, 0, 0);
 }
 
-function renderTicketsResult(operationName: string, result: AgentToolResult<unknown>, theme: Theme, isError: boolean) {
-  const output = (result.details as { output?: unknown } | undefined)?.output;
-  const errorContent = isError
-    ? result.content
-        .filter((block): block is { type: "text"; text: string } => block.type === "text")
-        .map((block) => block.text)
-        .join("\n")
-    : undefined;
-  const text = renderResultText(legacyActionFor(operationName), output ?? errorContent, isError, theme);
-  return new Text(text, 0, 0);
+function resultTextContent(result: AgentToolResult<unknown>): string {
+  return result.content
+    .filter((block): block is { type: "text"; text: string } => block.type === "text")
+    .map((block) => block.text)
+    .join("\n");
+}
+
+function renderTicketsResult(
+  operationName: string,
+  result: AgentToolResult<PiVehicleToolDetails>,
+  theme: Theme,
+  isError: boolean,
+  isPartial: boolean,
+) {
+  if (isPartial) return new Text(theme.fg("warning", "Working…"), 0, 0);
+  const content = resultTextContent(result);
+  if (isError) return new Text(renderResultText(legacyActionFor(operationName), content || undefined, true, theme), 0, 0);
+
+  const details = result.details;
+  const presentation = parseTicketsPresentation(details?.presentation);
+  if (presentation) {
+    const color = presentation.kind === "error" ? "error" : "toolOutput";
+    return new Text(theme.fg(color, formatTicketsPresentation(presentation)), 0, 0);
+  }
+
+  // Compatibility window for historical rows persisted before tickets.tool-details/v1.
+  if (details?.output !== undefined) {
+    return new Text(renderResultText(legacyActionFor(operationName), details.output, false, theme), 0, 0);
+  }
+
+  // Malformed or future presentation details fail closed to the independently
+  // bounded model content rather than throwing during transcript replay.
+  return new Text(theme.fg("toolOutput", content || "Tickets operation completed"), 0, 0);
 }
 
 export interface TicketsVehicleDeps {
@@ -177,7 +207,14 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     principal: { id: "pi-tickets" },
     renderers: (descriptor: VehicleOperationDescriptor) => ({
       renderCall: (args, theme) => renderTicketsCall(descriptor.name, args, theme),
-      renderResult: (result, _options, theme, context) => renderTicketsResult(descriptor.name, result, theme, context.isError),
+    }),
+    presentations: (descriptor: VehicleOperationDescriptor) => ({
+      projector: {
+        maxBytes: TICKETS_PRESENTATION_MAX_BYTES,
+        project: (output) => projectTicketsPresentation(descriptor.name, output),
+      },
+      renderResult: (result, resultOptions, theme, context) =>
+        renderTicketsResult(descriptor.name, result, theme, context.isError, resultOptions.isPartial),
     }),
     retry: deps.retry,
     log: (event) => {

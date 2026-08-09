@@ -17,9 +17,23 @@ interface Comment {
   createdAt?: string;
 }
 
+const LEGACY_MAX_ROWS = 20;
+const LEGACY_MAX_JSON_CHARACTERS = 8_192;
+
 function truncate(text: string, max: number): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
   return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
+}
+
+function boundedLegacyJson(value: unknown): string {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value, null, 2) ?? "Tickets operation completed";
+  } catch {
+    return "Tickets operation completed (legacy details were malformed)";
+  }
+  if (serialized.length <= LEGACY_MAX_JSON_CHARACTERS) return serialized;
+  return `${serialized.slice(0, LEGACY_MAX_JSON_CHARACTERS - 1)}…\n[legacy details truncated]`;
 }
 
 export function renderResultText(action: string, result: unknown, isError: boolean, theme: Theme): string {
@@ -43,8 +57,10 @@ export function renderResultText(action: string, result: unknown, isError: boole
         (result as { comments?: Comment[] } | undefined)?.comments ?? (Array.isArray(result) ? (result as Comment[]) : undefined);
       if (!comments) break;
       if (comments.length === 0) return theme.fg("muted", "No comments");
-      const lines = comments.map((c) => `${theme.fg("accent", c.author ?? "unknown")}: ${truncate(c.body, 120)}`);
-      return `${theme.fg("muted", `${comments.length} comment(s)`)}\n${lines.join("\n")}`;
+      const visible = comments.slice(0, LEGACY_MAX_ROWS);
+      const lines = visible.map((c) => `${theme.fg("accent", c.author ?? "unknown")}: ${truncate(c.body, 120)}`);
+      const omitted = comments.length - visible.length;
+      return `${theme.fg("muted", `${comments.length} comment(s)`)}\n${lines.join("\n")}${omitted > 0 ? `\n[${omitted} comment(s) omitted]` : ""}`;
     }
     case "create": {
       const issue = (result as { ref?: string; title?: string } | undefined) ?? {};
@@ -65,5 +81,5 @@ export function renderResultText(action: string, result: unknown, isError: boole
       return theme.fg("muted", "Focus cleared");
   }
 
-  return theme.fg("dim", JSON.stringify(result, null, 2));
+  return theme.fg("dim", boundedLegacyJson(result));
 }

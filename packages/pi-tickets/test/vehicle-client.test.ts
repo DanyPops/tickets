@@ -177,7 +177,7 @@ describe("registerTicketsVehicle", () => {
     expect(client.calls[0]?.options?.permissions).toContain("vehicle:approvals:resolve");
   });
 
-  it("wires renderCall/renderResult for every registered operation, using render.ts's action-keyed rendering", async () => {
+  it("wires renderCall/renderResult for every registered operation, using the paired bounded presentation contract", async () => {
     const { pi, tools, fire } = fakePi();
     const client = new FakeClient(manifest([operation("issue.comment_add")]));
     const deps: TicketsVehicleDeps = {
@@ -190,6 +190,48 @@ describe("registerTicketsVehicle", () => {
     const tool = tools[0];
     expect(tool?.renderCall).toBeDefined();
     expect(tool?.renderResult).toBeDefined();
+  });
+
+  it("persists presentation-only details while keeping model content independent and omitting raw output", async () => {
+    const { pi, tools, fire } = fakePi();
+    const client = new FakeClient(manifest([operation("issue.get")]));
+    client.result = {
+      issue: {
+        ref: "jira:PROJ-1",
+        title: "PRESENTATION_ONLY",
+        status: "todo",
+        priority: "none",
+        description: "RAW_OUTPUT_ONLY",
+      },
+      content: [{ type: "text", text: "MODEL_ONLY" }],
+    };
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+
+    const execute = tools[0]!.execute as unknown as (
+      toolCallId: string,
+      input: unknown,
+      signal: AbortSignal,
+      onUpdate: undefined,
+      context: unknown,
+    ) => Promise<{ content: unknown; details: unknown }>;
+    const result = await execute("call-projection", { ref: "jira:PROJ-1" }, new AbortController().signal, undefined, {
+      sessionManager: { getSessionId: () => "session-a" },
+      hasUI: false,
+    });
+
+    expect(result.content).toEqual([{ type: "text", text: "MODEL_ONLY" }]);
+    const serializedDetails = JSON.stringify(result.details);
+    expect(serializedDetails).toContain("tickets.tool-details/v1");
+    expect(serializedDetails).toContain("PRESENTATION_ONLY");
+    expect(serializedDetails).not.toContain("MODEL_ONLY");
+    expect(serializedDetails).not.toContain("RAW_OUTPUT_ONLY");
+    expect((result.details as { output?: unknown }).output).toBeUndefined();
   });
 });
 

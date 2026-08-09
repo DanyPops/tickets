@@ -30,6 +30,15 @@ ready/partial/blocked/unknown read and write configuration, lists only missing s
 names, and reports connectivity as `not_checked`. It never contacts a provider
 or returns credential values.
 
+New tool rows persist only the strict, versioned `tickets.tool-details/v1`
+presentation DTO. List, detail, mutation, summary, and error views have separate
+row/text/serialized-size bounds plus explicit omission metadata; descriptions,
+comment bodies, staged payload text, raw saved queries, custom backend fields,
+and credential values are excluded. Model content remains an independent bounded
+channel. Historical `details.output` rows retain a bounded rendering fallback;
+malformed or future presentation versions fall back to model content without
+throwing during session replay.
+
 These tools only appear once the tickets daemon has been started at least
 once (via the `/tickets` command below, or the CLI) — registering them
 never spawns the daemon itself, the same rule this extension already
