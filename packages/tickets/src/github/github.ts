@@ -23,6 +23,8 @@ import { RequestError } from "@octokit/request-error";
 import { Octokit } from "octokit";
 import { ApiError, AuthRequiredError, BackendConfigurationError, BackendConnectionError, IssueNotFoundError } from "../issue/errors.js";
 import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
+import type { BackendConfigurationReadiness } from "../issue/repository.js";
+import { classifyBackendTransportFailure } from "../issue/transport-error.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -102,6 +104,32 @@ export class GitHubRepository {
 
   private requireAuth(): void {
     if (this.readOnly) throw new AuthRequiredError("github", "GITHUB_TOKEN");
+  }
+
+  configurationReadiness(): BackendConfigurationReadiness {
+    const repositoryMissing = this.repo ? [] : ["GITHUB_REPO"];
+    const writeMissing = [...repositoryMissing, ...(this.readOnly ? ["GITHUB_TOKEN"] : [])];
+    return {
+      backendType: "github",
+      connectivity: "not_checked",
+      read: this.repo
+        ? { state: "ready", missingConfiguration: [] }
+        : {
+            state: "partial",
+            missingConfiguration: repositoryMissing,
+            recovery:
+              "Set GITHUB_REPO (or the backend's repo setting) for repository list/get/comment operations; organization search remains available.",
+          },
+      write:
+        writeMissing.length === 0
+          ? { state: "ready", missingConfiguration: [] }
+          : {
+              state: "blocked",
+              missingConfiguration: writeMissing,
+              recovery:
+                "Configure the repository scope and GITHUB_TOKEN (or equivalent backend settings) before using live write operations.",
+            },
+    };
   }
 
   async list(filter: ListFilter): Promise<Issue[]> {
@@ -216,12 +244,13 @@ export class GitHubRepository {
       return res.data;
     } catch (err) {
       if (err instanceof BackendConfigurationError) throw err;
-      if (err instanceof RequestError) {
+      const transportKind = classifyBackendTransportFailure(err);
+      if (transportKind) throw new BackendConnectionError("github", transportKind, err);
+      if (err instanceof RequestError && err.response) {
         if (err.status === 404) throw new IssueNotFoundError("github", err.request.url);
         throw new ApiError("github", err.request.method, err.request.url, err.status, redact(err.message));
       }
-      if (err instanceof DOMException && err.name === "AbortError") throw new BackendConnectionError("github", "timeout", err);
-      throw new BackendConnectionError("github", "unreachable", err);
+      throw err;
     } finally {
       clearTimeout(timer);
     }

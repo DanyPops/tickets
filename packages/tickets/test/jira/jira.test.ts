@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AxiosAdapter, AxiosError, type InternalAxiosRequestConfig } from "axios";
-import { IssueNotFoundError } from "../../src/issue/errors.js";
+import { toTicketsVehicleError } from "../../src/agent-tools/error-mapping.js";
+import { BackendConnectionError, IssueNotFoundError } from "../../src/issue/errors.js";
 import { JiraRepository } from "../../src/jira/jira.js";
 import { discover, load, save } from "../../src/jira/manifest.js";
 
@@ -243,6 +244,49 @@ describe("JiraRepository", () => {
     const repo = new JiraRepository("jira", { accessToken: "oauth-token", cloudId: "cloud-123", axiosAdapter });
     const issue = await repo.get("PROJ-1");
     expect(issue.key).toBe("PROJ-1");
+  });
+
+  it("reports reads as ready and writes as partial when only issue creation lacks a default project", () => {
+    const repo = new JiraRepository("jira", {
+      baseUrl: "https://acme.atlassian.net",
+      email: "me@acme.com",
+      token: "secret-value",
+      axiosAdapter: mockAdapter(() => ({ data: {}, status: 200 })),
+    });
+    const readiness = repo.configurationReadiness();
+    expect(readiness).toEqual({
+      backendType: "jira",
+      connectivity: "not_checked",
+      read: { state: "ready", missingConfiguration: [] },
+      write: {
+        state: "partial",
+        missingConfiguration: ["JIRA_PROJECT"],
+        recovery: expect.stringContaining("input.project"),
+      },
+    });
+    expect(JSON.stringify(readiness)).not.toContain("secret-value");
+  });
+
+  it("classifies a reviewed Axios timeout code as a backend timeout", async () => {
+    const axiosAdapter: AxiosAdapter = async () => {
+      throw new AxiosError("timeout token=must-not-leak", "ETIMEDOUT");
+    };
+    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+    const thrown = await repo.get("PROJ-1").catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(BackendConnectionError);
+    expect((thrown as BackendConnectionError).kind).toBe("timeout");
+  });
+
+  it("keeps unexpected Axios adapter defects opaque instead of relabeling them as connectivity", async () => {
+    const axiosAdapter: AxiosAdapter = async () => {
+      throw new TypeError("programmer token=must-not-leak");
+    };
+    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+    const thrown = await repo.get("PROJ-1").catch((error: unknown) => error);
+    expect(thrown).not.toBeInstanceOf(BackendConnectionError);
+    const mapped = toTicketsVehicleError(thrown);
+    expect(mapped.code).toBe("handler-failed");
+    expect(mapped.message).not.toContain("must-not-leak");
   });
 
   describe("discovery engine", () => {

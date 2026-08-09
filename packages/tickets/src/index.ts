@@ -28,7 +28,7 @@ export { type GitLabOptions, GitLabRepository } from "./gitlab/gitlab.js";
 export * from "./issue/errors.js";
 export * from "./issue/issue.js";
 export * from "./issue/repository.js";
-export { NotSupportedError, TicketService, UnknownBackendError } from "./issue/service.js";
+export { type BackendCapabilities, NotSupportedError, TicketService, UnknownBackendError } from "./issue/service.js";
 export { type JiraOptions, JiraRepository } from "./jira/jira.js";
 export type { TicketOperation, TicketOpInputs, TicketOpOutputs } from "./rpc/ops.js";
 export type { FocusStatus, TicketFocusState } from "./sqlite/focus.js";

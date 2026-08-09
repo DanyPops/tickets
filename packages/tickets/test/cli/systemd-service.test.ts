@@ -28,6 +28,13 @@ describe("ticketsServiceSpec", () => {
     expect(spec.version).toBeTruthy();
   });
 
+  it("does not require systemd-only runtime controls from Armada's cross-platform registration", () => {
+    const spec = ticketsServiceSpec();
+    expect(spec.noNewPrivileges).toBeUndefined();
+    expect(spec.privateTmp).toBeUndefined();
+    expect(spec.waitForNetwork).toBeUndefined();
+  });
+
   it("accepts an injected version/cliEntryPath for tests instead of resolving this install's own paths", () => {
     const spec = ticketsServiceSpec({ version: "9.9.9", cliEntryPath: "/opt/tickets/cli/index.js" });
     expect(spec.version).toBe("9.9.9");

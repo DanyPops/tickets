@@ -160,7 +160,7 @@ ledger
 
 program
   .command("backends")
-  .description("list configured backend names")
+  .description("list configured backends, capabilities, and local read/write readiness (no connectivity probe)")
   .action(async () => {
     await withClient((client) => client.call("backends.list", {}));
   });

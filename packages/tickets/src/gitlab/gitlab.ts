@@ -16,6 +16,8 @@ import { GitbeakerRequestError, type RequesterType, type ResourceOptions } from 
 import { Gitlab } from "@gitbeaker/rest";
 import { ApiError, AuthRequiredError, BackendConnectionError, InvalidUrlError, IssueNotFoundError } from "../issue/errors.js";
 import type { Comment, CreateInput, Issue, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
+import type { BackendConfigurationReadiness } from "../issue/repository.js";
+import { classifyBackendTransportFailure } from "../issue/transport-error.js";
 
 export interface GitLabOptions {
   projectId: string;
@@ -87,6 +89,27 @@ export class GitLabRepository {
 
   private requireAuth(): void {
     if (this.readOnly) throw new AuthRequiredError("gitlab", "GITLAB_TOKEN");
+  }
+
+  configurationReadiness(): BackendConfigurationReadiness {
+    return {
+      backendType: "gitlab",
+      connectivity: "not_checked",
+      read: this.readOnly
+        ? {
+            state: "partial",
+            missingConfiguration: ["GITLAB_TOKEN"],
+            recovery: "Configure GITLAB_TOKEN for private-project reads; unauthenticated reads remain limited to public projects.",
+          }
+        : { state: "ready", missingConfiguration: [] },
+      write: this.readOnly
+        ? {
+            state: "blocked",
+            missingConfiguration: ["GITLAB_TOKEN"],
+            recovery: "Configure GITLAB_TOKEN (or delegated OAuth) before using live write operations.",
+          }
+        : { state: "ready", missingConfiguration: [] },
+    };
   }
 
   async list(filter: ListFilter): Promise<Issue[]> {
@@ -185,11 +208,14 @@ export class GitLabRepository {
       if (err instanceof GitbeakerRequestError) {
         const status = err.cause?.response?.status;
         const url = err.cause?.request?.url ?? "";
-        if (status === undefined) throw new BackendConnectionError("gitlab", "unreachable", err);
-        if (status === 404) throw new IssueNotFoundError("gitlab", url);
-        throw new ApiError("gitlab", err.cause?.request?.method ?? "?", url, status, redact(err.message));
+        if (status !== undefined) {
+          if (status === 404) throw new IssueNotFoundError("gitlab", url);
+          throw new ApiError("gitlab", err.cause?.request?.method ?? "?", url, status, redact(err.message));
+        }
       }
-      throw new BackendConnectionError("gitlab", "unreachable", err);
+      const transportKind = classifyBackendTransportFailure(err);
+      if (transportKind) throw new BackendConnectionError("gitlab", transportKind, err);
+      throw err;
     }
   }
 }

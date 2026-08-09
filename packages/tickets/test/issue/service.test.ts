@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { IssueRepository } from "../../src/issue/repository.js";
+import type { BackendConfigurationReadiness, IssueRepository } from "../../src/issue/repository.js";
 import { NotSupportedError, TicketService, UnknownBackendError } from "../../src/issue/service.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
@@ -52,9 +52,15 @@ describe("TicketService", () => {
       supportsBoardQuickFilterDiscovery: false,
       supportsBoardFilterDiscovery: false,
     };
+    const unknownReadiness = (backendType: string): BackendConfigurationReadiness => ({
+      backendType,
+      connectivity: "not_checked",
+      read: { state: "unknown", missingConfiguration: [], recovery: "This adapter does not expose local configuration readiness." },
+      write: { state: "unknown", missingConfiguration: [], recovery: "This adapter does not expose local configuration readiness." },
+    });
     expect(capabilities).toEqual([
-      { name: "github", supportsRawQuery: false, ...noDiscovery },
-      { name: "jira", supportsRawQuery: true, ...noDiscovery },
+      { name: "github", readiness: unknownReadiness("github"), supportsRawQuery: false, ...noDiscovery },
+      { name: "jira", readiness: unknownReadiness("jira"), supportsRawQuery: true, ...noDiscovery },
     ]);
   });
 

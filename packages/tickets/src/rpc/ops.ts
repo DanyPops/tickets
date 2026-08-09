@@ -5,6 +5,7 @@
  * import from either side without pulling in bun:sqlite or Bun.serve.
  */
 import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../issue/issue.js";
+import type { BackendCapabilities } from "../issue/service.js";
 import type { Template } from "../issue/template.js";
 import type { TicketFocusState } from "../sqlite/focus.js";
 import type { SavedQuery } from "../sqlite/saved-queries.js";
@@ -83,7 +84,7 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
 export type StagePushResult = { issue: Issue } | { comment: Comment };
 
 export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
-  "backends.list": { backends: { name: string; supportsRawQuery: boolean }[] };
+  "backends.list": { backends: BackendCapabilities[] };
   "issue.list": { issues: Issue[] };
   "issue.get": { issue: Issue };
   "issue.create": { issue: Issue };

@@ -13,13 +13,20 @@ import { AuthenticatedRpcClient } from "@danypops/vehicle-client/rpc-client";
 import type { RunningDaemon } from "@danypops/vehicle-server/daemon";
 import { startDaemon } from "@danypops/vehicle-server/daemon";
 import { readDaemonHandle } from "@danypops/vehicle-server/paths";
+import type { BackendCapabilities } from "../../src/issue/service.js";
 import { bootstrap } from "../../src/process/bootstrap.js";
 import type { TicketOperation, TicketOpInputs, TicketOpOutputs } from "../../src/rpc/ops.js";
 import { FakeRepository } from "../support/fake-repository.js";
 
 /** FakeRepository implements only the RawQueryable capability, none of the five discover ones. */
-const GITHUB_CAPABILITIES_ONLY_RAW_QUERY = {
+const GITHUB_CAPABILITIES_ONLY_RAW_QUERY: BackendCapabilities = {
   name: "github",
+  readiness: {
+    backendType: "github",
+    connectivity: "not_checked",
+    read: { state: "unknown", missingConfiguration: [], recovery: "This adapter does not expose local configuration readiness." },
+    write: { state: "unknown", missingConfiguration: [], recovery: "This adapter does not expose local configuration readiness." },
+  },
   supportsRawQuery: true,
   supportsFieldDiscovery: false,
   supportsStatusDiscovery: false,

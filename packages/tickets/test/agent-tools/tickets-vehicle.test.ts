@@ -4,7 +4,7 @@ import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { createTicketsVehicleRegistry } from "../../src/agent-tools/tickets-vehicle.js";
 import { GitHubRepository } from "../../src/github/github.js";
 import { ApiError, BackendConnectionError } from "../../src/issue/errors.js";
-import { TicketService } from "../../src/issue/service.js";
+import { type BackendCapabilities, TicketService } from "../../src/issue/service.js";
 import { TICKET_OPERATIONS, type TicketOperation } from "../../src/rpc/ops.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
@@ -234,6 +234,41 @@ describe("createTicketsVehicleRegistry", () => {
     expect((failure as { category?: string }).category).toBe("validation");
     expect((failure as { code?: string }).code).toBe("operation-rejected");
     expect((failure as Error).message).toMatch(/unknown backend/);
+  });
+
+  it("backends.list exposes local credential-safe readiness without probing the provider", async () => {
+    const { registry, service } = harness();
+    let fetchCalls = 0;
+    service.setRepos({
+      github: new GitHubRepository("github", {
+        owner: "private-owner",
+        token: "token-must-not-leak",
+        fetchImpl: (async () => {
+          fetchCalls++;
+          throw new Error("backends.list must remain local");
+        }) as unknown as typeof fetch,
+      }),
+    });
+
+    const result = (await registry.invoke("backends.list", 1, {}, PERMS)) as { backends: BackendCapabilities[] };
+    expect(fetchCalls).toBe(0);
+    expect(result.backends[0]?.readiness).toEqual({
+      backendType: "github",
+      connectivity: "not_checked",
+      read: {
+        state: "partial",
+        missingConfiguration: ["GITHUB_REPO"],
+        recovery: expect.stringContaining("organization search remains available"),
+      },
+      write: {
+        state: "blocked",
+        missingConfiguration: ["GITHUB_REPO"],
+        recovery: expect.stringContaining("repository scope"),
+      },
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("token-must-not-leak");
+    expect(serialized).not.toContain("private-owner");
   });
 
   it("reports a partially configured GitHub backend with an actionable recovery instead of handler-failed", async () => {

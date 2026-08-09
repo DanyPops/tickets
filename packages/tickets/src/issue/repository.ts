@@ -5,6 +5,31 @@
 import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "./issue.js";
 import type { Template } from "./template.js";
 
+export type BackendReadinessState = "ready" | "partial" | "blocked" | "unknown";
+
+export interface BackendOperationReadiness {
+  readonly state: BackendReadinessState;
+  /** Names only; never configuration values. */
+  readonly missingConfiguration: readonly string[];
+  readonly recovery?: string;
+}
+
+/** Local configuration assessment. Connectivity is intentionally never inferred or probed here. */
+export interface BackendConfigurationReadiness {
+  readonly backendType: string;
+  readonly connectivity: "not_checked";
+  readonly read: BackendOperationReadiness;
+  readonly write: BackendOperationReadiness;
+}
+
+export interface ConfigurationInspectable {
+  configurationReadiness(): BackendConfigurationReadiness;
+}
+
+export function hasConfigurationReadiness(repo: IssueRepository): repo is IssueRepository & ConfigurationInspectable {
+  return typeof (repo as Partial<ConfigurationInspectable>).configurationReadiness === "function";
+}
+
 export interface IssueRepository {
   /** Backend identifier used in refs, e.g. "github", "gitlab", "jira". */
   readonly name: string;

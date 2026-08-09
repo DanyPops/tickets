@@ -45,6 +45,8 @@ bun run src/cli/index.ts daemon start
 bun run src/cli/index.ts daemon stop      # asks it to shut down gracefully
 bun run src/cli/index.ts daemon restart
 
+# Reports capabilities plus local read/write readiness and missing setting names.
+# It never probes provider connectivity and never returns credential values.
 bun run src/cli/index.ts backends
 bun run src/cli/index.ts list -b github --status todo
 # get includes fixVersions, issueLinks, externalLinks (Jira "Web Links", e.g.

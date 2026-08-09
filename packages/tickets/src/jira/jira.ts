@@ -18,8 +18,10 @@ import type { HttpException, Config as JiraClientConfig } from "jira.js";
 import { AgileClient, Version2Client } from "jira.js";
 import { ApiError, BackendConfigurationError, BackendConnectionError, IssueNotFoundError } from "../issue/errors.js";
 import type { Comment, CreateInput, Issue, IssueLink, ListFilter, parsePriority, Status, UpdateInput } from "../issue/issue.js";
+import type { BackendConfigurationReadiness } from "../issue/repository.js";
 import type { Template } from "../issue/template.js";
 import { buildTemplateBody, extractTemplateSections } from "../issue/template.js";
+import { classifyBackendTransportFailure } from "../issue/transport-error.js";
 import * as manifest from "./manifest.js";
 
 /**
@@ -180,6 +182,21 @@ export class JiraRepository {
     this.client = new Version2Client(this.clientConfig);
   }
 
+  configurationReadiness(): BackendConfigurationReadiness {
+    return {
+      backendType: "jira",
+      connectivity: "not_checked",
+      read: { state: "ready", missingConfiguration: [] },
+      write: this.project
+        ? { state: "ready", missingConfiguration: [] }
+        : {
+            state: "partial",
+            missingConfiguration: ["JIRA_PROJECT"],
+            recovery: "Set JIRA_PROJECT (or pass input.project) for issue creation; updates and comments remain available.",
+          },
+    };
+  }
+
   /**
    * An explicit filter.project always wins and narrows to exactly that one
    * project; with none given, defaults to every project this repository
@@ -219,12 +236,15 @@ export class JiraRepository {
       return (await fn()) as T;
     } catch (err) {
       const status = (err as Partial<HttpException>)?.status;
-      if (typeof status === "number") {
+      const responseStatus = (err as { response?: { status?: unknown } })?.response?.status;
+      if (typeof status === "number" && typeof responseStatus === "number") {
         if (status === 404) throw new IssueNotFoundError("jira", key ?? "?");
         const message = err instanceof Error ? err.message : String(err);
         throw new ApiError("jira", "?", key ?? "?", status, redact(message));
       }
-      throw new BackendConnectionError("jira", err instanceof DOMException && err.name === "AbortError" ? "timeout" : "unreachable", err);
+      const transportKind = classifyBackendTransportFailure(err);
+      if (transportKind) throw new BackendConnectionError("jira", transportKind, err);
+      throw err;
     }
   }
 

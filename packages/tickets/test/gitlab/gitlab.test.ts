@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { createRequesterFn, GitbeakerRequestError } from "@gitbeaker/requester-utils";
+import { toTicketsVehicleError } from "../../src/agent-tools/error-mapping.js";
 import { GitLabRepository, validateUrl } from "../../src/gitlab/gitlab.js";
-import { InvalidUrlError, IssueNotFoundError } from "../../src/issue/errors.js";
+import { BackendConnectionError, InvalidUrlError, IssueNotFoundError } from "../../src/issue/errors.js";
 
 /**
  * @gitbeaker/rest's sanctioned test-injection point is `requesterFn`, not a raw
@@ -113,6 +114,47 @@ describe("GitLabRepository", () => {
     });
     const repo = new GitLabRepository("gitlab", { projectId: "acme/widgets", token: "t", requesterFn });
     await expect(repo.update("#7", { assignee: "nobody" })).rejects.toThrow(/no user found/);
+  });
+
+  it("reports unauthenticated public reads as partial and writes as blocked without exposing configuration values", () => {
+    const repo = new GitLabRepository("gitlab", {
+      projectId: "acme/widgets",
+      requesterFn: mockRequesterFn(() => ({ body: [], status: 200, headers: {} })),
+    });
+    expect(repo.configurationReadiness()).toEqual({
+      backendType: "gitlab",
+      connectivity: "not_checked",
+      read: {
+        state: "partial",
+        missingConfiguration: ["GITLAB_TOKEN"],
+        recovery: expect.stringContaining("public projects"),
+      },
+      write: {
+        state: "blocked",
+        missingConfiguration: ["GITLAB_TOKEN"],
+        recovery: expect.stringContaining("GITLAB_TOKEN"),
+      },
+    });
+  });
+
+  it("classifies a reviewed reset cause as a backend connection failure", async () => {
+    const requesterFn = mockRequesterFn(() => {
+      throw Object.assign(new Error("socket token=must-not-leak"), { code: "ECONNRESET" });
+    });
+    const repo = new GitLabRepository("gitlab", { projectId: "acme/widgets", requesterFn });
+    await expect(repo.get("#7")).rejects.toBeInstanceOf(BackendConnectionError);
+  });
+
+  it("keeps unexpected requester defects opaque instead of relabeling them as connectivity", async () => {
+    const requesterFn = mockRequesterFn(() => {
+      throw new TypeError("programmer token=must-not-leak");
+    });
+    const repo = new GitLabRepository("gitlab", { projectId: "acme/widgets", requesterFn });
+    const thrown = await repo.get("#7").catch((error: unknown) => error);
+    expect(thrown).not.toBeInstanceOf(BackendConnectionError);
+    const mapped = toTicketsVehicleError(thrown);
+    expect(mapped.code).toBe("handler-failed");
+    expect(mapped.message).not.toContain("must-not-leak");
   });
 
   describe("validateUrl (SSRF guard)", () => {

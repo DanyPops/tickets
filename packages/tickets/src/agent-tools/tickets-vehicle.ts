@@ -63,7 +63,8 @@ function definedEntriesOnly(input: Record<string, unknown>): Record<string, unkn
 const OPERATIONS: readonly OperationSpec[] = [
   {
     action: "backends.list",
-    description: "Lists every configured backend name (github, gitlab, jira, ...).",
+    description:
+      "Lists configured backends with capabilities and local credential-safe read/write readiness. Connectivity is not probed and is always reported as not_checked.",
     effect: "read",
     properties: {},
     required: [],

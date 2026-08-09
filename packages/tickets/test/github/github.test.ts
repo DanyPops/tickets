@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { toTicketsVehicleError } from "../../src/agent-tools/error-mapping.js";
 import { GitHubRepository } from "../../src/github/github.js";
-import { AuthRequiredError } from "../../src/issue/errors.js";
+import { AuthRequiredError, BackendConnectionError } from "../../src/issue/errors.js";
 
 // octokit inspects the response's content-type header to decide whether to JSON-parse the
 // body (unlike the old hand-rolled HttpClient, which parsed blindly) -- real GitHub API
@@ -98,5 +99,50 @@ describe("GitHubRepository", () => {
     const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", token: "t", fetchImpl });
     await repo.update("#7", { assignee: "" });
     expect(sentBody?.assignees).toEqual([]);
+  });
+
+  it("reports repository-scoped reads as partial and writes as blocked without repo/token, without probing GitHub", () => {
+    const repo = new GitHubRepository("github", { owner: "acme", fetchImpl: mockFetch(() => jsonResponse([])) });
+    expect(repo.configurationReadiness()).toEqual({
+      backendType: "github",
+      connectivity: "not_checked",
+      read: {
+        state: "partial",
+        missingConfiguration: ["GITHUB_REPO"],
+        recovery: expect.stringContaining("organization search remains available"),
+      },
+      write: {
+        state: "blocked",
+        missingConfiguration: ["GITHUB_REPO", "GITHUB_TOKEN"],
+        recovery: expect.stringContaining("GITHUB_TOKEN"),
+      },
+    });
+  });
+
+  it("classifies a reviewed DNS cause as a retryable backend connection failure", async () => {
+    const networkError = Object.assign(new Error("getaddrinfo token=must-not-leak"), { code: "ENOTFOUND" });
+    const repo = new GitHubRepository("github", {
+      owner: "acme",
+      repo: "widgets",
+      fetchImpl: mockFetch(() => {
+        throw networkError;
+      }),
+    });
+    await expect(repo.get("#7")).rejects.toBeInstanceOf(BackendConnectionError);
+  });
+
+  it("does not relabel an unexpected fetch implementation defect as connectivity or expose its message", async () => {
+    const repo = new GitHubRepository("github", {
+      owner: "acme",
+      repo: "widgets",
+      fetchImpl: mockFetch(() => {
+        throw new TypeError("programmer token=must-not-leak");
+      }),
+    });
+    const thrown = await repo.get("#7").catch((error: unknown) => error);
+    expect(thrown).not.toBeInstanceOf(BackendConnectionError);
+    const mapped = toTicketsVehicleError(thrown);
+    expect(mapped.code).toBe("handler-failed");
+    expect(mapped.message).not.toContain("must-not-leak");
   });
 });

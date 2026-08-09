@@ -7,9 +7,11 @@
 import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "./issue.js";
 import { parseRef } from "./issue.js";
 import {
+  type BackendConfigurationReadiness,
   hasBoardFilterDiscovery,
   hasBoardQuickFilterDiscovery,
   hasComments,
+  hasConfigurationReadiness,
   hasFieldDiscovery,
   hasRawQuery,
   hasStatusDiscovery,
@@ -21,6 +23,7 @@ import type { Template } from "./template.js";
 
 export interface BackendCapabilities {
   readonly name: string;
+  readonly readiness: BackendConfigurationReadiness;
   readonly supportsRawQuery: boolean;
   readonly supportsFieldDiscovery: boolean;
   readonly supportsStatusDiscovery: boolean;
@@ -54,6 +57,22 @@ export class TicketService {
   backendCapabilities(): BackendCapabilities[] {
     return Object.values(this.repos).map((repo) => ({
       name: repo.name,
+      readiness: hasConfigurationReadiness(repo)
+        ? repo.configurationReadiness()
+        : {
+            backendType: repo.name,
+            connectivity: "not_checked",
+            read: {
+              state: "unknown",
+              missingConfiguration: [],
+              recovery: "This adapter does not expose local configuration readiness.",
+            },
+            write: {
+              state: "unknown",
+              missingConfiguration: [],
+              recovery: "This adapter does not expose local configuration readiness.",
+            },
+          },
       supportsRawQuery: hasRawQuery(repo),
       supportsFieldDiscovery: hasFieldDiscovery(repo),
       supportsStatusDiscovery: hasStatusDiscovery(repo),

@@ -25,6 +25,11 @@ action-dispatch mega-tool: `issue_list`, `issue_get`, `issue_create`,
 daemon lifecycle control are deliberately not exposed here — run `tickets
 auth login` / `tickets daemon stop` from a terminal instead.
 
+`backends_list` is a local, credential-safe readiness report: it distinguishes
+ready/partial/blocked/unknown read and write configuration, lists only missing setting
+names, and reports connectivity as `not_checked`. It never contacts a provider
+or returns credential values.
+
 These tools only appear once the tickets daemon has been started at least
 once (via the `/tickets` command below, or the CLI) — registering them
 never spawns the daemon itself, the same rule this extension already
