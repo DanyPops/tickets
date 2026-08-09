@@ -625,7 +625,7 @@ export function parseTicketsPresentation(value: unknown): TicketsPresentation | 
   }
 }
 
-function omissionLine(details: TicketsPresentation): string {
+export function omissionLine(details: TicketsPresentation): string {
   const pieces = [
     details.completeness.omitted > 0 ? `${details.completeness.omitted} row(s) omitted` : "",
     details.omissions.length > 0 ? `omitted: ${details.omissions.join(", ")}` : "",

@@ -40,6 +40,7 @@ import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-sta
 import type { VehicleClient, VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { renderTicketsListTable } from "./list-table.js";
 import {
   formatTicketsPresentation,
   parseTicketsPresentation,
@@ -103,6 +104,7 @@ function renderTicketsResult(
   theme: Theme,
   isError: boolean,
   isPartial: boolean,
+  expanded: boolean,
 ) {
   if (isPartial) return new Text(theme.fg("warning", "Working…"), 0, 0);
   const content = resultTextContent(result);
@@ -111,6 +113,10 @@ function renderTicketsResult(
   const details = result.details;
   const presentation = parseTicketsPresentation(details?.presentation);
   if (presentation) {
+    // "list" gets a genuine table (real columns, semantic status coloring) -- every other
+    // kind (detail/mutation/summary/error) is a single item or a short message, where a
+    // flat styled line already is the right shape.
+    if (presentation.kind === "list") return renderTicketsListTable(presentation, theme, expanded);
     const color = presentation.kind === "error" ? "error" : "toolOutput";
     return new Text(theme.fg(color, formatTicketsPresentation(presentation)), 0, 0);
   }
@@ -214,7 +220,7 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
         project: (output) => projectTicketsPresentation(descriptor.name, output),
       },
       renderResult: (result, resultOptions, theme, context) =>
-        renderTicketsResult(descriptor.name, result, theme, context.isError, resultOptions.isPartial),
+        renderTicketsResult(descriptor.name, result, theme, context.isError, resultOptions.isPartial, resultOptions.expanded),
     }),
     retry: deps.retry,
     log: (event) => {
