@@ -36,6 +36,7 @@ import {
   type VehicleReadyEvent,
   type VehicleReadyRetryOptions,
 } from "@danypops/vehicle-client-pi";
+import { requestPiApprovalViaAskPrompt } from "@danypops/vehicle-client-pi/hitl-approval-ask-prompt";
 import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-status-refresh";
 import type { VehicleClient, VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
@@ -205,14 +206,21 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // vehicle:approvals:resolve is required alongside tickets:read/write: once
     // the tickets VehicleRegistry gates external-write behind an approval (see
     // its own configureApprovals() call), registerVehicleTools' interactive
-    // ctx.ui.confirm()-then-resolve dance calls vehicle.approval.resolve with
-    // this exact options.permissions -- without this permission that resolve
-    // call itself gets denied, and a human's real "yes" in the confirm dialog
+    // approval dance (see requestApproval below) calls vehicle.approval.resolve
+    // with this exact options.permissions -- without this permission that
+    // resolve call itself gets denied, and a human's real "approve" decision
     // would have no effect. vehicle-client-pi never projects
     // vehicle.approval.resolve as a directly LLM-callable tool regardless of
     // this grant, so this does not let the model resolve its own requests.
     permissions: ["tickets:read", "tickets:write", "vehicle:approvals:resolve"],
     principal: { id: "pi-tickets" },
+    // Presents Approve/Deny (plus an optional ctrl+g comment) through requestPiAskPrompt's
+    // shared searchable-select component instead of registerVehicleTools' own default
+    // fixed two-item requestPiApproval dialog -- one consistent HITL look across every
+    // tickets prompt, and the option is already there for reuse if a future gated
+    // operation ever wants richer than plain Approve/Deny (e.g. picking a specific field
+    // to fix before retrying).
+    requestApproval: requestPiApprovalViaAskPrompt,
     renderers: (descriptor: VehicleOperationDescriptor) => ({
       renderCall: (args, theme) => renderTicketsCall(descriptor.name, args, theme),
     }),

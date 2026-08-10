@@ -22,7 +22,7 @@
   "dependencies": {
     "@danypops/tickets": "^0.12.0",
     "@danypops/vehicle-client": "^0.7.1",
-    "@danypops/vehicle-client-pi": "^0.20.1",
+    "@danypops/vehicle-client-pi": "^0.29.0",
     "@danypops/vehicle-core": "^0.13.0",
     "malevich-tui-components": "^0.25.0",
     "typebox": "^1.1.34"

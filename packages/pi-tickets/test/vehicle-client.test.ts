@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import type { VehicleClient, VehicleInvocationOptions, VehicleManifest, VehicleManifestOperation } from "@danypops/vehicle-core";
+import {
+  type VehicleClient,
+  VehicleError,
+  type VehicleInvocationOptions,
+  type VehicleManifest,
+  type VehicleManifestOperation,
+} from "@danypops/vehicle-core";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { isTicketsVehicleTool, registerTicketsVehicle, type TicketsVehicleDeps } from "../src/vehicle-client.js";
 
@@ -55,6 +61,42 @@ class FakeClient implements VehicleClient {
 
 function manifest(operations: VehicleManifestOperation[]): VehicleManifest {
   return { name: "tickets", version: "1.0.0", description: "Tickets.", operations };
+}
+
+/**
+ * Simulates a VehicleRegistry with configureApprovals() enabled: the first invoke() of the
+ * gated operation always reports approval-required with a fixed requestId; vehicle.approval.resolve
+ * mints "real-capability" only on a granted decision; a retried invoke() only succeeds when that
+ * exact capability is presented. Mirrors vehicle-client-pi's own test/vehicle-pi.test.ts fixture of
+ * the same name/shape, for the same reason: exercising the real approval-required retry dance
+ * end to end, not a stubbed-out shortcut.
+ */
+class ApprovalFlowClient implements VehicleClient {
+  readonly calls: Array<{ name: string; version: number; input: unknown; options: VehicleInvocationOptions | undefined }> = [];
+
+  constructor(private value: VehicleManifest) {}
+
+  manifest(): Promise<VehicleManifest> {
+    return Promise.resolve(this.value);
+  }
+
+  async invoke<Output = unknown>(name: string, version: number, input: unknown, options?: VehicleInvocationOptions): Promise<Output> {
+    this.calls.push({ name, version, input, options });
+    if (name === "vehicle.approval.resolve") {
+      const { requestId, decision } = input as { requestId: string; decision: "granted" | "denied" };
+      return { requestId, decision, ...(decision === "granted" ? { capability: "real-capability" } : {}) } as Output;
+    }
+    if (options?.approvalCapability === "real-capability") return { ok: true } as Output;
+    throw new VehicleError("approval-required", `${name}@${version} requires approval`, {
+      category: "authorization",
+      retryable: true,
+      details: { requestId: "req-1", expiresAt: Date.now() + 60_000 },
+    });
+  }
+
+  close(): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 // Kept as a hand-rolled fake here rather than @danypops/pi-extension-harness
@@ -152,7 +194,7 @@ describe("registerTicketsVehicle", () => {
     expect(tools.map((t) => t.name)).toEqual(["issue_list"]);
   });
 
-  it("grants vehicle:approvals:resolve alongside tickets:read/write -- required for registerVehicleTools' own ctx.ui.confirm()-then-resolve dance on a gated write (issue.create/update/comment_add, stage.push) to actually complete once a human approves", async () => {
+  it("grants vehicle:approvals:resolve alongside tickets:read/write -- required for registerVehicleTools' own approval-then-resolve dance on a gated write (issue.create/update/comment_add, stage.push) to actually complete once a human approves", async () => {
     const { pi, tools, fire } = fakePi();
     const client = new FakeClient(manifest([operation("issue.create", { effect: "external-write" })]));
     const deps: TicketsVehicleDeps = {
@@ -175,6 +217,50 @@ describe("registerTicketsVehicle", () => {
       hasUI: false,
     });
     expect(client.calls[0]?.options?.permissions).toContain("vehicle:approvals:resolve");
+  });
+
+  it("wires requestApproval to requestPiApprovalViaAskPrompt: an external-write approval prompts via ctx.ui.select/input (the ask-prompt dialog fallback), never ctx.ui.confirm", async () => {
+    const { pi, tools, fire } = fakePi();
+    const client = new ApprovalFlowClient(manifest([operation("issue.create", { effect: "external-write" })]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+    const tool = tools.find((t) => t.name === "issue_create")!;
+    const execute = tool.execute as unknown as (
+      toolCallId: string,
+      input: unknown,
+      signal: AbortSignal,
+      onUpdate: undefined,
+      context: unknown,
+    ) => Promise<unknown>;
+
+    const selectCalls: Array<{ title: string; options: string[] }> = [];
+    const result = await execute("call-1", { backend: "github", input: {} }, new AbortController().signal, undefined, {
+      sessionManager: { getSessionId: () => "session-a" },
+      hasUI: true,
+      ui: {
+        select: async (title: string, opts: string[]) => {
+          selectCalls.push({ title, options: opts });
+          return "Approve";
+        },
+        input: async () => undefined,
+        confirm: async () => {
+          throw new Error("the default requestPiApproval dialog must not run once requestApproval is wired");
+        },
+        notify: () => {},
+      },
+    });
+
+    expect(selectCalls).toHaveLength(1);
+    expect(selectCalls[0]?.options).toEqual(["Approve", "Deny"]);
+    expect(client.calls.map((call) => call.name)).toEqual(["issue.create", "vehicle.approval.resolve", "issue.create"]);
+    expect(client.calls[1]?.input).toMatchObject({ requestId: "req-1", decision: "granted" });
+    expect(client.calls[2]?.options?.approvalCapability).toBe("real-capability");
+    expect(result).toBeTruthy();
   });
 
   it("wires renderCall/renderResult for every registered operation, using the paired bounded presentation contract", async () => {

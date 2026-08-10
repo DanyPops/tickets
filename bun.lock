@@ -15,11 +15,11 @@
     },
     "packages/pi-tickets": {
       "name": "@danypops/pi-tickets",
-      "version": "0.21.7",
+      "version": "0.21.8",
       "dependencies": {
         "@danypops/tickets": "^0.12.0",
         "@danypops/vehicle-client": "^0.7.1",
-        "@danypops/vehicle-client-pi": "^0.20.1",
+        "@danypops/vehicle-client-pi": "^0.29.0",
         "@danypops/vehicle-core": "^0.13.0",
         "malevich-tui-components": "^0.25.0",
         "typebox": "^1.1.34",
@@ -144,7 +144,7 @@
 
     "@danypops/vehicle-client": ["@danypops/vehicle-client@0.7.1", "", { "dependencies": { "@danypops/vehicle-core": "^0.13.0", "@danypops/vehicle-server": "^0.18.4" } }, "sha512-aob1GKRwM3/nMkeijkjEQ2yLrEWBFOOVBzswl4z0oS5Lvgt9fJNyxMzVedW1e7fngp/AmqbRzSaQm0eqkadWbQ=="],
 
-    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.20.1", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.6.1", "@danypops/vehicle-client": "^0.7.1", "@danypops/vehicle-core": "^0.13.0", "@danypops/vehicle-server": "^0.18.4", "malevich-tui-components": "^0.25.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-3vswIZAGL3nUDips6cXDWbbtZlyZIYu4pRiNpCqRya/6TnXGuFFJnLipSrRQG4+54kMSDF8Nxk2ICe/paK7D7Q=="],
+    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.29.0", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.7.1", "@danypops/vehicle-core": "^0.15.0", "@danypops/vehicle-server": "^0.21.0", "malevich-tui-components": "^0.25.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-0h5rHlhlsqnXJAIu0qSkjvWRsekINrTMnpPQ+yeY+SgOsaiCLWSkHTjzHqaHEaa9j9PM9QopY4Qj/aG+joBxcg=="],
 
     "@danypops/vehicle-core": ["@danypops/vehicle-core@0.13.0", "", {}, "sha512-kGsZcJDqJSV52dyYM06qMD7TWHn/sybAh8RN0ZGM+yvOolSW/zpRFKbO7dXk/k7mxdgsrviWGRkOHlByH7fDsA=="],
 
@@ -748,6 +748,12 @@
 
     "@danypops/enigma-client/@danypops/vehicle-server": ["@danypops/vehicle-server@0.17.2", "", { "dependencies": { "@danypops/armada": "^0.3.1", "@danypops/vehicle-core": "^0.12.3", "pino": "^10.3.1" } }, "sha512-nemWSTkNv9yh1t3V6lL3YO92q9U7tDZInemrHk9dkJpmI6dmCymU7h/ZbXqjId0fnbRbsowt8HmtC9WxMWiuMQ=="],
 
+    "@danypops/vehicle-client-pi/@danypops/pi-extension-harness": ["@danypops/pi-extension-harness@0.7.0", "", { "dependencies": { "jiti": "^2.7.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-8kCj0IwzglQqsXKOkQqalp/4gNrIP9NsRizhnRtYi7H4LiX3ccQFxioUXG7aT93F/qn6873U0yifr82Rbft9ng=="],
+
+    "@danypops/vehicle-client-pi/@danypops/vehicle-core": ["@danypops/vehicle-core@0.15.0", "", {}, "sha512-2IWDriuNZmndpgpqCJ5DF56ZCBTxjJL7kxyws9H9jkLjxF5U412R4GNpdcbNvYY0NHmL5P5lk4/oCFZHC+XXOA=="],
+
+    "@danypops/vehicle-client-pi/@danypops/vehicle-server": ["@danypops/vehicle-server@0.21.0", "", { "dependencies": { "@danypops/armada": "^0.4.3", "@danypops/vehicle-core": "^0.15.0", "pino": "^10.3.1" } }, "sha512-lHBEqg1VUAk93dLbaxPJV7Ay+az3N2HVlq6MeLoxQv7l5N0/ZQFC1KTGOZfTuH5EfChMXowOkdJgQaY9Easjqg=="],
+
     "@earendil-works/pi-agent-core/ignore": ["ignore@7.0.5", "", {}, ""],
 
     "@earendil-works/pi-agent-core/typebox": ["typebox@1.1.38", "", {}, ""],
@@ -773,6 +779,8 @@
     "@danypops/enigma-client/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.3.1", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-AxfFTJnsSbZXibgeHgPs97mt670AYqogKthI6sGNsNiFCNFqy7iXFdKt3ZusboN/SUKHtFCd+0j/B8jryi8EnQ=="],
 
     "@danypops/enigma-client/@danypops/vehicle-server/@danypops/vehicle-core": ["@danypops/vehicle-core@0.12.4", "", {}, "sha512-fefdWpjCZMm2AP5oAf1ee7rcnEK2o5/iwu+pIX7BQXZaiq/atK2i/1aKwul9xPutsPx4qSPZNPls7t90uw1EfQ=="],
+
+    "@danypops/vehicle-client-pi/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.4.3", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-Nc8oPw8OQLHWtwJT2zCh0UBT9WwMZ3fIPa2PMh6s/gbyb6+LDKWqhx1oSFtDneGnWODNRIr8bVTVI22ywetFNA=="],
 
     "axios/https-proxy-agent/agent-base": ["agent-base@6.0.2", "", { "dependencies": { "debug": "4" } }, ""],
   }
