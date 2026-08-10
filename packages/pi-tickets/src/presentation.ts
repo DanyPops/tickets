@@ -25,6 +25,38 @@ export interface TicketsPresentationField {
   readonly value: string;
 }
 
+/** Per-reviewer state, bounded/redacted the same as every other presentation string. */
+export interface TicketsBoardReviewer {
+  readonly username: string;
+  readonly state?: string;
+}
+
+/**
+ * A Kanban card's curated fields -- deliberately a superset shaped like `Issue` itself
+ * (plain fields plus an optional `pullRequest` sub-object), never the raw `Issue`: every
+ * field here is individually bounded/redacted the same way `TicketsPresentationRow` is.
+ * `variant` on the containing presentation decides which of `status`-column vs
+ * `pullRequest`-derived column grouping a renderer uses; the row shape itself doesn't
+ * change (a GitHub/GitLab issue.list can legitimately return a mix of plain issues and
+ * PRs, so a PR-shaped row still carries `status` too).
+ */
+export interface TicketsBoardRow {
+  readonly ref: string;
+  readonly title: string;
+  readonly status?: string;
+  readonly parent?: { readonly key: string; readonly label: string };
+  readonly labels?: readonly string[];
+  readonly storyPoints?: string;
+  readonly assignee?: string;
+  readonly pullRequest?: {
+    readonly draft?: boolean;
+    readonly merged?: boolean;
+    readonly mergeableState?: string;
+    readonly reviewers?: readonly TicketsBoardReviewer[];
+    readonly requestedReviewers?: readonly string[];
+  };
+}
+
 interface TicketsPresentationBase {
   readonly schemaVersion: typeof TICKETS_PRESENTATION_SCHEMA;
   readonly operation: string;
@@ -38,6 +70,13 @@ export type TicketsPresentation =
       readonly kind: "list";
       readonly title: string;
       readonly rows: readonly TicketsPresentationRow[];
+    })
+  | (TicketsPresentationBase & {
+      readonly kind: "board";
+      /** "issue" groups by the domain `Status` enum (Backlog/Sprint); "pr" groups by draft/review/merge state -- see the research note on list-table.ts's own header for why a PR needs a genuinely different column axis, not just a richer card. */
+      readonly variant: "issue" | "pr";
+      readonly title: string;
+      readonly rows: readonly TicketsBoardRow[];
     })
   | (TicketsPresentationBase & {
       readonly kind: "detail";
@@ -172,6 +211,75 @@ function issueRow(value: unknown): TicketsPresentationRow | undefined {
     ...boundedStrings(issue.labels),
   ].filter(Boolean);
   return row(issue.ref, issue.title, issue.status ?? "unknown", metadata);
+}
+
+function boundedReviewers(value: unknown, maximum = 8): TicketsBoardReviewer[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const reviewers = value
+    .map((entry) => record(entry))
+    .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry.username === "string")
+    .slice(0, maximum)
+    .map((entry) => ({
+      username: boundedText(entry.username),
+      ...(typeof entry.state === "string" ? { state: boundedText(entry.state) } : {}),
+    }));
+  return reviewers.length > 0 ? reviewers : undefined;
+}
+
+function boardRow(value: unknown): TicketsBoardRow | undefined {
+  const issue = record(value);
+  if (!issue || typeof issue.ref !== "string" || typeof issue.title !== "string") return undefined;
+  const parent = record(issue.parent);
+  const pr = record(issue.pullRequest);
+  const storyPoints = record(issue.customFields)?.["Story Points"];
+  return {
+    ref: boundedText(issue.ref),
+    title: boundedText(issue.title, TICKETS_PRESENTATION_MAX_TEXT_BYTES),
+    ...(typeof issue.status === "string" ? { status: boundedText(issue.status) } : {}),
+    ...(parent && typeof parent.key === "string"
+      ? { parent: { key: boundedText(parent.key), label: boundedText(parent.title ?? parent.key) } }
+      : {}),
+    ...(Array.isArray(issue.labels) ? { labels: boundedStrings(issue.labels) } : {}),
+    ...(typeof storyPoints === "string" ? { storyPoints: boundedText(storyPoints) } : {}),
+    ...(typeof issue.assignee === "string" ? { assignee: boundedText(issue.assignee) } : {}),
+    ...(pr
+      ? {
+          pullRequest: {
+            ...(typeof pr.draft === "boolean" ? { draft: pr.draft } : {}),
+            ...(typeof pr.merged === "boolean" ? { merged: pr.merged } : {}),
+            ...(typeof pr.mergeableState === "string" ? { mergeableState: boundedText(pr.mergeableState) } : {}),
+            ...(boundedReviewers(pr.reviewers) ? { reviewers: boundedReviewers(pr.reviewers) } : {}),
+            ...(Array.isArray(pr.requestedReviewers) ? { requestedReviewers: boundedStrings(pr.requestedReviewers, 8) } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/** Same shape as `listPresentation`, for the "board" kind's own row projector/cap. */
+function boardPresentation(
+  operation: string,
+  title: string,
+  source: readonly unknown[],
+  variant: "issue" | "pr",
+  omissions: readonly string[],
+): TicketsPresentation {
+  const rows = source
+    .slice(0, TICKETS_PRESENTATION_MAX_ITEMS)
+    .map(boardRow)
+    .filter((value): value is TicketsBoardRow => !!value);
+  return {
+    ...base(operation, "board", source.length, rows.length, omissions),
+    kind: "board",
+    variant,
+    title: boundedText(title),
+    rows,
+  };
+}
+
+/** A homogeneous batch of PRs/MRs is a real, self-describing structural distinction (every row carries `pullRequest`) -- not a guess about caller intent -- so it can pick the PR board without any new caller-supplied flag. */
+function isPullRequestBatch(source: readonly unknown[]): boolean {
+  return source.length > 0 && source.every((value) => record(value)?.pullRequest !== undefined);
 }
 
 function issueFields(value: unknown): TicketsPresentationField[] | undefined {
@@ -342,11 +450,29 @@ function projectStagedItem(operation: string, output: unknown): TicketsPresentat
 /** Projects application output into the only Tickets-specific details shape Pi may persist for new rows. */
 export function projectTicketsPresentation(operation: string, output: unknown): JsonValue {
   switch (operation) {
+    case "query.run": {
+      // A saved query is exactly the "Backlog"/"Sprint" concept -- something a human
+      // curated enough to bother naming -- and already means "Kanban board" today in the
+      // live interactive panel (see board-view.ts's own BoardTabComponent), so the tool-call
+      // presentation matches that existing meaning rather than introducing a new opt-in flag.
+      const issues = arrayEnvelope(output, "issues");
+      return boardPresentation(operation, "Board", issues, "issue", [
+        "issue descriptions and backend-specific fields omitted",
+      ]) as unknown as JsonValue;
+    }
     case "issue.list":
-    case "issue.search":
+    case "issue.search": {
+      const issues = arrayEnvelope(output, "issues");
+      return isPullRequestBatch(issues)
+        ? (boardPresentation(operation, "Pull Requests", issues, "pr", [
+            "PR/MR descriptions and backend-specific fields omitted",
+          ]) as unknown as JsonValue)
+        : (listPresentation(operation, "Issues", issues, issueRow, [
+            "issue descriptions and backend-specific fields omitted",
+          ]) as unknown as JsonValue);
+    }
     case "issue.children":
     case "ledger.search":
-    case "query.run":
       return listPresentation(operation, "Issues", arrayEnvelope(output, "issues"), issueRow, [
         "issue descriptions and backend-specific fields omitted",
       ]) as unknown as JsonValue;
@@ -556,6 +682,43 @@ function validRow(value: unknown): value is TicketsPresentationRow {
   );
 }
 
+function validBoardReviewer(value: unknown): value is TicketsBoardReviewer {
+  const item = record(value);
+  return (
+    !!item &&
+    Object.keys(item).every((key) => ["username", "state"].includes(key)) &&
+    boundedString(item.username) &&
+    (item.state === undefined || boundedString(item.state))
+  );
+}
+
+function validBoardRow(value: unknown): value is TicketsBoardRow {
+  const item = record(value);
+  if (!item) return false;
+  const allowed = ["ref", "title", "status", "parent", "labels", "storyPoints", "assignee", "pullRequest"];
+  if (!Object.keys(item).every((key) => allowed.includes(key))) return false;
+  if (!boundedString(item.ref) || !boundedString(item.title, TICKETS_PRESENTATION_MAX_TEXT_BYTES)) return false;
+  if (item.status !== undefined && !boundedString(item.status)) return false;
+  if (item.parent !== undefined) {
+    const parent = record(item.parent);
+    if (!parent || !onlyKeys(parent, ["key", "label"]) || !boundedString(parent.key) || !boundedString(parent.label)) return false;
+  }
+  if (item.labels !== undefined && !validStringArray(item.labels, 8)) return false;
+  if (item.storyPoints !== undefined && !boundedString(item.storyPoints)) return false;
+  if (item.assignee !== undefined && !boundedString(item.assignee)) return false;
+  if (item.pullRequest !== undefined) {
+    const pr = record(item.pullRequest);
+    const prAllowed = ["draft", "merged", "mergeableState", "reviewers", "requestedReviewers"];
+    if (!pr || !Object.keys(pr).every((key) => prAllowed.includes(key))) return false;
+    if (pr.draft !== undefined && typeof pr.draft !== "boolean") return false;
+    if (pr.merged !== undefined && typeof pr.merged !== "boolean") return false;
+    if (pr.mergeableState !== undefined && !boundedString(pr.mergeableState)) return false;
+    if (pr.reviewers !== undefined && !validArray(pr.reviewers, validBoardReviewer)) return false;
+    if (pr.requestedReviewers !== undefined && !validStringArray(pr.requestedReviewers, 8)) return false;
+  }
+  return true;
+}
+
 function validField(value: unknown): value is TicketsPresentationField {
   const item = record(value);
   return (
@@ -596,6 +759,13 @@ export function parseTicketsPresentation(value: unknown): TicketsPresentation | 
       return onlyKeys(item, [...common, "title", "rows"]) && boundedString(item.title) && validArray(item.rows, validRow)
         ? (item as unknown as TicketsPresentation)
         : undefined;
+    case "board":
+      return onlyKeys(item, [...common, "variant", "title", "rows"]) &&
+        (item.variant === "issue" || item.variant === "pr") &&
+        boundedString(item.title) &&
+        validArray(item.rows, validBoardRow)
+        ? (item as unknown as TicketsPresentation)
+        : undefined;
     case "detail":
       return onlyKeys(item, [...common, "title", "fields"]) &&
         boundedString(item.title, TICKETS_PRESENTATION_MAX_TEXT_BYTES) &&
@@ -625,6 +795,24 @@ export function parseTicketsPresentation(value: unknown): TicketsPresentation | 
   }
 }
 
+function formatBoardRow(item: TicketsBoardRow): string {
+  const bits = [
+    item.status ? `[${item.status}]` : "",
+    item.parent ? `epic:${item.parent.label}` : "",
+    item.labels?.length ? item.labels.join(",") : "",
+    item.storyPoints ? `${item.storyPoints}pt` : "",
+    item.assignee ?? "",
+    item.pullRequest?.draft ? "draft" : "",
+    item.pullRequest?.merged ? "merged" : "",
+    item.pullRequest?.mergeableState ?? "",
+    item.pullRequest?.reviewers?.length
+      ? `reviews:${item.pullRequest.reviewers.map((r) => `${r.username}${r.state ? `(${r.state})` : ""}`).join(",")}`
+      : "",
+    item.pullRequest?.requestedReviewers?.length ? `awaiting:${item.pullRequest.requestedReviewers.join(",")}` : "",
+  ].filter(Boolean);
+  return `${item.ref}: ${item.title}${bits.length ? ` — ${bits.join(", ")}` : ""}`;
+}
+
 export function omissionLine(details: TicketsPresentation): string {
   const pieces = [
     details.completeness.omitted > 0 ? `${details.completeness.omitted} row(s) omitted` : "",
@@ -647,6 +835,12 @@ export function formatTicketsPresentation(details: TicketsPresentation): string 
                   `${item.id}: ${item.label}${item.status ? ` [${item.status}]` : ""}${item.metadata.length ? ` — ${item.metadata.join(", ")}` : ""}`,
               )
               .join("\n")}`;
+      break;
+    case "board":
+      text =
+        details.rows.length === 0
+          ? `No ${details.title.toLowerCase()}`
+          : `${details.title} (${details.completeness.total})\n${details.rows.map((item) => formatBoardRow(item)).join("\n")}`;
       break;
     case "detail":
       text = `${details.title}\n${details.fields.map((entry) => `${entry.label}: ${entry.value}`).join("\n")}`;

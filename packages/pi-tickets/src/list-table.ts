@@ -24,6 +24,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Text, truncateToWidth as truncateToWidthUnsafe, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { renderBoundedTable, type TextMeasure } from "malevich-tui-components";
+import { withLeadingLine, withTrailingLine } from "./component-lines.js";
 import { omissionLine, type TicketsPresentation } from "./presentation.js";
 
 /**
@@ -73,24 +74,6 @@ function statusToken(status: string | undefined): StatusToken {
 
 function moreRowsLine(theme: Theme, hiddenCount: number): string {
   return theme.fg("dim", `… ${hiddenCount} more row${hiddenCount === 1 ? "" : "s"}`);
-}
-
-/** Appends a line after an inner component's own render output, truncated to the real width -- same shape as @danypops/vehicle-client-pi's own withTrailingLine. */
-function withTrailingLine(inner: Component, line: string | undefined): Component {
-  if (!line) return inner;
-  const lines = line.split("\n").filter(Boolean);
-  if (lines.length === 0) return inner;
-  return {
-    render: (width: number) => [...inner.render(width), ...lines.map((l) => truncateToWidth(l, width))],
-    invalidate: () => inner.invalidate(),
-  };
-}
-
-function withLeadingLine(inner: Component, line: string): Component {
-  return {
-    render: (width: number) => [truncateToWidth(line, width), ...inner.render(width)],
-    invalidate: () => inner.invalidate(),
-  };
 }
 
 /**

@@ -40,6 +40,7 @@ import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-sta
 import type { VehicleClient, VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { renderTicketsBoard } from "./board-table.js";
 import { renderTicketsListTable } from "./list-table.js";
 import {
   formatTicketsPresentation,
@@ -117,6 +118,7 @@ function renderTicketsResult(
     // kind (detail/mutation/summary/error) is a single item or a short message, where a
     // flat styled line already is the right shape.
     if (presentation.kind === "list") return renderTicketsListTable(presentation, theme, expanded);
+    if (presentation.kind === "board") return renderTicketsBoard(presentation, theme);
     const color = presentation.kind === "error" ? "error" : "toolOutput";
     return new Text(theme.fg(color, formatTicketsPresentation(presentation)), 0, 0);
   }

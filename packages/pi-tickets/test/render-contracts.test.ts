@@ -130,6 +130,74 @@ describe("tickets.tool-details/v1", () => {
     expect(serialized).toContain("[REDACTED]");
   });
 
+  it("query.run always renders as a board -- the same 'Backlog/Sprint' meaning the live interactive panel already gives a saved query", () => {
+    const issue = {
+      ref: "jira:PROJ-1",
+      title: "Wire SSO",
+      status: "in_progress",
+      parent: { key: "PROJ-100", title: "Epic: Auth" },
+      labels: ["auth"],
+      customFields: { "Story Points": "5" },
+      assignee: "Dana",
+    };
+    const details = roundTrip("query.run", { issues: [issue] });
+    expect(details.kind).toBe("board");
+    if (details.kind !== "board") throw new Error("expected board");
+    expect(details.variant).toBe("issue");
+    expect(details.rows).toEqual([
+      {
+        ref: "jira:PROJ-1",
+        title: "Wire SSO",
+        status: "in_progress",
+        parent: { key: "PROJ-100", label: "Epic: Auth" },
+        labels: ["auth"],
+        storyPoints: "5",
+        assignee: "Dana",
+      },
+    ]);
+    expect(formatTicketsPresentation(details)).toContain("epic:Epic: Auth");
+  });
+
+  it("issue.list/search render as a PR board when every row is a PR/MR -- a real structural distinction (Issue.pullRequest), not a guessed intent", () => {
+    const pr = {
+      ref: "github:#41",
+      title: "feat: SSO",
+      status: "in_review",
+      assignee: "Dana",
+      pullRequest: {
+        draft: false,
+        mergeableState: "mergeable",
+        reviewers: [{ username: "rivka", state: "approved" }],
+        requestedReviewers: ["omer"],
+      },
+    };
+    for (const operation of ["issue.list", "issue.search"]) {
+      const details = roundTrip(operation, { issues: [pr] });
+      expect(details.kind).toBe("board");
+      if (details.kind !== "board") throw new Error("expected board");
+      expect(details.variant).toBe("pr");
+      expect(details.rows[0]?.pullRequest).toEqual({
+        draft: false,
+        mergeableState: "mergeable",
+        reviewers: [{ username: "rivka", state: "approved" }],
+        requestedReviewers: ["omer"],
+      });
+    }
+  });
+
+  it("issue.list stays a flat table for a mixed or all-plain batch -- only a homogeneous PR/MR batch becomes a board", () => {
+    const plain = { ref: "jira:PROJ-2", title: "Plain issue", status: "todo" };
+    const pr = { ref: "github:#41", title: "feat: SSO", status: "in_review", pullRequest: { draft: true } };
+    expect(roundTrip("issue.list", { issues: [plain] }).kind).toBe("list");
+    expect(roundTrip("issue.list", { issues: [plain, pr] }).kind).toBe("list");
+  });
+
+  it("issue.children and ledger.search never become a board, even for an all-PR batch -- only query.run/issue.list/issue.search opt in", () => {
+    const pr = { ref: "github:#41", title: "feat: SSO", status: "in_review", pullRequest: { draft: true } };
+    expect(roundTrip("issue.children", { issues: [pr] }).kind).toBe("list");
+    expect(roundTrip("ledger.search", { issues: [pr] }).kind).toBe("list");
+  });
+
   it("rejects malformed, cyclic, unknown-version, extra-key, and oversized replay details", () => {
     expect(parseTicketsPresentation(null)).toBeUndefined();
     expect(parseTicketsPresentation({ schemaVersion: "tickets.tool-details/v2", kind: "issue" })).toBeUndefined();
