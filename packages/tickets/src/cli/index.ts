@@ -158,6 +158,37 @@ program
     await withClient((client) => client.call("issue.merge", { ref, method: opts.method }));
   });
 
+program
+  .command("subscribe <ref>")
+  .description("watch one issue in the background -- comments, status, and other field changes are reported via `watch-events`")
+  .option("--schedule-ms <ms>", "minimum check cadence for this subscription, in milliseconds", (v) => Number.parseInt(v, 10))
+  .action(async (ref: string, opts) => {
+    await withClient((client) => client.call("issue.subscribe", { ref, scheduleMs: opts.scheduleMs }));
+  });
+
+program
+  .command("unsubscribe <ref>")
+  .description("stop watching one issue")
+  .action(async (ref: string) => {
+    await withClient((client) => client.call("issue.unsubscribe", { ref }));
+  });
+
+program
+  .command("subscribed")
+  .description("list every issue you're currently watching")
+  .action(async () => {
+    await withClient((client) => client.call("issue.subscribed", {}));
+  });
+
+program
+  .command("watch-events")
+  .description("new change events for everything you're currently watching (issues and saved queries), since --since-id")
+  .option("--since-id <id>", "only events after this event id", (v) => Number.parseInt(v, 10))
+  .option("--limit <n>", "max events", (v) => Number.parseInt(v, 10))
+  .action(async (opts) => {
+    await withClient((client) => client.call("watch.events", { sinceId: opts.sinceId, limit: opts.limit }));
+  });
+
 const comment = program.command("comment").description("comment operations");
 
 comment
@@ -319,6 +350,28 @@ queryCmd
   .option("--limit <n>", "max results", (v) => Number.parseInt(v, 10))
   .action(async (name: string, opts) => {
     await withClient((client) => client.call("query.run", { name, limit: opts.limit }));
+  });
+
+queryCmd
+  .command("subscribe <name>")
+  .description("watch one saved query in the background -- new/dropped items are reported via `watch-events`")
+  .option("--schedule-ms <ms>", "minimum check cadence for this subscription, in milliseconds", (v) => Number.parseInt(v, 10))
+  .action(async (name: string, opts) => {
+    await withClient((client) => client.call("query.subscribe", { name, scheduleMs: opts.scheduleMs }));
+  });
+
+queryCmd
+  .command("unsubscribe <name>")
+  .description("stop watching one saved query")
+  .action(async (name: string) => {
+    await withClient((client) => client.call("query.unsubscribe", { name }));
+  });
+
+queryCmd
+  .command("subscribed")
+  .description("list every saved query you're currently watching")
+  .action(async () => {
+    await withClient((client) => client.call("query.subscribed", {}));
   });
 
 discoverCmd

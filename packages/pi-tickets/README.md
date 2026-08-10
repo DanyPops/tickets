@@ -46,6 +46,19 @@ follows for its footer status. Once started, the daemon keeps running
 across Pi sessions, so this is a one-time thing per machine, not a
 per-session wait.
 
+### Watching issues and saved queries
+
+`issue_subscribe`/`issue_unsubscribe`/`issue_subscribed` and
+`query_subscribe`/`query_unsubscribe`/`query_subscribed` have the daemon keep
+an issue or a saved query under background watch — a status change, a new
+comment, or an item appearing in (or dropping out of) a saved query's results
+is recorded as a `watch_events` entry, the same shape
+[pipes](https://github.com/DanyPops/pipes)' own `ci_subscribe` uses for CI
+runs. This session polls `watch_events` on its own schedule and surfaces each
+new one directly in the conversation — no manual re-checking needed. Like
+`ci_subscribe`, this is bounded background polling presented as a change
+feed, not a real webhook from GitHub/GitLab/Jira.
+
 ## `/tickets` command
 
 `/tickets` with no arguments opens one persistent panel -- a tab bar of

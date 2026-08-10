@@ -123,8 +123,8 @@ function fakePi() {
     },
   } as unknown as ExtensionAPI;
   const notifications: Array<{ message: string; type: string }> = [];
-  const fire = async (event: string, toolName?: string) => {
-    const ctx = { ui: { notify: (message: string, type: string) => notifications.push({ message, type }) } };
+  const fire = async (event: string, toolName?: string, ctxOverrides: Record<string, unknown> = {}) => {
+    const ctx = { ui: { notify: (message: string, type: string) => notifications.push({ message, type }) }, ...ctxOverrides };
     for (const handler of handlers[event] ?? []) await handler({ toolName }, ctx);
   };
   return { pi, tools, active: () => active, fire, notifications };
@@ -368,6 +368,58 @@ describe("registerTicketsVehicle's default notification", () => {
     await fire("session_start");
     await ready;
     expect(notifications.some((n) => n.type === "warning" && n.message.includes("tickets"))).toBe(true);
+  });
+});
+
+describe("registerTicketsVehicle's watch-events poll", () => {
+  it("starts polling watch.events once tools register, only for a real UI session", async () => {
+    const { pi, fire } = fakePi();
+    const client = new FakeClient(manifest([operation("issue.list")]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+
+    try {
+      // hasUI: false (this first session_start, matching every other test's default ctx) --
+      // no poll should ever have started, so a second session_start with hasUI true is what
+      // actually triggers the very first watch.events call below.
+      expect(client.calls.some((c) => c.name === "watch.events")).toBe(false);
+
+      await fire("session_start", undefined, { hasUI: true, sessionManager: { getSessionId: () => "session-a" } });
+      // start() fires its first tick without awaiting it (fire-and-forget) -- one microtask is
+      // enough for that fire-and-forget promise chain to reach the fake client's own resolved invoke().
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const call = client.calls.find((c) => c.name === "watch.events");
+      expect(call).toMatchObject({ input: { subscriberId: "session-a", sinceId: undefined } });
+    } finally {
+      // Must stop the poll's own setInterval -- an un-stopped timer would otherwise keep firing
+      // (and keep the fake client alive) for the rest of this entire test process.
+      await fire("session_shutdown");
+    }
+  });
+
+  it("never starts the poll at all when no session ever has a UI", async () => {
+    const { pi, fire } = fakePi();
+    const client = new FakeClient(manifest([operation("issue.list")]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+    await fire("session_start");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(client.calls.some((c) => c.name === "watch.events")).toBe(false);
+    await fire("session_shutdown");
   });
 });
 

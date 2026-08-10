@@ -7,6 +7,7 @@ import { buildApp } from "../../src/rpc/server.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";
+import { WATCH_MIGRATIONS, WatchStore } from "../../src/sqlite/watches.js";
 import { StageStore } from "../../src/stage/store.js";
 import { ReviewableFakeRepository } from "../support/fake-repository.js";
 
@@ -19,11 +20,14 @@ afterEach(() => {
 });
 
 function makeApp() {
-  db = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS] });
+  db = openSqliteWithPragmas(":memory:", {
+    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+  });
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
   const stageStore = new StageStore();
+  const watches = new WatchStore(db);
   const github = new ReviewableFakeRepository("github", [
     {
       ref: "github:#1",
@@ -45,9 +49,9 @@ function makeApp() {
     },
   ]);
   const service = new TicketService({ github });
-  const baseDeps = { service, ledger, focusStore, queries, stageStore, token: TOKEN, version: "0.0.0-test" };
+  const baseDeps = { service, ledger, focusStore, queries, stageStore, watches, token: TOKEN, version: "0.0.0-test" };
   const app = buildApp({ ...baseDeps, vehicleRegistry: createTicketsVehicleRegistry(baseDeps) });
-  return { app, ledger, focusStore, queries, stageStore, service, github };
+  return { app, ledger, focusStore, queries, stageStore, watches, service, github };
 }
 
 function req(path: string, init: RequestInit = {}, token = TOKEN): Request {
@@ -243,11 +247,14 @@ describe("daemon HTTP surface", () => {
   });
 
   it("daemon.shutdown responds before invoking onShutdownRequested, never calls it synchronously", async () => {
-    db = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS] });
+    db = openSqliteWithPragmas(":memory:", {
+      migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+    });
     const ledger = new Ledger(db);
     const focusStore = new FocusStore(db);
     const queries = new SavedQueryStore(db);
     const stageStore = new StageStore();
+    const watches = new WatchStore(db);
     const service = new TicketService({});
     let calls = 0;
     const baseDeps = {
@@ -256,6 +263,7 @@ describe("daemon HTTP surface", () => {
       focusStore,
       queries,
       stageStore,
+      watches,
       token: TOKEN,
       version: "0.0.0-test",
       onShutdownRequested: () => {

@@ -50,6 +50,7 @@ import {
   TICKETS_PRESENTATION_MAX_BYTES,
 } from "./presentation.js";
 import { renderResultText } from "./render.js";
+import { WatchEventsPoll } from "./watch-events-poll.js";
 
 /**
  * issue.* operations drop the "issue" prefix in render.ts's existing action
@@ -79,8 +80,13 @@ function legacyActionFor(operationName: string): string {
  * discover_fields, backends_list -- see tickets-vehicle.ts's OPERATIONS).
  * Exported so tui.ts's own footer-status refresh shares the exact same
  * list instead of keeping a second copy in sync by hand.
+ *
+ * query_ was a pre-existing gap here (query.save/list/remove/run have projected query_* tools
+ * since before this list was last touched) -- fixed alongside adding watch_ for the new
+ * issue.subscribe/query.subscribe family's own watch_events tool, rather than leaving a second,
+ * unrelated bug in place while editing this exact line for a different reason.
  */
-export const TICKETS_TOOL_PREFIXES = ["issue_", "focus_", "ledger_", "discover_", "backends_", "stage_"];
+export const TICKETS_TOOL_PREFIXES = ["issue_", "focus_", "ledger_", "discover_", "backends_", "stage_", "query_", "watch_"];
 
 export function isTicketsVehicleTool(toolName: string): boolean {
   return TICKETS_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix));
@@ -253,6 +259,27 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
       refresh: async () => {
         current = await refreshVehicleToolAvailability(pi, client, current, options);
       },
+    });
+
+    // "Get notified about a watched issue/query changing" -- the pi-tickets analog of pi-pipes'
+    // own JobsOverlay poll, minus the visual widget (see watch-events-poll.ts's own doc comment
+    // for why no client-side diffing is needed here). Gated on ctx.hasUI, same as pi-pipes' own
+    // jobs overlay: a passive background notifier has no reason to run for a headless/RPC caller
+    // with nobody to notice it. Reuses this exact same reconnecting `client` -- no second daemon
+    // connection, and it already tolerates the daemon not being up yet or rebinding a new port.
+    let watchEventsPoll: WatchEventsPoll | undefined;
+    pi.on("session_start", (_event, ctx) => {
+      if (!ctx.hasUI) return;
+      watchEventsPoll ??= new WatchEventsPoll({
+        client,
+        pi,
+        subscriberId: ctx.sessionManager.getSessionId(),
+        permissions: options.permissions ?? [],
+      });
+      watchEventsPoll.start();
+    });
+    pi.on("session_shutdown", () => {
+      watchEventsPoll?.stop();
     });
 
     return current;

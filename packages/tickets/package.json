@@ -24,8 +24,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@danypops/vehicle-core": "^0.13.0",
-    "@danypops/vehicle-server": "^0.18.4",
+    "@danypops/vehicle-core": "^0.15.0",
+    "@danypops/vehicle-server": "^0.21.0",
     "@danypops/vehicle-client": "^0.7.1",
     "@danypops/enigma-client": "^0.6.1",
     "@gitbeaker/rest": "^43.8.0",

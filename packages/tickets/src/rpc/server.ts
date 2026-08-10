@@ -16,6 +16,7 @@ import type { TicketService } from "../issue/service.js";
 import { FocusError, type FocusStore } from "../sqlite/focus.js";
 import type { Ledger } from "../sqlite/ledger.js";
 import { SavedQueryNotFoundError, type SavedQueryStore } from "../sqlite/saved-queries.js";
+import type { WatchStore } from "../sqlite/watches.js";
 import type { StagePayload, StageStore } from "../stage/store.js";
 import { statusForKnownTicketError } from "./error-status.js";
 import { type StagePushResult, TICKET_OPERATIONS, type TicketOperation, type TicketOpInputs, type TicketOpOutputs } from "./ops.js";
@@ -45,6 +46,20 @@ export interface TicketsAppDeps {
    */
   vehicleRegistry: VehicleRegistry;
   stageStore: StageStore;
+  watches: WatchStore;
+}
+
+/**
+ * The subset of a Vehicle call's own identity a handful of handlers read for a sensible default --
+ * see issue.subscribe/query.subscribe below, which default subscriberId/projectRoot from these
+ * when the caller doesn't pass them explicitly, mirroring @danypops/pipes' own ci.subscribe.
+ * Always undefined-safe: absent entirely for the raw HTTP /api/v1/ops dispatch (which has no Pi
+ * session behind it), present when the call came through agent-tools/tickets-vehicle.ts's
+ * Vehicle registration (see its own VehicleOperationContext.callerSessionId/callerProjectRoot).
+ */
+export interface HandlerCallContext {
+  callerSessionId?: string;
+  callerProjectRoot?: string;
 }
 
 // Narrower than TicketsAppDeps on purpose: no real handler reads
@@ -53,6 +68,7 @@ export interface TicketsAppDeps {
 export type Handler<Op extends TicketOperation> = (
   deps: Omit<TicketsAppDeps, "vehicleRegistry">,
   input: TicketOpInputs[Op],
+  callContext?: HandlerCallContext,
 ) => Promise<TicketOpOutputs[Op]>;
 
 /**
@@ -108,6 +124,37 @@ export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
     const saved = deps.queries.get(input.name);
     if (!saved) throw new SavedQueryNotFoundError(input.name);
     return { issues: await deps.service.runQuery(saved.backend, saved.query, input.limit) };
+  },
+  "issue.subscribe": async (deps, input, callContext) => {
+    const subscriberId = input.subscriberId ?? callContext?.callerSessionId ?? "";
+    const projectRoot = input.projectRoot ?? callContext?.callerProjectRoot;
+    deps.watches.subscribeIssue(input.ref, { subscriberId, scheduleMs: input.scheduleMs, projectRoot });
+    return { subscribed: true };
+  },
+  "issue.unsubscribe": async (deps, input, callContext) => {
+    deps.watches.unsubscribeIssue(input.ref, input.subscriberId ?? callContext?.callerSessionId ?? "");
+    return { unsubscribed: true };
+  },
+  "issue.subscribed": async (deps, input, callContext) => ({
+    watches: deps.watches.issueSubscriptionsFor(input.subscriberId ?? callContext?.callerSessionId ?? ""),
+  }),
+  "query.subscribe": async (deps, input, callContext) => {
+    const subscriberId = input.subscriberId ?? callContext?.callerSessionId ?? "";
+    const projectRoot = input.projectRoot ?? callContext?.callerProjectRoot;
+    deps.watches.subscribeQuery(input.name, { subscriberId, scheduleMs: input.scheduleMs, projectRoot });
+    return { subscribed: true };
+  },
+  "query.unsubscribe": async (deps, input, callContext) => {
+    deps.watches.unsubscribeQuery(input.name, input.subscriberId ?? callContext?.callerSessionId ?? "");
+    return { unsubscribed: true };
+  },
+  "query.subscribed": async (deps, input, callContext) => ({
+    watches: deps.watches.queryWatchSubscriptionsFor(input.subscriberId ?? callContext?.callerSessionId ?? ""),
+  }),
+  "watch.events": async (deps, input, callContext) => {
+    const subscriberId = input.subscriberId ?? callContext?.callerSessionId ?? "";
+    const events = deps.watches.eventsSince(subscriberId, input.sinceId ?? 0, input.limit);
+    return { events, lastId: events.at(-1)?.id ?? input.sinceId ?? 0 };
   },
   "stage.add": async (deps, input) => ({ item: deps.stageStore.add(input.payload) }),
   "stage.list": async (deps) => ({ items: deps.stageStore.list() }),

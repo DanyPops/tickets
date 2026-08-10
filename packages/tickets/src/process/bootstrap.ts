@@ -19,8 +19,10 @@ import { buildApp, type TicketsAppDeps } from "../rpc/server.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../sqlite/saved-queries.js";
+import { WATCH_MIGRATIONS, WatchStore } from "../sqlite/watches.js";
 import { StageStore } from "../stage/store.js";
 import { createSyncTask } from "./poller.js";
+import { createIssueWatchSyncTask, createQueryWatchSyncTask } from "./watch-sync.js";
 
 export interface BootstrapOptions {
   pathEnv?: PathEnvironment;
@@ -39,6 +41,10 @@ export interface BootstrapOptions {
   checkpointIntervalMs?: number;
   /** How often the live backend set re-resolves from config/env/Enigma. Ignored when repos is injected. */
   backendRefreshIntervalMs?: number;
+  /** How often every subscribed issue is re-fetched and diffed. Defaults to DEFAULT_ISSUE_WATCH_INTERVAL_MS. */
+  issueWatchIntervalMs?: number;
+  /** How often every subscribed saved query is re-run and diffed. Defaults to DEFAULT_QUERY_WATCH_INTERVAL_MS. */
+  queryWatchIntervalMs?: number;
   /**
    * Overrides the daemon.shutdown op's effect. Defaults to sending this
    * process SIGTERM, which vehicle-server's runDaemonProcess already handles
@@ -54,6 +60,7 @@ export interface BootstrappedDaemon {
   focusStore: FocusStore;
   queries: SavedQueryStore;
   stageStore: StageStore;
+  watches: WatchStore;
   service: TicketService;
   options: StartDaemonOptions;
 }
@@ -61,15 +68,23 @@ export interface BootstrappedDaemon {
 const DEFAULT_SYNC_INTERVAL_MS = 5 * 60_000;
 const DEFAULT_CHECKPOINT_INTERVAL_MS = 10 * 60_000;
 const DEFAULT_BACKEND_REFRESH_INTERVAL_MS = 30_000;
+/** Deliberately coarser than pipes' own 30s RUN_POOL_SYNC_INTERVAL_MS -- a CI run's status changes
+ * on the order of seconds/minutes; an issue's comments/status change on the order of minutes/hours,
+ * so polling that fast would only waste API quota against GitHub/GitLab/Jira's own rate limits. */
+const DEFAULT_ISSUE_WATCH_INTERVAL_MS = 60_000;
+const DEFAULT_QUERY_WATCH_INTERVAL_MS = 60_000;
 
 export async function bootstrap(opts: BootstrapOptions = {}): Promise<BootstrappedDaemon> {
   const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, opts.pathEnv);
   const token = ensureAuthToken(paths.token, "Tickets");
-  const db = openSqliteWithPragmas(paths.database, { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS] });
+  const db = openSqliteWithPragmas(paths.database, {
+    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+  });
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
   const stageStore = new StageStore();
+  const watches = new WatchStore(db);
   const logger = opts.logger ?? createLogger("tickets-daemon", { levelEnvVar: "TICKETS_LOG_LEVEL" });
   const config = opts.config ?? loadConfig();
   const buildRepos = opts.buildRepositories ?? buildRepositories;
@@ -88,6 +103,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
     focusStore,
     queries,
     stageStore,
+    watches,
     token,
     version,
     logger,
@@ -100,6 +116,8 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
     logger,
     maintenanceTasks: [
       createSyncTask(service, ledger, opts.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS, logger),
+      createIssueWatchSyncTask(service, watches, opts.issueWatchIntervalMs ?? DEFAULT_ISSUE_WATCH_INTERVAL_MS, logger),
+      createQueryWatchSyncTask(service, queries, watches, opts.queryWatchIntervalMs ?? DEFAULT_QUERY_WATCH_INTERVAL_MS, logger),
       {
         name: "checkpoint",
         intervalMs: opts.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS,
@@ -127,6 +145,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
         focusStore,
         queries,
         stageStore,
+        watches,
         token,
         version,
         logger,
@@ -138,5 +157,5 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
     },
   };
 
-  return { db, ledger, focusStore, queries, stageStore, service, options };
+  return { db, ledger, focusStore, queries, stageStore, watches, service, options };
 }

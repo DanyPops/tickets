@@ -9,6 +9,7 @@ import type { BackendCapabilities } from "../issue/service.js";
 import type { Template } from "../issue/template.js";
 import type { TicketFocusState } from "../sqlite/focus.js";
 import type { SavedQuery } from "../sqlite/saved-queries.js";
+import type { IssueWatchSubscription, QueryWatchSubscription, WatchEvent } from "../sqlite/watches.js";
 import type { StagedItem, StagePatchFields, StagePayload } from "../stage/store.js";
 
 export type TicketOperation =
@@ -40,6 +41,13 @@ export type TicketOperation =
   | "query.list"
   | "query.remove"
   | "query.run"
+  | "issue.subscribe"
+  | "issue.unsubscribe"
+  | "issue.subscribed"
+  | "query.subscribe"
+  | "query.unsubscribe"
+  | "query.subscribed"
+  | "watch.events"
   | "stage.add"
   | "stage.list"
   | "stage.show"
@@ -77,6 +85,13 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "query.list": Record<string, never>;
   "query.remove": { name: string };
   "query.run": { name: string; limit?: number };
+  "issue.subscribe": { ref: string; subscriberId?: string; scheduleMs?: number; projectRoot?: string };
+  "issue.unsubscribe": { ref: string; subscriberId?: string };
+  "issue.subscribed": { subscriberId?: string };
+  "query.subscribe": { name: string; subscriberId?: string; scheduleMs?: number; projectRoot?: string };
+  "query.unsubscribe": { name: string; subscriberId?: string };
+  "query.subscribed": { subscriberId?: string };
+  "watch.events": { subscriberId?: string; sinceId?: number; limit?: number };
   "stage.add": { payload: StagePayload };
   "stage.list": Record<string, never>;
   "stage.show": { id: string };
@@ -118,6 +133,13 @@ export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
   "query.list": { queries: SavedQuery[] };
   "query.remove": { removed: boolean };
   "query.run": { issues: Issue[] };
+  "issue.subscribe": { subscribed: true };
+  "issue.unsubscribe": { unsubscribed: true };
+  "issue.subscribed": { watches: IssueWatchSubscription[] };
+  "query.subscribe": { subscribed: true };
+  "query.unsubscribe": { unsubscribed: true };
+  "query.subscribed": { watches: QueryWatchSubscription[] };
+  "watch.events": { events: WatchEvent[]; lastId: number };
   "stage.add": { item: StagedItem };
   "stage.list": { items: StagedItem[] };
   "stage.show": { item: StagedItem };
@@ -156,6 +178,13 @@ export const TICKET_OPERATIONS: TicketOperation[] = [
   "query.list",
   "query.remove",
   "query.run",
+  "issue.subscribe",
+  "issue.unsubscribe",
+  "issue.subscribed",
+  "query.subscribe",
+  "query.unsubscribe",
+  "query.subscribed",
+  "watch.events",
   "stage.add",
   "stage.list",
   "stage.show",

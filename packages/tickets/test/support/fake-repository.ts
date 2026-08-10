@@ -1,5 +1,5 @@
 import { IssueNotFoundError } from "../../src/issue/errors.js";
-import type { CreateInput, Issue, ListFilter, UpdateInput } from "../../src/issue/issue.js";
+import type { Comment, CreateInput, Issue, ListFilter, UpdateInput } from "../../src/issue/issue.js";
 import type { CommentCapable, IssueRepository, PullRequestChangesRequestable, PullRequestReviewable } from "../../src/issue/repository.js";
 
 /** In-memory IssueRepository test double — no network, deterministic, used across test suites. */
@@ -93,7 +93,7 @@ export class FakeRepository implements IssueRepository, CommentCapable {
     return [];
   }
 
-  async listComments() {
+  async listComments(): Promise<Comment[]> {
     return [];
   }
 

@@ -25,7 +25,7 @@ import {
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import type { BackendCapabilities, TicketService } from "../issue/service.js";
 import type { TicketOperation } from "../rpc/ops.js";
-import { TICKET_OP_HANDLERS, type TicketsAppDeps } from "../rpc/server.js";
+import { type HandlerCallContext, TICKET_OP_HANDLERS, type TicketsAppDeps } from "../rpc/server.js";
 import { withTicketsErrorParity } from "./error-mapping.js";
 
 const OWNER = "tickets";
@@ -266,6 +266,61 @@ const OPERATIONS: readonly OperationSpec[] = [
     required: ["name"],
   },
   {
+    action: "issue.subscribe",
+    description:
+      "Has the daemon keep watching one issue in the background -- comments, status, and other field changes are reported through watch_events, no manual re-checking needed. Idempotent. subscriberId scopes this watch to one caller (defaults to this calling Pi session's own real session id, then a shared anonymous subscriber for a raw RPC client with no session at all); scheduleMs bounds how often that subscriber's watch is refreshed, in milliseconds (omit to refresh on every background sync tick). projectRoot attributes this subscription to a project -- defaults to this calling session's own cwd; rarely needs to be passed explicitly.",
+    effect: "local-write",
+    properties: { ref: stringProp, subscriberId: stringProp, scheduleMs: numberProp, projectRoot: stringProp },
+    required: ["ref"],
+  },
+  {
+    action: "issue.unsubscribe",
+    description:
+      "Stops the daemon watching one issue in the background. Idempotent -- no error if it wasn't subscribed. subscriberId removes only that one caller's watch, leaving any other subscriber's own watch on the same issue intact.",
+    effect: "local-write",
+    properties: { ref: stringProp, subscriberId: stringProp },
+    required: ["ref"],
+  },
+  {
+    action: "issue.subscribed",
+    description:
+      "Every issue this subscriber is currently watching -- never a live backend call, cheap to call frequently. subscriberId defaults to this calling Pi session's own real session id.",
+    effect: "read",
+    properties: { subscriberId: stringProp },
+    required: [],
+  },
+  {
+    action: "query.subscribe",
+    description:
+      "Has the daemon keep re-running one saved query in the background -- new matching items or items that drop out are reported through watch_events, no manual re-checking needed. Idempotent. subscriberId/scheduleMs/projectRoot behave exactly like issue.subscribe's own.",
+    effect: "local-write",
+    properties: { name: stringProp, subscriberId: stringProp, scheduleMs: numberProp, projectRoot: stringProp },
+    required: ["name"],
+  },
+  {
+    action: "query.unsubscribe",
+    description: "Stops the daemon re-running one saved query in the background. Idempotent -- no error if it wasn't subscribed.",
+    effect: "local-write",
+    properties: { name: stringProp, subscriberId: stringProp },
+    required: ["name"],
+  },
+  {
+    action: "query.subscribed",
+    description:
+      "Every saved query this subscriber is currently watching -- never a live backend call, cheap to call frequently. subscriberId defaults to this calling Pi session's own real session id.",
+    effect: "read",
+    properties: { subscriberId: stringProp },
+    required: [],
+  },
+  {
+    action: "watch.events",
+    description:
+      "New change events (comments, status, label/field changes, saved-query membership changes) for everything this subscriber currently watches, since sinceId -- cheaper than re-fetching every watched issue/query yourself. Pass the previous call's lastId as sinceId to page forward; omit it once to start from 'now' without replaying history.",
+    effect: "read",
+    properties: { subscriberId: stringProp, sinceId: numberProp, limit: numberProp },
+    required: [],
+  },
+  {
     action: "stage.add",
     description:
       "Stages a create/update/comment payload locally for review -- no live backend call. Free: never gated by the approval requirement stage.push carries.",
@@ -419,7 +474,17 @@ export function createTicketsVehicleRegistry(deps: Omit<TicketsAppDeps, "vehicle
       bindVehicleOperation(
         operation,
         () => async (context) =>
-          withTicketsErrorParity<unknown>(() => handler(deps, mapInput(context.input as Record<string, unknown>) as never)),
+          withTicketsErrorParity<unknown>(() => {
+            // Threaded through unconditionally -- harmless for the vast majority of handlers that
+            // never read it; issue.subscribe/query.subscribe (and their siblings) use it to default
+            // subscriberId/projectRoot from this real call's own session identity, mirroring
+            // @danypops/pipes' own ci.subscribe. See HandlerCallContext's own doc comment.
+            const callContext: HandlerCallContext = {
+              callerSessionId: context.callerSessionId,
+              callerProjectRoot: context.callerProjectRoot,
+            };
+            return handler(deps, mapInput(context.input as Record<string, unknown>) as never, callContext);
+          }),
       ),
     );
   }
