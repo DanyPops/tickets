@@ -156,7 +156,11 @@ describe("syncIssueWatches", () => {
 
 describe("syncQueryWatches", () => {
   function makeQueries(): SavedQueryStore {
-    queriesDb = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS] });
+    // FOCUS_MIGRATIONS' own re-scoping migration is version 5 (after watches' 4) -- see
+    // watches.test.ts's own comment on migrations being global, not per-table.
+    queriesDb = openSqliteWithPragmas(":memory:", {
+      migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+    });
     return new SavedQueryStore(queriesDb);
   }
 

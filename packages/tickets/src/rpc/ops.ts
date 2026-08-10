@@ -32,6 +32,8 @@ export type TicketOperation =
   | "focus.pause"
   | "focus.unpause"
   | "focus.clear"
+  | "session.register"
+  | "session.release"
   | "discover.fields"
   | "discover.statuses"
   | "discover.template"
@@ -71,11 +73,31 @@ export interface TicketOpInputs extends Record<TicketOperation, unknown> {
   "issue.merge": { ref: string; method?: "merge" | "squash" | "rebase" };
   "ledger.search": { query: string; limit?: number; backend?: string };
   "ledger.stats": Record<string, never>;
-  "focus.set": { ref: string };
-  "focus.get": Record<string, never>;
-  "focus.pause": { reason?: string };
-  "focus.unpause": Record<string, never>;
-  "focus.clear": Record<string, never>;
+  /**
+   * sessionId: optional explicit scope override (see sqlite/focus.ts's own normalizeFocusScope) --
+   * defaults to callContext?.callerSessionId, then "global", the same input-wins-over-callContext
+   * precedence issue.subscribe/query.subscribe already established. sessionSecret authorizes an
+   * EXPLICIT sessionId claim against session.register's own identity store (see
+   * sqlite/session-identity.ts) -- never required, and never even read, for the implicit
+   * callContext.callerSessionId default, since a Vehicle-projected tool call's own
+   * callerSessionId is host-derived, not model-settable.
+   */
+  "focus.set": { ref: string; sessionId?: string; sessionSecret?: string };
+  "focus.get": { sessionId?: string };
+  "focus.pause": { reason?: string; sessionId?: string; sessionSecret?: string };
+  "focus.unpause": { sessionId?: string; sessionSecret?: string };
+  "focus.clear": { sessionId?: string; sessionSecret?: string };
+  /**
+   * No CLI command, and excluded from Vehicle tool projection (see agent-tools/tickets-vehicle.ts's
+   * own OWNER/OPERATIONS list) -- a pure client<->daemon handshake pi-tickets' own extension code
+   * calls directly (see pi-tickets' tui.ts), never a human- or model-meaningful action the way
+   * every other operation here is. daemon.shutdown is the one other operation with no Pi tool for
+   * a similar reason, but it at least keeps a human-facing CLI command (`daemon stop`); these two
+   * have no comparable human verb at all.
+   */
+  "session.register": { sessionId: string };
+  "session.release": { sessionId: string; sessionSecret?: string };
+
   "discover.fields": { backend: string };
   "discover.statuses": { backend: string };
   "discover.template": { backend: string; project: string; issueType: string; sampleSize?: number };
@@ -124,6 +146,9 @@ export interface TicketOpOutputs extends Record<TicketOperation, unknown> {
   "focus.pause": { focus: TicketFocusState };
   "focus.unpause": { focus: TicketFocusState };
   "focus.clear": { cleared: boolean };
+  /** secret: shown once, plaintext, on register -- never persisted or logged by the client, mirroring vehicle-server/session-identity's own contract. */
+  "session.register": { sessionId: string; secret: string };
+  "session.release": { released: true };
   "discover.fields": { mappings: Record<string, string> };
   "discover.statuses": { mappings: Record<string, string> };
   "discover.template": { template: Template | null };
@@ -169,6 +194,8 @@ export const TICKET_OPERATIONS: TicketOperation[] = [
   "focus.pause",
   "focus.unpause",
   "focus.clear",
+  "session.register",
+  "session.release",
   "discover.fields",
   "discover.statuses",
   "discover.template",

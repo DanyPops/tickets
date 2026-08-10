@@ -1,8 +1,17 @@
-import { describe, expect, it, mock } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 import type { TicketsRpcClient } from "@danypops/tickets";
 import type { KeyBinding, MnemonicContext } from "malevich-tui-components";
 import { assertNoMnemonicConflicts } from "malevich-tui-components";
+import { resetSessionSecretsForTests } from "../src/session-identity.js";
 import { registerTicketsTui } from "../src/tui.js";
+
+// This module's own session-secret cache is a shared singleton across every test in this file
+// (and, since bun test runs one process, every OTHER test file too) -- reset after each test so
+// one test's session_start registration never leaks a cached secret into a later, unrelated
+// test that happens to reuse the same default session id ("test-session").
+afterEach(() => {
+  resetSessionSecretsForTests();
+});
 
 interface Component {
   render(width: number): string[];
@@ -19,6 +28,8 @@ function fakeClient(overrides: Partial<Record<string, OpHandler>> = {}): Tickets
     "focus.get": () => ({ focus: null }),
     "ledger.search": () => ({ issues: [] }),
     "query.list": () => ({ queries: [] }),
+    "session.register": (input: { sessionId: string }) => ({ sessionId: input.sessionId, secret: "test-secret" }),
+    "session.release": () => ({ released: true }),
   };
   const handler = { ...defaults, ...overrides };
   return {
@@ -60,8 +71,9 @@ function stripAnsi(s: string): string {
   return s.replace(ANSI_ESCAPE_PATTERN, "");
 }
 
-function fakeCtx(theme: typeof fakeTheme = fakeTheme) {
+function fakeCtx(theme: typeof fakeTheme = fakeTheme, sessionId = "test-session") {
   return {
+    sessionManager: { getSessionId: () => sessionId },
     ui: {
       theme,
       notify: mock(() => {}),
@@ -82,17 +94,29 @@ function fakeCtx(theme: typeof fakeTheme = fakeTheme) {
   };
 }
 
+// Pi supports several independent pi.on(event, ...) registrations for the same event (e.g. this
+// module's own session_start alongside registerVehicleStatusRefresh's) -- an array per event,
+// not a single overwritten slot, is what makes that real behavior reproducible here.
 function fakePi() {
-  const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+  const handlers = new Map<string, Array<(event: unknown, ctx: unknown) => unknown>>();
   const commands = new Map<string, { description?: string; handler: (args: string | undefined, ctx: unknown) => unknown }>();
   return {
-    on: mock((event: string, handler: (event: unknown, ctx: unknown) => unknown) => handlers.set(event, handler)),
+    on: mock((event: string, handler: (event: unknown, ctx: unknown) => unknown) => {
+      const existing = handlers.get(event) ?? [];
+      existing.push(handler);
+      handlers.set(event, existing);
+    }),
     registerCommand: mock((name: string, options: { description?: string; handler: (args: string | undefined, ctx: unknown) => unknown }) =>
       commands.set(name, options),
     ),
     handlers,
     commands,
   };
+}
+
+/** Fires every handler registered for this event, in registration order -- the real Pi runtime's own fan-out semantics. */
+async function fireEvent(pi: ReturnType<typeof fakePi>, event: string, arg: unknown, ctx: unknown): Promise<void> {
+  for (const handler of pi.handlers.get(event) ?? []) await handler(arg, ctx);
 }
 
 /** Lets already-scheduled microtasks (getClient()/RPC-call resolutions) run before reading the last-opened component. */
@@ -154,12 +178,78 @@ describe("registerTicketsTui", () => {
     registerTicketsTui(pi as never, { getClient: async () => client });
 
     const ctx = fakeCtx();
-    await pi.handlers.get("session_start")?.({}, ctx);
+    await fireEvent(pi, "session_start", {}, ctx);
     expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("tickets-focus", undefined);
 
     hasFocus = true;
-    await pi.handlers.get("session_start")?.({}, ctx);
+    await fireEvent(pi, "session_start", {}, ctx);
     expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("tickets-focus", "\ud83c\udfaf github:#1");
+  });
+
+  it("session_start registers this session's own identity, caching the secret; session_shutdown releases it with that same secret", async () => {
+    const pi = fakePi();
+    const registerCalls: unknown[] = [];
+    const releaseCalls: unknown[] = [];
+    const client = fakeClient({
+      "session.register": (input) => {
+        registerCalls.push(input);
+        return { sessionId: input.sessionId, secret: "the-real-secret" };
+      },
+      "session.release": (input) => {
+        releaseCalls.push(input);
+        return { released: true };
+      },
+      "focus.set": (input) => ({
+        focus: { ref: (input as { ref: string }).ref, title: "x", url: "https://y", status: "active", updatedAt: "now" },
+      }),
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx(fakeTheme, "session-real");
+    await fireEvent(pi, "session_start", {}, ctx);
+    expect(registerCalls).toEqual([{ sessionId: "session-real" }]);
+
+    // Once registered, a later focus-mutating call from this exact session carries the cached secret.
+    const { focusSessionFields } = await import("../src/session-identity.js");
+    expect(focusSessionFields("session-real")).toEqual({ sessionId: "session-real", sessionSecret: "the-real-secret" });
+
+    await fireEvent(pi, "session_shutdown", {}, ctx);
+    expect(releaseCalls).toEqual([{ sessionId: "session-real", sessionSecret: "the-real-secret" }]);
+    // Released -- the cache no longer has anything for this session id.
+    expect(focusSessionFields("session-real")).toEqual({ sessionId: "session-real" });
+  });
+
+  it("session_start's identity registration is best-effort -- a daemon-unavailable failure never throws or blocks the rest of session_start", async () => {
+    const pi = fakePi();
+    const client = fakeClient({
+      "session.register": () => {
+        throw new Error("daemon unreachable");
+      },
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx();
+    await expect(fireEvent(pi, "session_start", {}, ctx)).resolves.toBeUndefined();
+    // The rest of session_start (the footer status refresh) still ran despite the failed registration.
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("tickets-focus", undefined);
+  });
+
+  it("refreshStatus's own focus.get call carries this session's own sessionId, the same as IssueListComponent's", async () => {
+    const pi = fakePi();
+    const calls: unknown[] = [];
+    const client = fakeClient({
+      "focus.get": (input) => {
+        calls.push(input);
+        return { focus: null };
+      },
+    });
+    registerTicketsTui(pi as never, { getClient: async () => client });
+
+    const ctx = fakeCtx(fakeTheme, "session-for-status");
+    await fireEvent(pi, "session_start", {}, ctx);
+
+    const getCall = calls.find((c) => (c as { sessionId?: string }).sessionId === "session-for-status");
+    expect(getCall).toBeDefined();
   });
 
   it("tool_execution_end refreshes status only for a real tickets Vehicle tool", async () => {
@@ -170,10 +260,10 @@ describe("registerTicketsTui", () => {
     registerTicketsTui(pi as never, { getClient: async () => client });
 
     const ctx = fakeCtx();
-    await pi.handlers.get("tool_execution_end")?.({ toolName: "bash" }, ctx);
+    await fireEvent(pi, "tool_execution_end", { toolName: "bash" }, ctx);
     expect(ctx.ui.setStatus).not.toHaveBeenCalled();
 
-    await pi.handlers.get("tool_execution_end")?.({ toolName: "focus_set" }, ctx);
+    await fireEvent(pi, "tool_execution_end", { toolName: "focus_set" }, ctx);
     expect(ctx.ui.setStatus).toHaveBeenCalledWith("tickets-focus", "\u23f8 jira:PROJ-1");
   });
 
@@ -435,7 +525,7 @@ describe("registerTicketsTui", () => {
           return { issues: ISSUES };
         },
         "focus.set": (input) => {
-          expect(input).toEqual({ ref: "github:#1" });
+          expect(input).toEqual({ ref: "github:#1", sessionId: "test-session" });
           return {
             focus: { ref: "github:#1", title: "First bug", url: "https://github.com/a/b/issues/1", status: "active", updatedAt: "now" },
           };
@@ -462,7 +552,7 @@ describe("registerTicketsTui", () => {
         "focus.get": () => ({ focus: { ref: "github:#1", title: "First bug", url: "https://x", status: "active", updatedAt: "now" } }),
         "ledger.search": () => ({ issues: ISSUES }),
         "focus.clear": (input) => {
-          expect(input).toEqual({});
+          expect(input).toEqual({ sessionId: "test-session" });
           return { cleared: true };
         },
       });

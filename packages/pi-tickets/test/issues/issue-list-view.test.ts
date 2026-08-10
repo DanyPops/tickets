@@ -11,8 +11,11 @@ function fakeTui() {
   return { terminal: { rows: 40 }, requestRender: mock(() => {}) } as unknown as import("@earendil-works/pi-tui").TUI;
 }
 
-function fakeCtx() {
-  return { ui: { notify: mock(() => {}) } } as unknown as import("@earendil-works/pi-coding-agent").ExtensionCommandContext;
+function fakeCtx(sessionId = "test-session") {
+  return {
+    ui: { notify: mock(() => {}) },
+    sessionManager: { getSessionId: () => sessionId },
+  } as unknown as import("@earendil-works/pi-coding-agent").ExtensionCommandContext;
 }
 
 function fakeClient(handler: (op: string, input: unknown) => unknown): TicketsRpcClient {
@@ -105,20 +108,27 @@ describe("IssueListComponent", () => {
     expect(unframed.render(20)[0]).toBe("T");
   });
 
-  it("enter on a real row calls focus.set and notifies; enter on the synthetic clear-focus row calls focus.clear", async () => {
+  it("enter on a real row calls focus.set and notifies; enter on the synthetic clear-focus row calls focus.clear -- both scoped to this session", async () => {
     const notify = mock(() => {});
-    const ctx = { ui: { notify } } as unknown as import("@earendil-works/pi-coding-agent").ExtensionCommandContext;
+    const ctx = {
+      ui: { notify },
+      sessionManager: { getSessionId: () => "session-xyz" },
+    } as unknown as import("@earendil-works/pi-coding-agent").ExtensionCommandContext;
     let cleared = false;
+    let clearInput: unknown;
     let focused: string | undefined;
+    let setInput: unknown;
     const client = fakeClient((op, input) => {
       if (op === "focus.get")
         return { focus: { ref: "github:#1", title: "First bug", url: "https://x", status: "active", updatedAt: "now" } };
       if (op === "focus.clear") {
         cleared = true;
+        clearInput = input;
         return { cleared: true };
       }
       if (op === "focus.set") {
         focused = (input as { ref: string }).ref;
+        setInput = input;
         return { focus: { ref: focused, title: "x", url: "https://y", status: "active", updatedAt: "now" } };
       }
       return { issues: ISSUES };
@@ -135,7 +145,36 @@ describe("IssueListComponent", () => {
     list.handleInput("\r"); // first row is the synthetic clear-focus item
     await tick();
     expect(cleared).toBe(true);
+    expect(clearInput).toMatchObject({ sessionId: "session-xyz" });
     expect(notify).toHaveBeenCalledWith("Focus cleared", "info");
+    void setInput; // exercised in the dedicated focus.set scoping test below
+  });
+
+  it("focus.get (on load) and focus.set (on enter) both carry this session's own sessionId", async () => {
+    const ctx = fakeCtx("session-load-and-set");
+    const calls: { op: string; input: unknown }[] = [];
+    const client = fakeClient((op, input) => {
+      calls.push({ op, input });
+      if (op === "focus.get") return { focus: null };
+      if (op === "focus.set")
+        return { focus: { ref: (input as { ref: string }).ref, title: "x", url: "https://y", status: "active", updatedAt: "now" } };
+      return { issues: ISSUES };
+    });
+    const list = new IssueListComponent(fakeTui(), fakeTheme, ctx, client, {
+      title: "T",
+      showClearFocus: false,
+      loadIssues: async () => ISSUES,
+      emptyMessage: () => "x",
+      onOpenIssue: async () => {},
+    });
+    await tick();
+    list.handleInput("\r"); // first (only) row is a real issue -- no clear-focus row when showClearFocus is false
+    await tick();
+
+    const getCall = calls.find((c) => c.op === "focus.get");
+    const setCall = calls.find((c) => c.op === "focus.set");
+    expect(getCall?.input).toMatchObject({ sessionId: "session-load-and-set" });
+    expect(setCall?.input).toMatchObject({ sessionId: "session-load-and-set", ref: "github:#1" });
   });
 
   it("'o' opens the highlighted issue's URL via onOpenUrl without touching focus", async () => {

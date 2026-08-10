@@ -72,6 +72,7 @@ import { IssueListComponent } from "./issues/issue-list-view.js";
 import { tabBarTheme } from "./menu-theme.js";
 import { pushView } from "./navigation.js";
 import { SavedQueryTabComponent } from "./saved-queries/saved-query-view.js";
+import { cacheSessionSecret, focusSessionFields, forgetSessionSecret, sessionSecretField } from "./session-identity.js";
 import { TICKETS_TOOL_PREFIXES } from "./vehicle-client.js";
 
 const BROWSE_LIMIT = 100;
@@ -117,7 +118,7 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
   async function refreshStatus(ctx: ExtensionContext, client?: TicketsRpcClient): Promise<void> {
     try {
       const active = client ?? (await getClient({ autoStart: false }));
-      const { focus } = await active.call("focus.get", {});
+      const { focus } = await active.call("focus.get", focusSessionFields(ctx.sessionManager.getSessionId()));
       ctx.ui.setStatus("tickets-focus", focusStatusText(ctx.ui.theme, focus));
     } catch {
       // Daemon not running or unreachable — nothing to show, and starting it
@@ -125,6 +126,32 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
       // tickets yet. Leave whatever status was last shown.
     }
   }
+
+  // Registers this session's identity with the daemon as early as possible -- before any
+  // focus-mutating call this session makes could plausibly happen -- shrinking (not eliminating;
+  // see @danypops/tickets' sqlite/session-identity.ts) the first-touch race window. Best-effort:
+  // the daemon may be unavailable during startup, and every focus.* call already tolerates an
+  // unregistered session id (opt-in armor), so a missed registration here is not worth surfacing.
+  pi.on("session_start", async (_event, ctx: ExtensionContext) => {
+    try {
+      const sessionId = ctx.sessionManager.getSessionId();
+      const client = await getClient({ autoStart: false });
+      const { secret } = await client.call("session.register", { sessionId });
+      cacheSessionSecret(sessionId, secret);
+    } catch {
+      // intentionally silent -- see comment above
+    }
+  });
+  pi.on("session_shutdown", async (_event, ctx: ExtensionContext) => {
+    try {
+      const sessionId = ctx.sessionManager.getSessionId();
+      const client = await getClient({ autoStart: false });
+      await client.call("session.release", { sessionId, ...sessionSecretField(sessionId) });
+      forgetSessionSecret(sessionId);
+    } catch {
+      // intentionally silent -- see session_start's comment above
+    }
+  });
 
   registerVehicleStatusRefresh(pi, { ownToolPrefixes: TICKETS_TOOL_PREFIXES, refresh: (ctx) => refreshStatus(ctx) });
 

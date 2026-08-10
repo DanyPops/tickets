@@ -11,11 +11,18 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import { errorResponse, healthResponse, jsonResponse, readyResponse, requireBearerToken } from "@danypops/vehicle-server/rpc-http";
+import {
+  isSessionRegistered,
+  registerSessionIdentity,
+  releaseSessionIdentity,
+  verifySessionSecret,
+} from "@danypops/vehicle-server/session-identity";
 import { parseRef } from "../issue/issue.js";
 import type { TicketService } from "../issue/service.js";
 import { FocusError, type FocusStore } from "../sqlite/focus.js";
 import type { Ledger } from "../sqlite/ledger.js";
 import { SavedQueryNotFoundError, type SavedQueryStore } from "../sqlite/saved-queries.js";
+import { SessionAuthError, type SqliteSessionIdentityStore } from "../sqlite/session-identity.js";
 import type { WatchStore } from "../sqlite/watches.js";
 import type { StagePayload, StageStore } from "../stage/store.js";
 import { statusForKnownTicketError } from "./error-status.js";
@@ -26,6 +33,7 @@ export interface TicketsAppDeps {
   ledger: Ledger;
   focusStore: FocusStore;
   queries: SavedQueryStore;
+  sessionIdentity: SqliteSessionIdentityStore;
   token: string;
   version: string;
   logger?: Logger;
@@ -77,6 +85,28 @@ export type Handler<Op extends TicketOperation> = (
  * VehicleRegistry projection -- never reimplemented a second time for the
  * newer surface.
  */
+/**
+ * Resolves which Focus scope a focus.* call actually targets, and enforces the one place a
+ * caller-supplied session id is behavior-affecting in this daemon (see sqlite/session-identity.ts's
+ * own doc comment): an EXPLICIT input.sessionId must present the matching sessionSecret if that
+ * session id is registered; an unregistered one (or the implicit callContext.callerSessionId
+ * default -- never model-settable, since it's not part of any operation's declared input schema)
+ * passes through unarmored. input.sessionId always wins over callContext.callerSessionId, the
+ * same precedence issue.subscribe/query.subscribe already established for subscriberId.
+ */
+function resolveFocusScope(
+  deps: Pick<TicketsAppDeps, "sessionIdentity">,
+  input: { sessionId?: string; sessionSecret?: string },
+  callContext: HandlerCallContext | undefined,
+): string | undefined {
+  const explicit = input.sessionId;
+  if (explicit === undefined) return callContext?.callerSessionId;
+  if (isSessionRegistered(deps.sessionIdentity, explicit) && !verifySessionSecret(deps.sessionIdentity, explicit, input.sessionSecret)) {
+    throw new SessionAuthError(`session "${explicit}" is registered but the given secret does not match`);
+  }
+  return explicit;
+}
+
 export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
   "backends.list": async (deps) => ({ backends: deps.service.backendCapabilities() }),
   "issue.list": async (deps, input) => ({ issues: await deps.service.list(input.backend, input.filter) }),
@@ -92,7 +122,8 @@ export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
   "issue.merge": async (deps, input) => ({ issue: await deps.service.merge(input.ref, input.method) }),
   "ledger.search": async (deps, input) => ({ issues: deps.ledger.search(input.query, input.limit, input.backend) }),
   "ledger.stats": async (deps) => ({ backends: deps.ledger.stats() }),
-  "focus.set": async (deps, input) => {
+  "focus.set": async (deps, input, callContext) => {
+    const scope = resolveFocusScope(deps, input, callContext);
     // Ledger-first: focusing a ticket already pooled locally needs no live
     // backend call. Otherwise fall back to a live get (also validates the
     // ref actually exists) and opportunistically warm the ledger with it,
@@ -102,12 +133,25 @@ export const TICKET_OP_HANDLERS: { [Op in TicketOperation]: Handler<Op> } = {
     const issue = cached ?? (await deps.service.get(input.ref));
     if (!cached) deps.ledger.upsert(parseRef(input.ref).backend, issue);
     if (!issue.url) throw new FocusError(`issue "${input.ref}" has no URL from its backend; cannot focus without a full link`);
-    return { focus: deps.focusStore.set(input.ref, issue.title, issue.url) };
+    return { focus: deps.focusStore.set(input.ref, issue.title, issue.url, scope) };
   },
-  "focus.get": async (deps) => ({ focus: deps.focusStore.get() ?? null }),
-  "focus.pause": async (deps, input) => ({ focus: deps.focusStore.pause(input.reason) }),
-  "focus.unpause": async (deps) => ({ focus: deps.focusStore.unpause() }),
-  "focus.clear": async (deps) => ({ cleared: deps.focusStore.clear() }),
+  "focus.get": async (deps, input, callContext) => ({
+    focus: deps.focusStore.get(resolveFocusScope(deps, input, callContext)) ?? null,
+  }),
+  "focus.pause": async (deps, input, callContext) => ({
+    focus: deps.focusStore.pause(input.reason, resolveFocusScope(deps, input, callContext)),
+  }),
+  "focus.unpause": async (deps, input, callContext) => ({
+    focus: deps.focusStore.unpause(resolveFocusScope(deps, input, callContext)),
+  }),
+  "focus.clear": async (deps, input, callContext) => ({
+    cleared: deps.focusStore.clear(resolveFocusScope(deps, input, callContext)),
+  }),
+  "session.register": async (deps, input) => registerSessionIdentity(deps.sessionIdentity, input.sessionId),
+  "session.release": async (deps, input) => {
+    releaseSessionIdentity(deps.sessionIdentity, input.sessionId, input.sessionSecret);
+    return { released: true };
+  },
   "discover.fields": async (deps, input) => ({ mappings: await deps.service.discoverFields(input.backend) }),
   "discover.statuses": async (deps, input) => ({ mappings: await deps.service.discoverStatuses(input.backend) }),
   "discover.template": async (deps, input) => ({

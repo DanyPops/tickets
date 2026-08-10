@@ -4,6 +4,7 @@ import { openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { FOCUS_MIGRATIONS } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";
+import { WATCH_MIGRATIONS } from "../../src/sqlite/watches.js";
 
 let db: Database | undefined;
 
@@ -13,10 +14,13 @@ afterEach(() => {
 });
 
 // Migration versions are sequential across the whole daemon schema (see bootstrap.ts),
-// not scoped per-table -- SAVED_QUERY_MIGRATIONS alone starts at version 3, so a
+// not scoped per-table -- SAVED_QUERY_MIGRATIONS alone starts at version 3, and
+// FOCUS_MIGRATIONS' own re-scoping migration is version 5 (after watches' 4), so a
 // standalone harness needs the same full migration chain bootstrap.ts always applies.
 function harness(): SavedQueryStore {
-  db = openSqliteWithPragmas(":memory:", { migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS] });
+  db = openSqliteWithPragmas(":memory:", {
+    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+  });
   return new SavedQueryStore(db);
 }
 

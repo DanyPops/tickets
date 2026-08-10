@@ -14,6 +14,7 @@ import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-a
 import type { Component, SelectItem, TUI } from "@earendil-works/pi-tui";
 import { SelectList } from "@earendil-works/pi-tui";
 import { BorderedSelectPanel, type BorderedSelectPanelTheme, Spinner } from "malevich-tui-components";
+import { focusSessionFields } from "../session-identity.js";
 
 const CLEAR_FOCUS_VALUE = "__tickets_clear_focus__";
 
@@ -84,7 +85,10 @@ export class IssueListComponent implements Component {
     this.spinner.start(() => this.tui.requestRender());
     this.tui.requestRender();
     try {
-      const [{ focus }, issues] = await Promise.all([this.client.call("focus.get", {}), this.opts.loadIssues(this.query)]);
+      const [{ focus }, issues] = await Promise.all([
+        this.client.call("focus.get", focusSessionFields(this.ctx.sessionManager.getSessionId())),
+        this.opts.loadIssues(this.query),
+      ]);
       this.focus = focus;
       this.issues = issues;
       this.byRef = new Map(issues.map((issue) => [issue.ref, issue] as const));
@@ -131,10 +135,13 @@ export class IssueListComponent implements Component {
   private async resolveSelection(value: string): Promise<void> {
     try {
       if (value === CLEAR_FOCUS_VALUE) {
-        await this.client.call("focus.clear", {});
+        await this.client.call("focus.clear", focusSessionFields(this.ctx.sessionManager.getSessionId()));
         this.ctx.ui.notify("Focus cleared", "info");
       } else {
-        const { focus } = await this.client.call("focus.set", { ref: value });
+        const { focus } = await this.client.call("focus.set", {
+          ref: value,
+          ...focusSessionFields(this.ctx.sessionManager.getSessionId()),
+        });
         this.ctx.ui.notify(`Focused ${focus.ref}: ${focus.title}\n${focus.url}`, "info");
       }
     } catch (err) {

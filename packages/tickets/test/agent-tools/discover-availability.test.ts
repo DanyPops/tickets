@@ -6,6 +6,7 @@ import { TicketService } from "../../src/issue/service.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";
+import { SESSION_IDENTITY_MIGRATIONS, SqliteSessionIdentityStore } from "../../src/sqlite/session-identity.js";
 import { WATCH_MIGRATIONS, WatchStore } from "../../src/sqlite/watches.js";
 import { StageStore } from "../../src/stage/store.js";
 import { FakeRepository, ReviewableFakeRepository, ReviewOnlyFakeRepository } from "../support/fake-repository.js";
@@ -40,13 +41,14 @@ afterEach(() => {
 
 function harness(repos: Record<string, FakeRepository>) {
   db = openSqliteWithPragmas(":memory:", {
-    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS, ...SESSION_IDENTITY_MIGRATIONS],
   });
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
   const stageStore = new StageStore();
   const watches = new WatchStore(db);
+  const sessionIdentity = new SqliteSessionIdentityStore(db);
   const service = new TicketService(repos);
   const registry = createTicketsVehicleRegistry({
     service,
@@ -55,6 +57,7 @@ function harness(repos: Record<string, FakeRepository>) {
     queries,
     stageStore,
     watches,
+    sessionIdentity,
     token: "test-token",
     version: "0.0.0-test",
   });

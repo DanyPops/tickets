@@ -9,6 +9,7 @@ import { TICKET_OPERATIONS, type TicketOperation } from "../../src/rpc/ops.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";
+import { SESSION_IDENTITY_MIGRATIONS, SqliteSessionIdentityStore } from "../../src/sqlite/session-identity.js";
 import { WATCH_MIGRATIONS, WatchStore } from "../../src/sqlite/watches.js";
 import { StageStore } from "../../src/stage/store.js";
 import { FakeRepository } from "../support/fake-repository.js";
@@ -52,13 +53,14 @@ afterEach(() => {
 
 function harness() {
   db = openSqliteWithPragmas(":memory:", {
-    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS, ...SESSION_IDENTITY_MIGRATIONS],
   });
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
   const stageStore = new StageStore();
   const watches = new WatchStore(db);
+  const sessionIdentity = new SqliteSessionIdentityStore(db);
   const github = new FakeRepository("github", [
     {
       ref: "github:#1",
@@ -78,10 +80,11 @@ function harness() {
     queries,
     stageStore,
     watches,
+    sessionIdentity,
     token: "test-token",
     version: "0.0.0-test",
   });
-  return { registry, service, ledger, focusStore, queries, stageStore, watches };
+  return { registry, service, ledger, focusStore, queries, stageStore, watches, sessionIdentity };
 }
 
 describe("createTicketsVehicleRegistry", () => {
@@ -90,7 +93,7 @@ describe("createTicketsVehicleRegistry", () => {
     expect(registry.manifest().version).toBe("0.0.0-test");
   });
 
-  it("registers every real ticket operation, dotted names preserved, daemon.shutdown deliberately excluded", () => {
+  it("registers every real ticket operation, dotted names preserved, daemon.shutdown/session.register/session.release deliberately excluded", () => {
     const { registry } = harness();
     const names = registry
       .manifest()
@@ -99,9 +102,14 @@ describe("createTicketsVehicleRegistry", () => {
     // vehicle.approval.resolve is VehicleRegistry's own built-in, registered by
     // configureApprovals() -- never a tickets operation itself, and (per
     // vehicle-client-pi's own exclusion) never projected as a callable Pi tool.
-    const expected = [...TICKET_OPERATIONS.filter((op) => op !== "daemon.shutdown"), "vehicle.approval.resolve"].sort();
+    // session.register/session.release are excluded the same way daemon.shutdown is: an
+    // internal client<->daemon handshake (see rpc/server.ts's own session-identity armor doc
+    // comment), never something an LLM should be able to call as a tool -- reached only via
+    // the raw /api/v1/ops dispatch pi-tickets' own extension code uses directly.
+    const EXCLUDED_FROM_VEHICLE = new Set(["daemon.shutdown", "session.register", "session.release"]);
+    const expected = [...TICKET_OPERATIONS.filter((op) => !EXCLUDED_FROM_VEHICLE.has(op)), "vehicle.approval.resolve"].sort();
     expect(names).toEqual(expected);
-    expect(names).not.toContain("daemon.shutdown");
+    for (const excluded of EXCLUDED_FROM_VEHICLE) expect(names).not.toContain(excluded);
   });
 
   it("no operation's own schema is itself an action-dispatch blob -- one honest operation per real action", () => {
@@ -158,13 +166,20 @@ describe("createTicketsVehicleRegistry", () => {
 
   it("issue.list forwards flat project/status/limit tool args into the real repository's ListFilter, unchanged behavior from the RPC/CLI's own nested-filter contract", async () => {
     const db = openSqliteWithPragmas(":memory:", {
-      migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+      migrations: [
+        ...LEDGER_MIGRATIONS,
+        ...FOCUS_MIGRATIONS,
+        ...SAVED_QUERY_MIGRATIONS,
+        ...WATCH_MIGRATIONS,
+        ...SESSION_IDENTITY_MIGRATIONS,
+      ],
     });
     const ledger = new Ledger(db);
     const focusStore = new FocusStore(db);
     const queries = new SavedQueryStore(db);
     const stageStore = new StageStore();
     const watches = new WatchStore(db);
+    const sessionIdentity = new SqliteSessionIdentityStore(db);
     const jira = new FakeRepository("jira", [
       { ref: "jira:PROJ-1", id: "1", key: "PROJ-1", title: "First", status: "todo", priority: "none", url: "https://example/PROJ-1" },
     ]);
@@ -176,6 +191,7 @@ describe("createTicketsVehicleRegistry", () => {
       queries,
       stageStore,
       watches,
+      sessionIdentity,
       token: "test-token",
       version: "0.0.0-test",
     });
@@ -404,7 +420,7 @@ describe("createTicketsVehicleRegistry", () => {
 
   it("every operation's tool schema declares exactly the properties its own daemon contract (ops.ts's TicketOpInputs) accepts, except issue.list's deliberate flat reshape via mapInput", () => {
     const { registry } = harness();
-    const EXPECTED_PROPERTIES: Record<Exclude<TicketOperation, "daemon.shutdown">, string[]> = {
+    const EXPECTED_PROPERTIES: Record<Exclude<TicketOperation, "daemon.shutdown" | "session.register" | "session.release">, string[]> = {
       "backends.list": [],
       "issue.list": [
         "backend",
@@ -603,5 +619,62 @@ describe("issue/query watch subscriptions", () => {
     // is the proof these are local-write, unlike issue.create/update/comment_add.
     await expect(registry.invoke("issue.subscribe", 1, { ref: "github:#1" }, PERMS)).resolves.toEqual({ subscribed: true });
     await expect(registry.invoke("issue.subscribed", 1, {}, PERMS)).resolves.toBeTruthy();
+  });
+});
+
+describe("session-scoped ticket focus (Vehicle tool-call path)", () => {
+  it("focus.set/get default their scope from the real call's own callerSessionId -- the same host-derived, never-model-settable identity issue.subscribe already relies on", async () => {
+    const { registry } = harness();
+    await registry.invoke("focus.set", 1, { ref: "github:#1" }, { ...PERMS, callerSessionId: "session-a" });
+
+    const sessionA = (await registry.invoke("focus.get", 1, {}, { ...PERMS, callerSessionId: "session-a" })) as {
+      focus: { ref: string } | null;
+    };
+    const sessionB = (await registry.invoke("focus.get", 1, {}, { ...PERMS, callerSessionId: "session-b" })) as {
+      focus: { ref: string } | null;
+    };
+    const noSession = (await registry.invoke("focus.get", 1, {}, PERMS)) as { focus: { ref: string } | null };
+
+    expect(sessionA.focus?.ref).toBe("github:#1");
+    expect(sessionB.focus).toBeNull();
+    expect(noSession.focus).toBeNull();
+  });
+
+  it("focus.pause/unpause/clear all resolve the same callerSessionId-derived scope as focus.set/get", async () => {
+    const { registry } = harness();
+    await registry.invoke("focus.set", 1, { ref: "github:#1" }, { ...PERMS, callerSessionId: "session-a" });
+
+    const paused = (await registry.invoke("focus.pause", 1, {}, { ...PERMS, callerSessionId: "session-a" })) as {
+      focus: { status: string };
+    };
+    expect(paused.focus.status).toBe("paused");
+
+    // A different session never had anything focused -- pausing it must fail, proving this
+    // really is scope isolation and not a lucky global-state coincidence.
+    await expect(registry.invoke("focus.pause", 1, {}, { ...PERMS, callerSessionId: "session-b" })).rejects.toThrow();
+
+    const cleared = (await registry.invoke("focus.clear", 1, {}, { ...PERMS, callerSessionId: "session-a" })) as { cleared: boolean };
+    expect(cleared.cleared).toBe(true);
+  });
+
+  it("an explicit sessionId in the tool call's own input still wins over callerSessionId, the same precedence issue.subscribe's subscriberId already has", async () => {
+    const { registry } = harness();
+    await registry.invoke("focus.set", 1, { ref: "github:#1", sessionId: "explicit-scope" }, { ...PERMS, callerSessionId: "session-a" });
+
+    const explicit = (await registry.invoke("focus.get", 1, { sessionId: "explicit-scope" }, PERMS)) as { focus: { ref: string } | null };
+    const implicit = (await registry.invoke("focus.get", 1, {}, { ...PERMS, callerSessionId: "session-a" })) as {
+      focus: { ref: string } | null;
+    };
+    expect(explicit.focus?.ref).toBe("github:#1");
+    expect(implicit.focus).toBeNull();
+  });
+
+  it("focus_set/focus_get/focus_pause/focus_unpause/focus_clear never advertise a sessionId property in their own tool schema -- the model can't see or set it, it's transport metadata only", () => {
+    const { registry } = harness();
+    for (const name of ["focus.set", "focus.get", "focus.pause", "focus.unpause", "focus.clear"]) {
+      const schema = registry.manifest().operations.find((op) => op.name === name)?.inputSchema as { properties?: Record<string, unknown> };
+      expect(Object.keys(schema.properties ?? {})).not.toContain("sessionId");
+      expect(Object.keys(schema.properties ?? {})).not.toContain("sessionSecret");
+    }
   });
 });

@@ -7,6 +7,7 @@ import { buildApp } from "../../src/rpc/server.js";
 import { FOCUS_MIGRATIONS, FocusStore } from "../../src/sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../../src/sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../../src/sqlite/saved-queries.js";
+import { SESSION_IDENTITY_MIGRATIONS, SqliteSessionIdentityStore } from "../../src/sqlite/session-identity.js";
 import { WATCH_MIGRATIONS, WatchStore } from "../../src/sqlite/watches.js";
 import { StageStore } from "../../src/stage/store.js";
 import { ReviewableFakeRepository } from "../support/fake-repository.js";
@@ -21,13 +22,14 @@ afterEach(() => {
 
 function makeApp() {
   db = openSqliteWithPragmas(":memory:", {
-    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS, ...SESSION_IDENTITY_MIGRATIONS],
   });
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
   const stageStore = new StageStore();
   const watches = new WatchStore(db);
+  const sessionIdentity = new SqliteSessionIdentityStore(db);
   const github = new ReviewableFakeRepository("github", [
     {
       ref: "github:#1",
@@ -49,9 +51,9 @@ function makeApp() {
     },
   ]);
   const service = new TicketService({ github });
-  const baseDeps = { service, ledger, focusStore, queries, stageStore, watches, token: TOKEN, version: "0.0.0-test" };
+  const baseDeps = { service, ledger, focusStore, queries, stageStore, watches, sessionIdentity, token: TOKEN, version: "0.0.0-test" };
   const app = buildApp({ ...baseDeps, vehicleRegistry: createTicketsVehicleRegistry(baseDeps) });
-  return { app, ledger, focusStore, queries, stageStore, watches, service, github };
+  return { app, ledger, focusStore, queries, stageStore, watches, sessionIdentity, service, github };
 }
 
 function req(path: string, init: RequestInit = {}, token = TOKEN): Request {
@@ -246,15 +248,187 @@ describe("daemon HTTP surface", () => {
     expect(getAfterClearBody.result.focus).toBeNull();
   });
 
+  it("focus.set/get scope independently by an explicit sessionId -- the raw HTTP dispatch never has a callContext, so this is the only way this path can be session-scoped at all", async () => {
+    const { app } = makeApp();
+    await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1", sessionId: "session-a" } }),
+      }),
+    );
+    await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "focus.set", input: { ref: "github:#5", sessionId: "session-b" } }),
+      }),
+    );
+
+    const a = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.get", input: { sessionId: "session-a" } }) }),
+    );
+    const b = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.get", input: { sessionId: "session-b" } }) }),
+    );
+    const noScope = await app.fetch(req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.get", input: {} }) }));
+
+    expect(((await a.json()) as { result: { focus: { ref: string } } }).result.focus.ref).toBe("github:#1");
+    expect(((await b.json()) as { result: { focus: { ref: string } } }).result.focus.ref).toBe("github:#5");
+    expect(((await noScope.json()) as { result: { focus: unknown } }).result.focus).toBeNull();
+  });
+
+  it("session.register issues a fresh secret; a second registration for the same sessionId rotates it, invalidating the old one", async () => {
+    const { app } = makeApp();
+    const first = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "session.register", input: { sessionId: "session-a" } }) }),
+    );
+    const firstBody = (await first.json()) as { result: { sessionId: string; secret: string } };
+    expect(firstBody.result.sessionId).toBe("session-a");
+    expect(firstBody.result.secret.length).toBeGreaterThan(0);
+
+    const second = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "session.register", input: { sessionId: "session-a" } }) }),
+    );
+    const secondBody = (await second.json()) as { result: { secret: string } };
+    expect(secondBody.result.secret).not.toBe(firstBody.result.secret);
+
+    const withOldSecret = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({
+          op: "focus.set",
+          input: { ref: "github:#1", sessionId: "session-a", sessionSecret: firstBody.result.secret },
+        }),
+      }),
+    );
+    expect(withOldSecret.status).toBe(401);
+  });
+
+  it("an explicit sessionId with no matching registration is unarmored -- opt-in, not a breaking default", async () => {
+    const { app } = makeApp();
+    const res = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1", sessionId: "session-never-registered" } }),
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("a registered sessionId's focus mutation requires the matching secret -- missing or wrong secret is rejected with 401, correct secret succeeds", async () => {
+    const { app } = makeApp();
+    const registered = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "session.register", input: { sessionId: "session-a" } }) }),
+    );
+    const { secret } = ((await registered.json()) as { result: { secret: string } }).result;
+
+    const missing = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1", sessionId: "session-a" } }),
+      }),
+    );
+    expect(missing.status).toBe(401);
+
+    const wrong = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1", sessionId: "session-a", sessionSecret: "wrong" } }),
+      }),
+    );
+    expect(wrong.status).toBe(401);
+
+    const correct = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1", sessionId: "session-a", sessionSecret: secret } }),
+      }),
+    );
+    expect(correct.status).toBe(200);
+  });
+
+  it("a registered session's focus.pause/unpause/clear also require the matching secret, the same as focus.set", async () => {
+    const { app } = makeApp();
+    const registered = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "session.register", input: { sessionId: "session-a" } }) }),
+    );
+    const { secret } = ((await registered.json()) as { result: { secret: string } }).result;
+    await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1", sessionId: "session-a", sessionSecret: secret } }),
+      }),
+    );
+
+    const badPause = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.pause", input: { sessionId: "session-a" } }) }),
+    );
+    expect(badPause.status).toBe(401);
+
+    const goodPause = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "focus.pause", input: { sessionId: "session-a", sessionSecret: secret } }),
+      }),
+    );
+    expect(goodPause.status).toBe(200);
+
+    const badClear = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "focus.clear", input: { sessionId: "session-a" } }) }),
+    );
+    expect(badClear.status).toBe(401);
+  });
+
+  it("session.release requires the correct secret and is idempotent for a wrong/missing secret or an already-released session", async () => {
+    const { app, sessionIdentity } = makeApp();
+    const registered = await app.fetch(
+      req("/api/v1/ops", { method: "POST", body: JSON.stringify({ op: "session.register", input: { sessionId: "session-a" } }) }),
+    );
+    const { secret } = ((await registered.json()) as { result: { secret: string } }).result;
+
+    const wrongRelease = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "session.release", input: { sessionId: "session-a", sessionSecret: "wrong" } }),
+      }),
+    );
+    expect(wrongRelease.status).toBe(200);
+    expect(sessionIdentity.find("session-a")).toBeDefined();
+
+    const goodRelease = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "session.release", input: { sessionId: "session-a", sessionSecret: secret } }),
+      }),
+    );
+    expect(goodRelease.status).toBe(200);
+    expect(sessionIdentity.find("session-a")).toBeUndefined();
+
+    // Once released, this sessionId is unregistered again -- back to unarmored opt-in default.
+    const afterRelease = await app.fetch(
+      req("/api/v1/ops", {
+        method: "POST",
+        body: JSON.stringify({ op: "focus.set", input: { ref: "github:#1", sessionId: "session-a" } }),
+      }),
+    );
+    expect(afterRelease.status).toBe(200);
+  });
+
   it("daemon.shutdown responds before invoking onShutdownRequested, never calls it synchronously", async () => {
     db = openSqliteWithPragmas(":memory:", {
-      migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+      migrations: [
+        ...LEDGER_MIGRATIONS,
+        ...FOCUS_MIGRATIONS,
+        ...SAVED_QUERY_MIGRATIONS,
+        ...WATCH_MIGRATIONS,
+        ...SESSION_IDENTITY_MIGRATIONS,
+      ],
     });
     const ledger = new Ledger(db);
     const focusStore = new FocusStore(db);
     const queries = new SavedQueryStore(db);
     const stageStore = new StageStore();
     const watches = new WatchStore(db);
+    const sessionIdentity = new SqliteSessionIdentityStore(db);
     const service = new TicketService({});
     let calls = 0;
     const baseDeps = {
@@ -264,6 +438,7 @@ describe("daemon HTTP surface", () => {
       queries,
       stageStore,
       watches,
+      sessionIdentity,
       token: TOKEN,
       version: "0.0.0-test",
       onShutdownRequested: () => {

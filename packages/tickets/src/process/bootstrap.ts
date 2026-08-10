@@ -16,9 +16,10 @@ import type { IssueRepository } from "../issue/repository.js";
 import { TicketService } from "../issue/service.js";
 import { TICKETS_DAEMON_NAMES } from "../rpc/ops.js";
 import { buildApp, type TicketsAppDeps } from "../rpc/server.js";
-import { FOCUS_MIGRATIONS, FocusStore } from "../sqlite/focus.js";
+import { FOCUS_MIGRATIONS, FOCUS_STALE_AFTER_MS, FocusStore } from "../sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../sqlite/ledger.js";
 import { SAVED_QUERY_MIGRATIONS, SavedQueryStore } from "../sqlite/saved-queries.js";
+import { SESSION_IDENTITY_MIGRATIONS, SqliteSessionIdentityStore } from "../sqlite/session-identity.js";
 import { WATCH_MIGRATIONS, WatchStore } from "../sqlite/watches.js";
 import { StageStore } from "../stage/store.js";
 import { createSyncTask } from "./poller.js";
@@ -45,6 +46,8 @@ export interface BootstrapOptions {
   issueWatchIntervalMs?: number;
   /** How often every subscribed saved query is re-run and diffed. Defaults to DEFAULT_QUERY_WATCH_INTERVAL_MS. */
   queryWatchIntervalMs?: number;
+  /** How often stale (untouched for FOCUS_STALE_AFTER_MS) Focus scopes are reaped. Defaults to DEFAULT_FOCUS_REAP_INTERVAL_MS. */
+  focusReapIntervalMs?: number;
   /**
    * Overrides the daemon.shutdown op's effect. Defaults to sending this
    * process SIGTERM, which vehicle-server's runDaemonProcess already handles
@@ -61,6 +64,7 @@ export interface BootstrappedDaemon {
   queries: SavedQueryStore;
   stageStore: StageStore;
   watches: WatchStore;
+  sessionIdentity: SqliteSessionIdentityStore;
   service: TicketService;
   options: StartDaemonOptions;
 }
@@ -73,18 +77,21 @@ const DEFAULT_BACKEND_REFRESH_INTERVAL_MS = 30_000;
  * so polling that fast would only waste API quota against GitHub/GitLab/Jira's own rate limits. */
 const DEFAULT_ISSUE_WATCH_INTERVAL_MS = 60_000;
 const DEFAULT_QUERY_WATCH_INTERVAL_MS = 60_000;
+/** Focus scopes are session-lifetime pointers, not hot state -- reaping once an hour is plenty prompt against FOCUS_STALE_AFTER_MS's own 30-day window. */
+const DEFAULT_FOCUS_REAP_INTERVAL_MS = 60 * 60_000;
 
 export async function bootstrap(opts: BootstrapOptions = {}): Promise<BootstrappedDaemon> {
   const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, opts.pathEnv);
   const token = ensureAuthToken(paths.token, "Tickets");
   const db = openSqliteWithPragmas(paths.database, {
-    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS],
+    migrations: [...LEDGER_MIGRATIONS, ...FOCUS_MIGRATIONS, ...SAVED_QUERY_MIGRATIONS, ...WATCH_MIGRATIONS, ...SESSION_IDENTITY_MIGRATIONS],
   });
   const ledger = new Ledger(db);
   const focusStore = new FocusStore(db);
   const queries = new SavedQueryStore(db);
   const stageStore = new StageStore();
   const watches = new WatchStore(db);
+  const sessionIdentity = new SqliteSessionIdentityStore(db);
   const logger = opts.logger ?? createLogger("tickets-daemon", { levelEnvVar: "TICKETS_LOG_LEVEL" });
   const config = opts.config ?? loadConfig();
   const buildRepos = opts.buildRepositories ?? buildRepositories;
@@ -104,6 +111,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
     queries,
     stageStore,
     watches,
+    sessionIdentity,
     token,
     version,
     logger,
@@ -122,6 +130,14 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
         name: "checkpoint",
         intervalMs: opts.checkpointIntervalMs ?? DEFAULT_CHECKPOINT_INTERVAL_MS,
         run: () => checkpoint(db),
+      },
+      {
+        name: "focus-reap-stale",
+        intervalMs: opts.focusReapIntervalMs ?? DEFAULT_FOCUS_REAP_INTERVAL_MS,
+        run: () => {
+          const removed = focusStore.reapStale(new Date(Date.now() - FOCUS_STALE_AFTER_MS).toISOString());
+          if (removed > 0) logger.debug("reaped stale focus scopes", { removed });
+        },
       },
       // Only when repos came from real config/env/Enigma resolution -- an
       // injected test fixture (opts.repos) has no config to re-resolve from.
@@ -146,6 +162,7 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
         queries,
         stageStore,
         watches,
+        sessionIdentity,
         token,
         version,
         logger,
@@ -157,5 +174,5 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
     },
   };
 
-  return { db, ledger, focusStore, queries, stageStore, watches, service, options };
+  return { db, ledger, focusStore, queries, stageStore, watches, sessionIdentity, service, options };
 }
