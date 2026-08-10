@@ -68,6 +68,45 @@ describe("GitHubRepository", () => {
     expect(calls).toBe(1);
   });
 
+  it("list() with no 'me' flags uses listForRepo, not the Search API", async () => {
+    const fetchImpl = mockFetch((url) => {
+      expect(url).toContain("/repos/acme/widgets/issues");
+      expect(url).not.toContain("/search/");
+      return jsonResponse([RAW_ISSUE(1, "Plain issue")]);
+    });
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl });
+    const issues = await repo.list({});
+    expect(issues).toHaveLength(1);
+  });
+
+  it("list() with reportedByMe+reviewRequestedOfMe routes through the Search API, OR-ing the two qualifiers together with @me (no whoami call, no literal username)", async () => {
+    const fetchImpl = mockFetch((url) => {
+      expect(url).toContain("/search/issues?");
+      const q = new URL(url).searchParams.get("q") ?? "";
+      expect(q).toBe("repo:acme/widgets (author:@me OR user-review-requested:@me)");
+      return jsonResponse({ total_count: 1, incomplete_results: false, items: [RAW_ISSUE(3, "Mine")] });
+    });
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl });
+    const issues = await repo.list({ reportedByMe: true, reviewRequestedOfMe: true });
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.title).toBe("Mine");
+  });
+
+  it("list() with a single 'me' flag emits a bare qualifier, no OR grouping needed, and still includes status/labels", async () => {
+    const fetchImpl = mockFetch((url) => {
+      const q = new URL(url).searchParams.get("q") ?? "";
+      expect(q).toBe('repo:acme/widgets is:open label:"bug" assignee:@me');
+      return jsonResponse({ total_count: 0, incomplete_results: false, items: [] });
+    });
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl });
+    await repo.list({ assignedToMe: true, status: "todo", labels: ["bug"] });
+  });
+
+  it("list() with qaContactIsMe throws -- a Jira-only concept", async () => {
+    const repo = new GitHubRepository("github", { owner: "acme", repo: "widgets", fetchImpl: mockFetch(() => jsonResponse([])) });
+    await expect(repo.list({ qaContactIsMe: true })).rejects.toThrow(/qaContactIsMe/);
+  });
+
   it("get() on a pull request makes one additional pulls.get() call and one pulls.listReviews() call for the full shape", async () => {
     const fetchImpl = mockFetch((url) => {
       if (url.endsWith("/issues/9")) return jsonResponse({ ...RAW_ISSUE(9, "A PR"), pull_request: { merged_at: null } });

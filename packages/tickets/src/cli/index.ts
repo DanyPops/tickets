@@ -47,6 +47,10 @@ program
   .option("--assignee <user>", "filter by assignee")
   .option("--label <label...>", "filter by label(s)")
   .option("--limit <n>", "max results", (v) => Number.parseInt(v, 10))
+  .option("--reported-by-me", "only issues reported/authored by you (Jira reporter / GitHub PR author / GitLab issue author)")
+  .option("--assigned-to-me", "only issues assigned to you")
+  .option("--review-requested-of-me", "only PRs/MRs where you're requested as a reviewer (GitHub/GitLab only)")
+  .option("--qa-contact-is-me", "only issues where you're the QA Contact (Jira only)")
   .action(async (opts) => {
     const filter: ListFilter = {
       project: opts.project,
@@ -54,6 +58,10 @@ program
       assignee: opts.assignee,
       labels: opts.label,
       limit: opts.limit,
+      reportedByMe: opts.reportedByMe,
+      assignedToMe: opts.assignedToMe,
+      reviewRequestedOfMe: opts.reviewRequestedOfMe,
+      qaContactIsMe: opts.qaContactIsMe,
     };
     await withClient((client) => client.call("issue.list", { backend: opts.backend, filter }));
   });

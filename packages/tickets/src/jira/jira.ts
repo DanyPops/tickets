@@ -204,6 +204,11 @@ export class JiraRepository {
    * the background), not just the single legacy `project` config field.
    */
   async list(filter: ListFilter): Promise<Issue[]> {
+    if (filter.reviewRequestedOfMe) {
+      throw new Error(
+        'jira: "reviewRequestedOfMe" has no meaning on Jira issues (no reviewer concept) -- omit this filter for the jira backend',
+      );
+    }
     const projects = filter.project ? [filter.project] : this.defaultProjects();
     const clauses: string[] = [];
     const scope = projectClause(projects);
@@ -211,7 +216,28 @@ export class JiraRepository {
     if (filter.status) clauses.push(`status = ${jqlQuote(mapStatusToJira(filter.status))}`);
     if (filter.assignee) clauses.push(`assignee = ${jqlQuote(filter.assignee)}`);
     for (const label of filter.labels ?? []) clauses.push(`labels = ${jqlQuote(label)}`);
+    const meClauses = await this.buildMeClauses(filter);
+    if (meClauses.length > 0) clauses.push(meClauses.length === 1 ? meClauses[0]! : `(${meClauses.join(" OR ")})`);
     return this.searchJql(buildJql(clauses, "AND"), filter.limit ?? 50);
+  }
+
+  /**
+   * Builds the OR'd group of "me" role clauses for list()'s ListFilter.{reportedByMe,assignedToMe,
+   * qaContactIsMe} flags -- see ListFilter's own doc comment for why this is a small set of named
+   * flags rather than a hardcoded single "mine" concept or a generic query language. "QA Contact"
+   * resolves through the same discoverFields()-backed manifest applyCustomFields() already uses
+   * (auto-discovering on first use), so an instance without that field throws a clear "unknown
+   * custom field" error rather than silently omitting the clause.
+   */
+  private async buildMeClauses(filter: ListFilter): Promise<string[]> {
+    const clauses: string[] = [];
+    if (filter.assignedToMe) clauses.push("assignee = currentUser()");
+    if (filter.reportedByMe) clauses.push("reporter = currentUser()");
+    if (filter.qaContactIsMe) {
+      await this.resolveCustomField("QA Contact");
+      clauses.push('"QA Contact" = currentUser()');
+    }
+    return clauses;
   }
 
   async get(key: string): Promise<Issue> {

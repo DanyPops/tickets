@@ -165,19 +165,34 @@ export class GitHubRepository {
   }
 
   async list(filter: ListFilter): Promise<Issue[]> {
+    if (filter.qaContactIsMe) throw new Error('github: "qaContactIsMe" is a Jira-only concept, not supported on the github backend');
     const limit = filter.limit && filter.limit > 0 ? filter.limit : 50;
-    const raw = await this.call((signal) =>
-      this.client.rest.issues.listForRepo({
-        owner: this.owner,
-        repo: this.repoName(),
-        per_page: limit,
-        state: filter.status ? mapStatusToGitHub(filter.status) : "all",
-        assignee: filter.assignee,
-        labels: filter.labels?.length ? filter.labels.join(",") : undefined,
-        request: { signal },
-      }),
-    );
-    return (raw as GhIssue[]).map((i) => toDomain(i));
+    const meQualifiers = buildMeQualifiers(filter);
+    if (meQualifiers.length === 0) {
+      const raw = await this.call((signal) =>
+        this.client.rest.issues.listForRepo({
+          owner: this.owner,
+          repo: this.repoName(),
+          per_page: limit,
+          state: filter.status ? mapStatusToGitHub(filter.status) : "all",
+          assignee: filter.assignee,
+          labels: filter.labels?.length ? filter.labels.join(",") : undefined,
+          request: { signal },
+        }),
+      );
+      return (raw as GhIssue[]).map((i) => toDomain(i));
+    }
+    // Any "me" flag routes through the Search API instead of listForRepo: it's the only GitHub
+    // surface with a review-requested filter at all (confirmed against GitHub's own REST docs --
+    // listForRepo has no such parameter), and it happens to support author/assignee "me" qualifiers
+    // too, so one call covers every combination of the three flags. Response items are Issue-shaped
+    // (same pull_request: {merged_at} stub as listForRepo's own entries -- confirmed against
+    // @octokit/openapi-types' issue-search-result-item schema), so toDomain() applies unchanged.
+    const q = buildMeSearchQuery(this.owner, this.repoName(), filter, meQualifiers);
+    const result = (await this.call((signal) =>
+      this.client.rest.search.issuesAndPullRequests({ q, per_page: limit, request: { signal } }),
+    )) as { items: GhIssue[] };
+    return result.items.map((i) => toDomain(i));
   }
 
   async get(key: string): Promise<Issue> {
@@ -360,6 +375,24 @@ function parseIssueNumber(key: string): number {
 
 function mapStatusToGitHub(status: Status): "open" | "closed" {
   return status === "done" || status === "canceled" ? "closed" : "open";
+}
+
+/** ListFilter.{reportedByMe,assignedToMe,reviewRequestedOfMe} -> GitHub Search API qualifiers -- see ListFilter's own doc comment. */
+function buildMeQualifiers(filter: ListFilter): string[] {
+  const qualifiers: string[] = [];
+  if (filter.reportedByMe) qualifiers.push("author:@me");
+  if (filter.assignedToMe) qualifiers.push("assignee:@me");
+  if (filter.reviewRequestedOfMe) qualifiers.push("user-review-requested:@me");
+  return qualifiers;
+}
+
+/** Composes a full Search API `q` string: repo scope + status/labels (AND, matching list()'s own semantics) + the "me" qualifiers (OR'd together). */
+function buildMeSearchQuery(owner: string, repo: string, filter: ListFilter, meQualifiers: readonly string[]): string {
+  const parts = [`repo:${owner}/${repo}`];
+  if (filter.status) parts.push(`is:${mapStatusToGitHub(filter.status)}`);
+  for (const label of filter.labels ?? []) parts.push(`label:"${label.replace(/"/g, '\\"')}"`);
+  parts.push(meQualifiers.length === 1 ? meQualifiers[0]! : `(${meQualifiers.join(" OR ")})`);
+  return parts.join(" ");
 }
 
 function mapStatusFromGitHub(state: string): Status {

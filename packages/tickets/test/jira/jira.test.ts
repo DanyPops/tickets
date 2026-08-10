@@ -160,6 +160,62 @@ describe("JiraRepository", () => {
     expect(issues).toHaveLength(1);
   });
 
+  it("list() with reportedByMe/assignedToMe OR's the two role clauses together, AND'd with the rest of the filter", async () => {
+    const axiosAdapter = mockAdapter((config) => {
+      const body = JSON.parse(String(config.data)) as { jql: string };
+      expect(body.jql).toContain('project = "PROJ"');
+      expect(body.jql).toContain("(assignee = currentUser() OR reporter = currentUser())");
+      return { data: { issues: [] }, status: 200 };
+    });
+    const repo = new JiraRepository("jira", {
+      baseUrl: "https://acme.atlassian.net",
+      email: "me@acme.com",
+      token: "tok",
+      project: "PROJ",
+      axiosAdapter,
+    });
+    await repo.list({ assignedToMe: true, reportedByMe: true });
+  });
+
+  it("list() with only assignedToMe emits a bare clause, no OR grouping needed for a single role", async () => {
+    const axiosAdapter = mockAdapter((config) => {
+      const body = JSON.parse(String(config.data)) as { jql: string };
+      expect(body.jql).toContain("assignee = currentUser()");
+      expect(body.jql).not.toContain(" OR ");
+      return { data: { issues: [] }, status: 200 };
+    });
+    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+    await repo.list({ assignedToMe: true });
+  });
+
+  it("list() with qaContactIsMe auto-discovers the custom field manifest (no prior discoverFields() call needed) and quotes the field name in the clause", async () => {
+    const axiosAdapter = mockAdapter((config) => {
+      if (String(config.url) === "/rest/api/2/field") {
+        return { data: [{ id: "customfield_10470", name: "QA Contact", custom: true, schema: { type: "user" } }], status: 200 };
+      }
+      const body = JSON.parse(String(config.data)) as { jql: string };
+      expect(body.jql).toContain('"QA Contact" = currentUser()');
+      return { data: { issues: [] }, status: 200 };
+    });
+    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+    await repo.list({ qaContactIsMe: true });
+  });
+
+  it("list() with qaContactIsMe throws a clear error when this instance has no such custom field, rather than silently omitting the clause", async () => {
+    const axiosAdapter = mockAdapter((config) => {
+      if (String(config.url) === "/rest/api/2/field") return { data: [], status: 200 };
+      return { data: { issues: [] }, status: 200 };
+    });
+    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+    await expect(repo.list({ qaContactIsMe: true })).rejects.toThrow(/unknown custom field/);
+  });
+
+  it("list() with reviewRequestedOfMe throws -- Jira issues have no reviewer concept", async () => {
+    const axiosAdapter = mockAdapter(() => ({ data: { issues: [] }, status: 200 }));
+    const repo = new JiraRepository("jira", { baseUrl: "https://acme.atlassian.net", email: "me@acme.com", token: "tok", axiosAdapter });
+    await expect(repo.list({ reviewRequestedOfMe: true })).rejects.toThrow(/reviewRequestedOfMe/);
+  });
+
   it("update() with a status resolves the matching transition before re-fetching", async () => {
     const calls: string[] = [];
     const axiosAdapter = mockAdapter((config) => {

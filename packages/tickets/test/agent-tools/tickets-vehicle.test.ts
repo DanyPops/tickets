@@ -397,7 +397,18 @@ describe("createTicketsVehicleRegistry", () => {
     const { registry } = harness();
     const EXPECTED_PROPERTIES: Record<Exclude<TicketOperation, "daemon.shutdown">, string[]> = {
       "backends.list": [],
-      "issue.list": ["backend", "project", "status", "assignee", "labels", "limit"],
+      "issue.list": [
+        "backend",
+        "project",
+        "status",
+        "assignee",
+        "labels",
+        "limit",
+        "reportedByMe",
+        "assignedToMe",
+        "reviewRequestedOfMe",
+        "qaContactIsMe",
+      ],
       "issue.get": ["ref"],
       "issue.create": ["backend", "input"],
       "issue.update": ["ref", "input"],

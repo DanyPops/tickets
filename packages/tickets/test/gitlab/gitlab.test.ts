@@ -76,6 +76,69 @@ describe("GitLabRepository", () => {
     await expect(repo.get("#999")).rejects.toThrow(IssueNotFoundError);
   });
 
+  it("list() with no 'me' flags issues a single Issues.all() call with no scope param", async () => {
+    let calls = 0;
+    const requesterFn = mockRequesterFn((endpoint, options) => {
+      calls += 1;
+      expect(endpoint).toBe("projects/acme%2Fwidgets/issues");
+      expect(String(options.searchParams)).not.toContain("scope=");
+      return { body: [RAW_ISSUE(1, "Plain")], status: 200, headers: {} };
+    });
+    const repo = new GitLabRepository("gitlab", { projectId: "acme/widgets", requesterFn });
+    const issues = await repo.list({});
+    expect(issues).toHaveLength(1);
+    expect(calls).toBe(1);
+  });
+
+  it("list() with a single 'me' flag issues one Issues.all() call scoped server-side, no username resolution", async () => {
+    let calls = 0;
+    const requesterFn = mockRequesterFn((_endpoint, options) => {
+      calls += 1;
+      expect(String(options.searchParams)).toContain("scope=assigned_to_me");
+      return { body: [RAW_ISSUE(1, "Mine")], status: 200, headers: {} };
+    });
+    const repo = new GitLabRepository("gitlab", { projectId: "acme/widgets", requesterFn });
+    const issues = await repo.list({ assignedToMe: true });
+    expect(issues).toHaveLength(1);
+    expect(calls).toBe(1);
+  });
+
+  it("list() with reportedByMe+assignedToMe issues two Issues.all() calls (one scope each -- GitLab's own scope param takes exactly one value), merging and deduping by ref", async () => {
+    const seenScopes: string[] = [];
+    const requesterFn = mockRequesterFn((_endpoint, options) => {
+      const params = String(options.searchParams);
+      if (params.includes("scope=created_by_me")) {
+        seenScopes.push("created_by_me");
+        return { body: [RAW_ISSUE(1, "Reported"), RAW_ISSUE(2, "Both")], status: 200, headers: {} };
+      }
+      if (params.includes("scope=assigned_to_me")) {
+        seenScopes.push("assigned_to_me");
+        return { body: [RAW_ISSUE(2, "Both"), RAW_ISSUE(3, "Assigned")], status: 200, headers: {} };
+      }
+      throw new Error(`unexpected searchParams ${params}`);
+    });
+    const repo = new GitLabRepository("gitlab", { projectId: "acme/widgets", requesterFn });
+    const issues = await repo.list({ reportedByMe: true, assignedToMe: true });
+    expect(seenScopes.sort()).toEqual(["assigned_to_me", "created_by_me"]);
+    expect(issues.map((i) => i.key).sort()).toEqual(["#1", "#2", "#3"]);
+  });
+
+  it("list() with qaContactIsMe throws -- a Jira-only concept", async () => {
+    const repo = new GitLabRepository("gitlab", {
+      projectId: "acme/widgets",
+      requesterFn: mockRequesterFn(() => ({ body: [], status: 200, headers: {} })),
+    });
+    await expect(repo.list({ qaContactIsMe: true })).rejects.toThrow(/qaContactIsMe/);
+  });
+
+  it("list() with reviewRequestedOfMe throws -- a merge-request-only concept list()'s Issues-only scope can't express", async () => {
+    const repo = new GitLabRepository("gitlab", {
+      projectId: "acme/widgets",
+      requesterFn: mockRequesterFn(() => ({ body: [], status: 200, headers: {} })),
+    });
+    await expect(repo.list({ reviewRequestedOfMe: true })).rejects.toThrow(/reviewRequestedOfMe/);
+  });
+
   it("update() with an assignee resolves the username to a numeric user id and sends assignee_ids -- GitLab's real write contract", async () => {
     let editBody: string | undefined;
     const requesterFn = mockRequesterFn((endpoint, options) => {

@@ -178,6 +178,30 @@ export interface ListFilter {
   assignee?: string;
   query?: string;
   limit?: number;
+  /**
+   * "Mine" filtering -- deliberately a small set of named, orthogonal boolean flags rather than
+   * either a hardcoded single `mine` concept or a generic cross-backend query language (see the
+   * research Doc "Tickets 'mine' filtering: grounded API research" for why both alternatives were
+   * rejected). Every backend maps each flag to its own native "current user" mechanism (Jira's JQL
+   * currentUser(), GitHub's Search API @me qualifiers, GitLab's scope=*_me) -- never a resolved
+   * literal username. Setting more than one of these ORs them together ("assignee OR reporter"),
+   * AND'd with every other ListFilter field exactly like today's plain fields. A backend that has
+   * no native equivalent for a given flag throws rather than silently ignoring it (e.g.
+   * reviewRequestedOfMe on Jira, qaContactIsMe on GitHub/GitLab) -- a silently-dropped role would
+   * make an incomplete result look complete.
+   */
+  /** Jira: `reporter = currentUser()`. GitHub: `author:@me` (Search API). GitLab: `scope=created_by_me` (Issues API). */
+  reportedByMe?: boolean;
+  /** Jira: `assignee = currentUser()`. GitHub: `assignee:@me` (Search API). GitLab: `scope=assigned_to_me` (Issues API). */
+  assignedToMe?: boolean;
+  /**
+   * GitHub: `user-review-requested:@me` (Search API, PRs only). GitLab: `scope=reviews_for_me` --
+   * a merge-request-only concept list()'s Issues-only scope can't express, so GitLab throws. Jira
+   * has no reviewer concept on plain issues, so Jira throws too.
+   */
+  reviewRequestedOfMe?: boolean;
+  /** Jira only, via the discovered "QA Contact" custom field (auto-discovers if never run). GitHub/GitLab throw -- no equivalent concept. */
+  qaContactIsMe?: boolean;
 }
 
 /** "backend:key" ref parsing, split on the first colon only (keys may contain colons). */

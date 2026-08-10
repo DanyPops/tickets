@@ -34,6 +34,7 @@ const LIMITS = { defaultTimeoutMs: 10_000, maxTimeoutMs: 30_000, maxRequestBytes
 
 const stringProp: LooseObjectProperty = { type: "string" };
 const numberProp: LooseObjectProperty = { type: "number" };
+const booleanProp: LooseObjectProperty = { type: "boolean" };
 
 interface OperationSpec {
   readonly action: TicketOperation;
@@ -71,7 +72,8 @@ const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     action: "issue.list",
-    description: "Lists issues from one backend, optionally filtered.",
+    description:
+      "Lists issues from one backend, optionally filtered. reportedByMe/assignedToMe/reviewRequestedOfMe/qaContactIsMe filter to the caller's own tickets using each backend's own identity (no username needed); set more than one to OR them together. reviewRequestedOfMe is GitHub/GitLab-only (PR/MR reviewer requests); qaContactIsMe is Jira-only (its discovered 'QA Contact' field) -- an unsupported flag on a given backend throws rather than being silently ignored.",
     effect: "read",
     properties: {
       backend: stringProp,
@@ -80,11 +82,25 @@ const OPERATIONS: readonly OperationSpec[] = [
       assignee: stringProp,
       labels: stringArrayProp,
       limit: numberProp,
+      reportedByMe: booleanProp,
+      assignedToMe: booleanProp,
+      reviewRequestedOfMe: booleanProp,
+      qaContactIsMe: booleanProp,
     },
     required: ["backend"],
-    mapInput: ({ backend, project, status, assignee, labels, limit }) => ({
+    mapInput: ({ backend, project, status, assignee, labels, limit, reportedByMe, assignedToMe, reviewRequestedOfMe, qaContactIsMe }) => ({
       backend,
-      filter: definedEntriesOnly({ project, status, assignee, labels, limit }),
+      filter: definedEntriesOnly({
+        project,
+        status,
+        assignee,
+        labels,
+        limit,
+        reportedByMe,
+        assignedToMe,
+        reviewRequestedOfMe,
+        qaContactIsMe,
+      }),
     }),
   },
   {

@@ -166,17 +166,54 @@ export class GitLabRepository {
   }
 
   async list(filter: ListFilter): Promise<Issue[]> {
+    if (filter.qaContactIsMe) throw new Error('gitlab: "qaContactIsMe" is a Jira-only concept, not supported on the gitlab backend');
+    if (filter.reviewRequestedOfMe) {
+      throw new Error(
+        'gitlab: "reviewRequestedOfMe" is a merge-request-only concept (scope=reviews_for_me) that list()\'s Issues-only scope can\'t express -- see get()\'s "!<iid>" convention for merge requests',
+      );
+    }
     const limit = filter.limit && filter.limit > 0 ? filter.limit : 50;
-    const raw = await this.call<GlIssue[]>(() =>
-      this.client.Issues.all({
-        projectId: this.projectId,
-        perPage: limit,
-        state: filter.status ? mapStatusToGitLab(filter.status) : undefined,
-        assigneeUsername: filter.assignee ? [filter.assignee] : undefined,
-        labels: filter.labels?.length ? filter.labels.join(",") : undefined,
-      }),
+    const scopes = meScopes(filter);
+    if (scopes.length <= 1) {
+      const raw = await this.call<GlIssue[]>(() =>
+        this.client.Issues.all({
+          projectId: this.projectId,
+          perPage: limit,
+          state: filter.status ? mapStatusToGitLab(filter.status) : undefined,
+          assigneeUsername: filter.assignee ? [filter.assignee] : undefined,
+          labels: filter.labels?.length ? filter.labels.join(",") : undefined,
+          ...(scopes[0] ? { scope: scopes[0] } : {}),
+        }),
+      );
+      return raw.map(toDomain);
+    }
+    // Both reportedByMe and assignedToMe: GitLab's own `scope` param takes exactly one value per
+    // call (no server-side OR across scopes), so the OR-of-roles group ListFilter's own doc comment
+    // describes is executed here as two calls, deduped client-side by ref -- the one place in this
+    // adapter an OR of "me" flags genuinely costs more than one request (Jira/GitHub both express
+    // it in a single native query).
+    const results = await Promise.all(
+      scopes.map((scope) =>
+        this.call<GlIssue[]>(() =>
+          this.client.Issues.all({
+            projectId: this.projectId,
+            perPage: limit,
+            state: filter.status ? mapStatusToGitLab(filter.status) : undefined,
+            labels: filter.labels?.length ? filter.labels.join(",") : undefined,
+            scope,
+          }),
+        ),
+      ),
     );
-    return raw.map(toDomain);
+    const seen = new Set<string>();
+    const merged: Issue[] = [];
+    for (const raw of results.flat()) {
+      const issue = toDomain(raw);
+      if (seen.has(issue.ref)) continue;
+      seen.add(issue.ref);
+      merged.push(issue);
+    }
+    return merged.slice(0, limit);
   }
 
   async get(key: string): Promise<Issue> {
@@ -370,6 +407,14 @@ function parseChangesCount(changesCount: string): number {
 
 function mapStatusToGitLab(status: Status): "opened" | "closed" {
   return status === "done" || status === "canceled" ? "closed" : "opened";
+}
+
+/** ListFilter.{reportedByMe,assignedToMe} -> GitLab Issues API `scope` values -- see ListFilter's own doc comment. */
+function meScopes(filter: ListFilter): ("created_by_me" | "assigned_to_me")[] {
+  const scopes: ("created_by_me" | "assigned_to_me")[] = [];
+  if (filter.reportedByMe) scopes.push("created_by_me");
+  if (filter.assignedToMe) scopes.push("assigned_to_me");
+  return scopes;
 }
 
 function mapStatusEventToGitLab(status: Status): "close" | "reopen" {
