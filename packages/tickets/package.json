@@ -25,8 +25,8 @@
   },
   "dependencies": {
     "@danypops/vehicle-core": "^0.15.0",
-    "@danypops/vehicle-server": "^0.21.0",
-    "@danypops/vehicle-client": "^0.7.1",
+    "@danypops/vehicle-server": "^0.21.1",
+    "@danypops/vehicle-client": "^0.8.1",
     "@danypops/enigma-client": "^0.6.1",
     "@gitbeaker/rest": "^43.8.0",
     "commander": "^12.1.0",
