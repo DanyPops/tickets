@@ -19,26 +19,12 @@
  * a Unicode header separator, and Pi's own bounded "N more (expand)" row-count
  * affordance -- so no upstream malevich change was needed for this.
  */
-import { neutralizeEmbeddedFullResets } from "@danypops/vehicle-client-pi/vehicle-render";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Text, truncateToWidth as truncateToWidthUnsafe, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { renderBoundedTable, type TextMeasure } from "malevich-tui-components";
-import { withLeadingLine, withTrailingLine } from "./component-lines.js";
+import { Text, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { firstDistinctStyle, renderBoundedTable, type TextMeasure } from "malevich-tui-components";
+import { truncateToWidth, withLeadingLine, withTrailingLine } from "./component-lines.js";
 import { omissionLine, type TicketsPresentation } from "./presentation.js";
-
-/**
- * pi-tui's own truncateToWidth embeds an unconditional full SGR reset (\x1b[0m) after any
- * truncated content, even for plain, uncolored text -- fine in isolation, but fatal once
- * Pi's own tool-output Box paints one background color across the entire line: a full reset
- * embedded mid-line kills that background early, so everything after it renders on the
- * terminal's own default background instead. See @danypops/vehicle-client-pi's own
- * vehicle-render.ts for the original diagnosis (its generic renderer hit the exact same
- * hazard) -- reusing its fix here rather than re-deriving it.
- */
-function truncateToWidth(text: string, maxWidth: number, ellipsis?: string, pad?: boolean): string {
-  return neutralizeEmbeddedFullResets(truncateToWidthUnsafe(text, maxWidth, ellipsis, pad));
-}
 
 const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 
@@ -70,6 +56,45 @@ export function statusToken(status: string | undefined): StatusToken {
   if (/(cancel|reject|block|fail|won'?t)/.test(s)) return "error";
   if (/(progress|review|open|todo|doing|backlog)/.test(s)) return "accent";
   return "text";
+}
+
+/**
+ * Preference-ordered theme tokens per StatusToken, most specific first -- cascaded through
+ * malevich's firstDistinctStyle, mirroring @danypops/vehicle-client-pi's own effectStyle for
+ * tool-call effect coloring (same shape, same rationale: not every Pi theme defines every one
+ * of these tokens distinctly from plain text, so a status chip styled with only the single most
+ * specific token can silently render visually identical to ordinary text on such a theme).
+ * "text" itself never cascades -- it already means "no special status semantics", so falling
+ * back to something more colorful would misrepresent an unrecognized/absent status as one.
+ */
+const STATUS_STYLE_CANDIDATES: Record<Exclude<StatusToken, "text">, readonly ThemeColor[]> = {
+  success: ["success", "accent"],
+  error: ["error", "warning"],
+  accent: ["accent", "warning"],
+  muted: ["muted", "dim"],
+};
+
+/** Absolute last-resort ANSI codes, used only when a theme fails to distinguish even its own success/error/accent/muted tokens from plain text. */
+const STATUS_HARDCODED_FALLBACK: Record<Exclude<StatusToken, "text">, string> = {
+  success: "\x1b[32m", // green
+  error: "\x1b[31m", // red
+  accent: "\x1b[36m", // cyan
+  muted: "\x1b[90m", // bright black
+};
+
+/**
+ * Styles `text` per `status`'s classified StatusToken, cascading through theme-completeness
+ * fallbacks rather than trusting the single most specific token to always render distinctly.
+ * The one status-coloring entry point every renderer in this package should call instead of a
+ * bare `theme.fg(statusToken(status), text)`.
+ */
+export function statusStyle(theme: Theme, status: string | undefined, text: string): string {
+  const token = statusToken(status);
+  if (token === "text") return theme.fg("text", text);
+  const baseline = theme.fg("text", text);
+  const candidates = STATUS_STYLE_CANDIDATES[token].map((t) => theme.fg(t, text));
+  const fallbackCode = STATUS_HARDCODED_FALLBACK[token];
+  return firstDistinctStyle(baseline, candidates, `${fallbackCode}${text}\x1b[39m`);
 }
 
 function moreRowsLine(theme: Theme, hiddenCount: number): string {
@@ -107,7 +132,7 @@ export function renderTicketsListTable(list: TicketsListPresentation, theme: The
     moreLine: (hidden) => moreRowsLine(theme, hidden),
     headerStyle: (s) => theme.fg("muted", theme.bold(s)),
     cellStyle: (text, key) => {
-      if (key === "status") return text ? theme.fg(statusToken(text), text) : text;
+      if (key === "status") return text ? statusStyle(theme, text, text) : text;
       if (key === "ref" || key === "details") return theme.fg("dim", text);
       return theme.fg("text", text);
     },

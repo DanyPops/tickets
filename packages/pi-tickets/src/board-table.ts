@@ -14,18 +14,13 @@
  * reviewer signal at all).
  */
 
-import { neutralizeEmbeddedFullResets } from "@danypops/vehicle-client-pi/vehicle-render";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Text, truncateToWidth as truncateToWidthUnsafe, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { Board, type BoardColumn, type BoardTheme, type TextMeasure } from "malevich-tui-components";
+import { Text, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Board, type BoardColumn, type BoardTheme, formatChip, type TextMeasure } from "malevich-tui-components";
 import { epicBadgeColor } from "./board-view.js";
-import { withLeadingLine, withTrailingLine } from "./component-lines.js";
+import { truncateToWidth, withLeadingLine, withTrailingLine } from "./component-lines.js";
 import { omissionLine, type TicketsBoardRow, type TicketsPresentation } from "./presentation.js";
-
-function truncateToWidth(text: string, maxWidth: number): string {
-  return neutralizeEmbeddedFullResets(truncateToWidthUnsafe(text, maxWidth));
-}
 
 const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 
@@ -133,9 +128,9 @@ function renderPrCard(row: TicketsBoardRow, theme: Theme, width: number): string
   );
 
   const badges: string[] = [];
-  if (pr?.draft) badges.push(theme.fg("warning", "DRAFT"));
+  if (pr?.draft) badges.push(formatChip("DRAFT", { shape: "plain", style: (s) => theme.fg("warning", s) }));
   const mergeBadge = pr?.mergeableState ? MERGEABLE_BADGE[pr.mergeableState] : undefined;
-  if (mergeBadge) badges.push(theme.fg(mergeBadge.color, mergeBadge.label));
+  if (mergeBadge) badges.push(formatChip(mergeBadge.label, { shape: "plain", style: (s) => theme.fg(mergeBadge.color, s) }));
   if (badges.length) lines.push(truncateToWidth(`  ${badges.join("  ")}`, width));
 
   const reviewed = pr?.reviewers ?? [];
@@ -143,9 +138,9 @@ function renderPrCard(row: TicketsBoardRow, theme: Theme, width: number): string
   const reviewerBits = [
     ...reviewed.map((r) => {
       const icon = REVIEW_ICON[r.state ?? "pending"] ?? REVIEW_ICON.pending!;
-      return theme.fg(icon.color, `${icon.icon} ${initials(r.username)}`);
+      return formatChip(initials(r.username), { icon: icon.icon, shape: "plain", style: (s) => theme.fg(icon.color, s) });
     }),
-    ...waiting.map((u) => theme.fg("muted", `\u2026 ${initials(u)}`)),
+    ...waiting.map((u) => formatChip(initials(u), { icon: "\u2026", shape: "plain", style: (s) => theme.fg("muted", s) })),
   ];
   if (reviewerBits.length) lines.push(truncateToWidth(`  ${reviewerBits.join("  ")}`, width));
 

@@ -1,22 +1,29 @@
 /**
- * Small `Component` decorators shared by every bounded presentation renderer
- * (list-table.ts, board-table.ts): wrap an inner Component's own render output
- * with one extra leading/trailing line, truncated to the real width. Split out
- * once a second renderer needed the exact same two helpers list-table.ts had
- * already built, rather than re-deriving or copy-pasting them.
+ * Small shared utilities for every bounded presentation renderer (list-table.ts,
+ * board-table.ts, board-view.ts, issues/issue-detail-view.ts): an ANSI-safe truncateToWidth
+ * wrapper, plus two `Component` decorators that wrap an inner Component's own render output
+ * with one extra leading/trailing line, truncated the same safe way. Consolidated here after
+ * an audit found the exact same truncateToWidth wrapper independently copy-pasted in four
+ * separate files -- this is the one real definition; every other file imports it from here
+ * instead of re-deriving or copy-pasting it again.
  */
-import { neutralizeEmbeddedFullResets } from "@danypops/vehicle-client-pi/vehicle-render";
+
 import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth as truncateToWidthUnsafe } from "@earendil-works/pi-tui";
+import { neutralizeEmbeddedFullResets } from "malevich-tui-components";
 
 /**
- * Same ANSI-safety fix list-table.ts's own truncateToWidth applies: pi-tui's own
- * truncateToWidth embeds an unconditional full SGR reset even for plain text, which kills
- * Pi's own tool-output background paint mid-line -- see list-table.ts's header comment for
- * the original diagnosis. Reused here rather than re-derived.
+ * pi-tui's own truncateToWidth embeds an unconditional full SGR reset (`\x1b[0m`) after any
+ * truncated content, even for plain, uncolored text -- fine in isolation, but fatal once an
+ * outer component (e.g. Pi's own tool-output Box) paints one background color across the
+ * entire line: a full reset embedded mid-line kills that background early, so everything
+ * after it renders on the terminal's own default background instead. `neutralizeEmbeddedFullResets`
+ * (now living in malevich-tui-components -- see its own doc comment for the full diagnosis)
+ * replaces that reset with one that never touches background. Exported so every caller that
+ * needs a safe truncateToWidth shares this one definition instead of re-deriving it.
  */
-function truncateToWidth(text: string, maxWidth: number): string {
-  return neutralizeEmbeddedFullResets(truncateToWidthUnsafe(text, maxWidth));
+export function truncateToWidth(text: string, maxWidth: number, ellipsis?: string, pad?: boolean): string {
+  return neutralizeEmbeddedFullResets(truncateToWidthUnsafe(text, maxWidth, ellipsis, pad));
 }
 
 export function withTrailingLine(inner: Component, line: string | undefined): Component {

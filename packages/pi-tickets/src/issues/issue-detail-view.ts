@@ -11,11 +11,18 @@
  */
 
 import type { Comment, Issue, IssueLink } from "@danypops/tickets";
-import { neutralizeEmbeddedFullResets } from "@danypops/vehicle-client-pi/vehicle-render";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { buildDetailLines, type DetailField, type DetailSection, type TextMeasure } from "malevich-tui-components";
-import { statusToken } from "../list-table.js";
+import { type Component, matchesKey, type TUI, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+  buildDetailLines,
+  type DetailField,
+  type DetailSection,
+  formatChip,
+  neutralizeEmbeddedFullResets,
+  type TextMeasure,
+} from "malevich-tui-components";
+import { truncateToWidth } from "../component-lines.js";
+import { statusStyle } from "../list-table.js";
 
 /**
  * Same clamped-viewport technique papyrus's own detail views use (a proven
@@ -67,7 +74,7 @@ function buildBreadcrumbLine(issue: Issue, theme: Theme): string {
  * the title, not buried in a same-weight field list below the description. */
 function buildStatusSummaryLine(issue: Issue, theme: Theme): string {
   const rawStatus = issue.rawStatus ?? issue.status;
-  const chip = theme.fg(statusToken(rawStatus), `[${rawStatus}]`);
+  const chip = formatChip(rawStatus ?? "", { style: (s) => statusStyle(theme, rawStatus, s) });
   const rest = [
     issue.issueType,
     issue.priority,
@@ -120,11 +127,12 @@ export function formatDescriptionLines(description: string, theme: Theme): strin
   });
 }
 
-/** One "type  KEY  title  [status]" line per linked issue, status-chip colored the same way a
- * board/list row's own status column already is (statusToken), so "closed"/"in progress"/etc.
- * mean the same color everywhere in this package, not a second, independently-invented palette. */
+/** One "type  KEY  title  [status]" line per linked issue, status-chip formatted through the same
+ * shared formatChip/statusStyle pair the header's own status chip uses (see
+ * buildStatusSummaryLine), so "closed"/"in progress"/etc. mean the same color and shape
+ * everywhere in this package, not a second, independently-invented palette. */
 function renderIssueLinkLine(link: IssueLink, theme: Theme): string {
-  const chip = link.targetStatus ? theme.fg(statusToken(link.targetStatus), `[${link.targetStatus}]`) : "";
+  const chip = link.targetStatus ? formatChip(link.targetStatus, { style: (s) => statusStyle(theme, link.targetStatus, s) }) : "";
   const title = link.targetTitle ? ` ${link.targetTitle}` : "";
   return neutralizeEmbeddedFullResets(`${link.type}  ${theme.fg("accent", link.targetKey)}${title}  ${chip}`.trimEnd());
 }

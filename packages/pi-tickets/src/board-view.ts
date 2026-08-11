@@ -13,16 +13,18 @@
 
 import type { Issue, Status, TicketsRpcClient } from "@danypops/tickets";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { type Component, type KeyId, matchesKey, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Component, type KeyId, matchesKey, type TUI, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import {
   Board,
   type BoardColumn,
   type BoardTheme,
   formatBadgeCount,
+  formatChip,
   type KeyMatcher,
   Spinner,
   type TextMeasure,
 } from "malevich-tui-components";
+import { truncateToWidth } from "./component-lines.js";
 import { SavedQueryPickerComponent } from "./saved-queries/saved-query-picker.js";
 
 const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
@@ -93,7 +95,8 @@ export function renderCard(issue: Issue, theme: Theme, width: number, selected: 
     lines.push(measure.truncateToWidth(theme.fg(epicBadgeColor(issue.parent.key), `  ${issue.parent.title}`), width, ""));
   }
   if (issue.labels?.length) {
-    lines.push(measure.truncateToWidth(theme.fg("muted", `  ${issue.labels.map((l) => `\u2039${l}\u203a`).join(" ")}`), width, ""));
+    const labelChips = issue.labels.map((l) => formatChip(l, { shape: "chevron", style: (s) => theme.fg("muted", s) })).join(" ");
+    lines.push(measure.truncateToWidth(`  ${labelChips}`, width, ""));
   }
 
   const points = Number(issue.customFields?.["Story Points"]);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { renderTicketsListTable } from "../src/list-table.js";
+import { renderTicketsListTable, statusStyle } from "../src/list-table.js";
 import { TICKETS_PRESENTATION_SCHEMA, type TicketsPresentation } from "../src/presentation.js";
 
 /** Identity theme, matching render.test.ts's own fake -- asserts on content, not color codes. */
@@ -137,6 +137,58 @@ describe("renderTicketsListTable", () => {
 
     it("falls back to plain text for an unrecognized or missing status", () => {
       expect(statusToken("triaging")).toBe("text");
+    });
+  });
+
+  /**
+   * statusStyle's own theme-completeness cascade -- distinct from the plain classification
+   * above (statusToken, exercised only through fully-distinguishing themes so far). These
+   * tests deliberately use a THEME THAT COLLAPSES some tokens onto the same rendering as
+   * plain text, the one case none of the tests above (or the renderer's own default
+   * fakeTheme/taggingTheme fixtures) ever exercises, to prove the cascade -- not just the
+   * classification -- actually does something.
+   */
+  describe("statusStyle: cascades to a theme-distinguishable token instead of trusting the most specific one blindly", () => {
+    /** Every token renders distinctly -- the common case. Picks the primary (most specific) candidate, same as a bare theme.fg(statusToken(status), text) would. */
+    const fullyDistinguishingTheme = {
+      fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+      bold: (text: string) => text,
+    } as unknown as Theme;
+
+    /** "success" is defined identically to plain "text" (a theme that never bothered giving it its own color) -- "accent" still is distinct, so the cascade should skip past success to it. */
+    const collapsesSuccessOnlyTheme = {
+      fg: (color: string, text: string) => (color === "success" || color === "text" ? text : `<${color}>${text}</${color}>`),
+      bold: (text: string) => text,
+    } as unknown as Theme;
+
+    /** Every candidate collapses onto plain text -- the cascade has nowhere left to go but its own hardcoded ANSI fallback. */
+    const collapsesEverythingTheme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
+
+    it("picks the primary token when the theme already distinguishes it from plain text", () => {
+      expect(statusStyle(fullyDistinguishingTheme, "done", "Done")).toBe("<success>Done</success>");
+      expect(statusStyle(fullyDistinguishingTheme, "canceled", "Canceled")).toBe("<error>Canceled</error>");
+      expect(statusStyle(fullyDistinguishingTheme, "in_progress", "In Progress")).toBe("<accent>In Progress</accent>");
+    });
+
+    it("falls through to the next preference-ordered candidate when the primary token collapses onto plain text", () => {
+      // success's own candidate list is ["success", "accent"] -- collapsesSuccessOnlyTheme makes
+      // the first entry indistinguishable from plain text, so this must land on "accent" instead
+      // of silently rendering "Done" with no color at all.
+      expect(statusStyle(collapsesSuccessOnlyTheme, "done", "Done")).toBe("<accent>Done</accent>");
+    });
+
+    it("falls all the way through to the hardcoded ANSI fallback when every themed candidate collapses onto plain text", () => {
+      const styled = statusStyle(collapsesEverythingTheme, "done", "Done");
+      expect(styled).not.toBe("Done"); // never silently renders as indistinguishable plain text
+      expect(styled).toContain("Done");
+      expect(styled.startsWith("\x1b[")).toBe(true);
+      expect(styled.endsWith("\x1b[39m")).toBe(true);
+    });
+
+    it("never cascades or colors the plain 'text' token, even under a theme that collapses everything -- an unrecognized/absent status should never invent a color", () => {
+      expect(statusStyle(fullyDistinguishingTheme, "triaging", "Triaging")).toBe("<text>Triaging</text>");
+      expect(statusStyle(collapsesEverythingTheme, "triaging", "Triaging")).toBe("Triaging");
+      expect(statusStyle(collapsesEverythingTheme, undefined, "Triaging")).toBe("Triaging");
     });
   });
 });
