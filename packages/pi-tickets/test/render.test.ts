@@ -60,6 +60,31 @@ describe("renderResultText", () => {
     expect(text).toContain("jira");
   });
 
+  it("get renders presentation.ts's own rich issue detail instead of a raw JSON dump", () => {
+    const issue = { ref: "jira:PROJ-1", title: "Bound the persisted view", status: "in_progress", priority: "high" };
+    const text = renderResultText("get", { issue }, false, fakeTheme);
+    expect(text).toContain("jira:PROJ-1");
+    expect(text).toContain("Bound the persisted view");
+    expect(text).not.toContain("{");
+  });
+
+  it("list/search/children render as a real issue table, not a raw JSON dump", () => {
+    const issues = [{ ref: "jira:PROJ-1", title: "Do the thing", status: "todo" }];
+    for (const action of ["list", "search", "children"]) {
+      const text = renderResultText(action, { issues }, false, fakeTheme);
+      expect(text).toContain("jira:PROJ-1");
+      expect(text).toContain("Do the thing");
+      expect(text).not.toContain("{");
+    }
+  });
+
+  it("approve/merge/request_changes render a real mutation line, not a raw JSON dump", () => {
+    const issue = { ref: "github:#41", title: "feat: SSO", status: "in_review", priority: "none" };
+    expect(renderResultText("approve", { issue }, false, fakeTheme)).toContain("Approved github:#41");
+    expect(renderResultText("merge", { issue }, false, fakeTheme)).toContain("Merged github:#41");
+    expect(renderResultText("request_changes", { issue }, false, fakeTheme)).toContain("Changes requested on github:#41");
+  });
+
   it("bounds oversized historical details.output rows", () => {
     const text = renderResultText("legacy", { body: "x".repeat(20_000) }, false, fakeTheme);
     expect(text.length).toBeLessThan(8_300);

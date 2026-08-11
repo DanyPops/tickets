@@ -482,6 +482,12 @@ export function projectTicketsPresentation(operation: string, output: unknown): 
       return projectIssueMutation(operation, record(output)?.issue, "Created") as unknown as JsonValue;
     case "issue.update":
       return projectIssueMutation(operation, record(output)?.issue, "Updated") as unknown as JsonValue;
+    case "issue.approve":
+      return projectIssueMutation(operation, record(output)?.issue, "Approved") as unknown as JsonValue;
+    case "issue.request_changes":
+      return projectIssueMutation(operation, record(output)?.issue, "Changes requested on") as unknown as JsonValue;
+    case "issue.merge":
+      return projectIssueMutation(operation, record(output)?.issue, "Merged") as unknown as JsonValue;
     case "issue.comments":
       return listPresentation(
         operation,

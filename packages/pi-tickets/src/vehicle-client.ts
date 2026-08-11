@@ -57,7 +57,10 @@ import { WatchEventsPoll } from "./watch-events-poll.js";
  * vocabulary (list/get/create/... rather than issue_list/issue_get/...) --
  * every other operation (focus.*, ledger.*, discover.*) already matches
  * Vehicle's own dot-to-underscore projection 1:1, so only this family needs
- * an alias.
+ * an alias. issue.approve/issue.request_changes/issue.merge were a gap here
+ * (silently falling through to the full issue_approve/... underscored form,
+ * which render.ts's own switch had no branch for either) -- included now for
+ * the same reason as every sibling issue.* operation above.
  */
 const ISSUE_ACTION_ALIAS: Record<string, string> = {
   "issue.list": "list",
@@ -68,6 +71,9 @@ const ISSUE_ACTION_ALIAS: Record<string, string> = {
   "issue.children": "children",
   "issue.comments": "comments",
   "issue.comment_add": "comment_add",
+  "issue.approve": "approve",
+  "issue.request_changes": "request_changes",
+  "issue.merge": "merge",
 };
 
 function legacyActionFor(operationName: string): string {

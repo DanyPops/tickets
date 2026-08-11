@@ -130,6 +130,19 @@ describe("tickets.tool-details/v1", () => {
     expect(serialized).toContain("[REDACTED]");
   });
 
+  it("issue.approve/issue.merge/issue.request_changes render a real mutation, not the generic unsupported-operation summary", () => {
+    const issue = { ref: "github:#41", title: "feat: SSO", status: "in_review", priority: "none" };
+    const approved = roundTrip("issue.approve", { issue });
+    const merged = roundTrip("issue.merge", { issue });
+    const changesRequested = roundTrip("issue.request_changes", { issue });
+    expect(approved.kind).toBe("mutation");
+    expect(merged.kind).toBe("mutation");
+    expect(changesRequested.kind).toBe("mutation");
+    expect(formatTicketsPresentation(approved)).toBe("Approved github:#41");
+    expect(formatTicketsPresentation(merged)).toBe("Merged github:#41");
+    expect(formatTicketsPresentation(changesRequested)).toBe("Changes requested on github:#41");
+  });
+
   it("query.run always renders as a board -- the same 'Backlog/Sprint' meaning the live interactive panel already gives a saved query", () => {
     const issue = {
       ref: "jira:PROJ-1",

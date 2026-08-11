@@ -9,6 +9,7 @@
  * branching is unit-testable without a full ExtensionAPI/theme harness.
  */
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { formatTicketsPresentation, parseTicketsPresentation, projectTicketsPresentation } from "./presentation.js";
 
 interface Comment {
   id: string;
@@ -19,6 +20,30 @@ interface Comment {
 
 const LEGACY_MAX_ROWS = 20;
 const LEGACY_MAX_JSON_CHARACTERS = 8_192;
+
+/**
+ * render.ts's own short action names (post legacyActionFor) that map 1:1 onto a
+ * presentation.ts operation whose projector already exists -- reused here instead
+ * of re-deriving the same rich issue.get detail / issue.list rows / issue.approve
+ * mutation line a second time. Every one of these previously fell all the way
+ * through to boundedLegacyJson's raw dump for lack of its own switch branch.
+ */
+const PRESENTATION_OPERATION_FOR: Record<string, string> = {
+  get: "issue.get",
+  list: "issue.list",
+  search: "issue.search",
+  children: "issue.children",
+  approve: "issue.approve",
+  merge: "issue.merge",
+  request_changes: "issue.request_changes",
+};
+
+/** Formats via presentation.ts's own bounded/redacted projection; undefined only if that projection somehow fails to round-trip its own strict parser. */
+function renderViaPresentation(operation: string, output: unknown, theme: Theme): string | undefined {
+  const presentation = parseTicketsPresentation(projectTicketsPresentation(operation, output));
+  if (!presentation) return undefined;
+  return theme.fg(presentation.kind === "error" ? "error" : "toolOutput", formatTicketsPresentation(presentation));
+}
 
 function truncate(text: string, max: number): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
@@ -79,6 +104,17 @@ export function renderResultText(action: string, result: unknown, isError: boole
     }
     case "focus_clear":
       return theme.fg("muted", "Focus cleared");
+    case "get":
+    case "list":
+    case "search":
+    case "children":
+    case "approve":
+    case "merge":
+    case "request_changes": {
+      const rendered = renderViaPresentation(PRESENTATION_OPERATION_FOR[action]!, result, theme);
+      if (rendered !== undefined) return rendered;
+      break;
+    }
   }
 
   return theme.fg("dim", boundedLegacyJson(result));
