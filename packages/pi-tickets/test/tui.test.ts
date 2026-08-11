@@ -931,7 +931,7 @@ describe("registerTicketsTui", () => {
       expect(detail).not.toBe(panel);
       const detailRendered = detail.render(120).join("\n");
       expect(detailRendered).toContain("First bug");
-      expect(detailRendered).toContain("Assignee: Jane Doe");
+      expect(detailRendered).toContain("Jane Doe (assignee)");
       expect(detailRendered).toContain("Full description here");
       expect(detailRendered).toContain("Alice");
       expect(detailRendered).toContain("A real comment");

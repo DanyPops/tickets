@@ -52,7 +52,7 @@ type TicketsListPresentation = Extract<TicketsPresentation, { kind: "list" }>;
 /** A semantic color TOKEN a Pi theme is expected to define, not a hardcoded ANSI value --
  * theme.fg() resolves it (or falls back to plain text if the active theme doesn't
  * distinguish it), matching every other themed render in this codebase. */
-type StatusToken = "success" | "accent" | "error" | "muted" | "text";
+export type StatusToken = "success" | "accent" | "error" | "muted" | "text";
 
 /**
  * Cross-backend status vocabulary -> a semantic token. Deliberately pattern-based rather
@@ -63,7 +63,7 @@ type StatusToken = "success" | "accent" | "error" | "muted" | "text";
  * normalizes most of them, but presentation rows carry whichever string arrived (may be the
  * backend's own rawStatus in a raw legacy row) -- matching by substring covers both.
  */
-function statusToken(status: string | undefined): StatusToken {
+export function statusToken(status: string | undefined): StatusToken {
   if (!status) return "text";
   const s = status.toLowerCase();
   if (/(done|closed|merged|resolved|complete)/.test(s)) return "success";
