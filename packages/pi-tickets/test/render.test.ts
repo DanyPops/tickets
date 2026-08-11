@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { renderResultText } from "../src/render.js";
+import { formatApprovalInput, renderResultText } from "../src/render.js";
 
 /** Identity theme, matching the fake used in tui.test.ts -- asserts on content, not color codes. */
 const fakeTheme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
@@ -95,5 +95,31 @@ describe("renderResultText", () => {
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
     expect(renderResultText("legacy", cyclic, false, fakeTheme)).toContain("legacy details were malformed");
+  });
+});
+
+describe("formatApprovalInput", () => {
+  it("renders plain key: value lines instead of a JSON blob a human has to parse", () => {
+    const text = formatApprovalInput({ ref: "github:#1", body: "Approved via pi-tickets HITL test" });
+    expect(text).toBe("ref: github:#1\nbody: Approved via pi-tickets HITL test");
+    expect(text).not.toContain("{");
+    expect(text).not.toContain("}");
+  });
+
+  it("never hides or truncates a field -- a security approval prompt must show the real, complete input", () => {
+    const text = formatApprovalInput({ ref: "github:#1", filter: { labels: ["bug"], limit: 5 } });
+    expect(text).toContain("ref: github:#1");
+    expect(text).toContain('filter: {"labels":["bug"],"limit":5}');
+  });
+
+  it("says so plainly for an empty or missing input rather than an empty string", () => {
+    expect(formatApprovalInput(undefined)).toBe("(no input)");
+    expect(formatApprovalInput(null)).toBe("(no input)");
+    expect(formatApprovalInput({})).toBe("(no input)");
+  });
+
+  it("falls back to a literal JSON string for non-object input rather than throwing", () => {
+    expect(formatApprovalInput("just a string")).toBe('"just a string"');
+    expect(formatApprovalInput([1, 2, 3])).toBe("[1,2,3]");
   });
 });

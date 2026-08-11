@@ -49,7 +49,7 @@ import {
   projectTicketsPresentation,
   TICKETS_PRESENTATION_MAX_BYTES,
 } from "./presentation.js";
-import { renderResultText } from "./render.js";
+import { formatApprovalInput, renderResultText } from "./render.js";
 import { WatchEventsPoll } from "./watch-events-poll.js";
 
 /**
@@ -233,6 +233,16 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // operation ever wants richer than plain Approve/Deny (e.g. picking a specific field
     // to fix before retrying).
     requestApproval: requestPiApprovalViaAskPrompt,
+    // Without this, vehicle-pi.ts's own requestLocalApproval default renders the approval
+    // prompt's body as `Input:\n${JSON.stringify(input, null, 2)}` -- confirmed live: a human
+    // approving e.g. issue.approve saw a raw `{"ref": "github:#1", "body": "..."}" blob. Same
+    // literal field values, just formatted as plain `key: value` lines (see formatApprovalInput's
+    // own doc comment for why this must stay lossless, unlike presentation.ts's result-formatting
+    // redaction).
+    approvalPrompt: (descriptor: VehicleOperationDescriptor, input: unknown) => ({
+      title: `Approve tickets ${legacyActionFor(descriptor.name)}?`,
+      message: `${descriptor.name} (${descriptor.effect} effect) requests approval before it can run.\n\n${formatApprovalInput(input)}`,
+    }),
     renderers: (descriptor: VehicleOperationDescriptor) => ({
       renderCall: (args, theme) => renderTicketsCall(descriptor.name, args, theme),
     }),

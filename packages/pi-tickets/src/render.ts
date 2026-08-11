@@ -61,6 +61,25 @@ function boundedLegacyJson(value: unknown): string {
   return `${serialized.slice(0, LEGACY_MAX_JSON_CHARACTERS - 1)}…\n[legacy details truncated]`;
 }
 
+/**
+ * Renders a Vehicle operation's raw input for a HITL approval prompt as plain `key: value`
+ * lines instead of vehicle-client-pi's own default (see its vehicle-pi.ts's requestLocalApproval,
+ * which falls back to `JSON.stringify(input, null, 2)` whenever a caller supplies no
+ * `approvalPrompt` override) -- every field's exact literal value is still shown in full, just
+ * without the braces/quotes/indentation that read as "still JSON" to a human skimming it. This
+ * intentionally does NOT reuse presentation.ts's bounded/redacted formatting: that redaction
+ * exists to keep secrets and oversized text out of *result* content an LLM/replay will see again,
+ * whereas a security approval prompt must show the human the real, complete, untruncated input
+ * they're about to authorize -- hiding or truncating a field here would defeat the point of asking.
+ */
+export function formatApprovalInput(input: unknown): string {
+  if (input === null || input === undefined) return "(no input)";
+  if (typeof input !== "object" || Array.isArray(input)) return JSON.stringify(input);
+  const entries = Object.entries(input as Record<string, unknown>);
+  if (entries.length === 0) return "(no input)";
+  return entries.map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`).join("\n");
+}
+
 export function renderResultText(action: string, result: unknown, isError: boolean, theme: Theme): string {
   if (isError) {
     const text = typeof result === "string" ? result : (JSON.stringify(result) ?? "Tickets operation failed");
