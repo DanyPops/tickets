@@ -226,6 +226,15 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // this grant, so this does not let the model resolve its own requests.
     permissions: ["tickets:read", "tickets:write", "vehicle:approvals:resolve"],
     principal: { id: "pi-tickets" },
+    // requestPiAskPrompt (the component requestApproval below wires in) defaults to "integrated"
+    // (docked in place of Pi's input editor) whenever presentation is left unset -- confirmed
+    // live: a real issue.create's own multi-line description/labels/etc render tightly enough
+    // there to need scrolling (a leading "↑" in the box) for content that otherwise fits in one
+    // screen. "overlay" hosts the identical component as a centered floating box sized up to 80%
+    // of the terminal's own width/height (see vehicle-client-pi's own DUAL_HOST_OVERLAY_OPTIONS)
+    // -- meaningfully more reading room for exactly the approvalPrompt content below, without
+    // needing any change outside this package.
+    approvalPresentation: "overlay",
     // Presents Approve/Deny (plus an optional ctrl+g comment) through requestPiAskPrompt's
     // shared searchable-select component instead of registerVehicleTools' own default
     // fixed two-item requestPiApproval dialog -- one consistent HITL look across every

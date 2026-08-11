@@ -263,6 +263,63 @@ describe("registerTicketsVehicle", () => {
     expect(result).toBeTruthy();
   });
 
+  it('requests the overlay presentation (a bigger centered box) rather than requestPiAskPrompt\'s own "integrated" default (docked in the input editor, confirmed live to need scrolling for ordinary approval content)', async () => {
+    const { pi, tools, fire } = fakePi();
+    const client = new ApprovalFlowClient(manifest([operation("issue.create", { effect: "external-write" })]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+    const tool = tools.find((t) => t.name === "issue_create")!;
+    const execute = tool.execute as unknown as (
+      toolCallId: string,
+      input: unknown,
+      signal: AbortSignal,
+      onUpdate: undefined,
+      context: unknown,
+    ) => Promise<unknown>;
+
+    // A context capable of hosting EITHER presentation -- which one vehicle-client-pi actually
+    // reaches for is entirely governed by the approvalPresentation option under test here.
+    const overlayCalls: unknown[] = [];
+    const integratedCalls: unknown[] = [];
+    const result = await execute("call-1", { backend: "github", input: {} }, new AbortController().signal, undefined, {
+      sessionManager: { getSessionId: () => "session-a" },
+      hasUI: true,
+      mode: "tui",
+      ui: {
+        // The real component this factory would build resolves with an internal
+        // AskResponse-shaped answer (see hitl-ask-prompt.js's own toAskAnswer), not the final
+        // PiApprovalAnswer -- this fake stands in for a real "Approve" selection without needing
+        // to actually drive the full select-list component's own render/input loop.
+        custom: async (_factory: unknown, options: unknown) => {
+          overlayCalls.push(options);
+          return { kind: "selection", selections: ["Approve"] };
+        },
+        setEditorComponent: () => {
+          integratedCalls.push("integrated");
+        },
+        getEditorComponent: () => undefined,
+        getEditorText: () => "",
+        select: async () => {
+          throw new Error("must not fall back to the plain select/input dialog once overlay hosting is available");
+        },
+        input: async () => undefined,
+        confirm: async () => {
+          throw new Error("must not use the plain confirm dialog once overlay hosting is available");
+        },
+        notify: () => {},
+      },
+    });
+
+    expect(overlayCalls).toHaveLength(1);
+    expect(integratedCalls).toHaveLength(0);
+    expect(result).toBeTruthy();
+  });
+
   it("wires renderCall/renderResult for every registered operation, using the paired bounded presentation contract", async () => {
     const { pi, tools, fire } = fakePi();
     const client = new FakeClient(manifest([operation("issue.comment_add")]));
