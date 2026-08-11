@@ -23,6 +23,17 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
+  "packed": {
+    "daemonService": {
+      "name": "tickets",
+      "displayName": "Tickets daemon",
+      "binPath": "src/cli/index.ts",
+      "args": ["serve"],
+      "handleFilename": "handle.json",
+      "restartOnFailure": true,
+      "restartSec": 2
+    }
+  },
   "dependencies": {
     "@danypops/vehicle-core": "^0.15.0",
     "@danypops/vehicle-server": "^0.21.1",
