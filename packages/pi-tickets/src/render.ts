@@ -62,8 +62,8 @@ function boundedLegacyJson(value: unknown): string {
 }
 
 /**
- * Renders a Vehicle operation's raw input for a HITL approval prompt as plain `key: value`
- * lines instead of vehicle-client-pi's own default (see its vehicle-pi.ts's requestLocalApproval,
+ * Renders a Vehicle operation's raw input for a HITL approval prompt as a plain, indented field
+ * tree instead of vehicle-client-pi's own default (see its vehicle-pi.ts's requestLocalApproval,
  * which falls back to `JSON.stringify(input, null, 2)` whenever a caller supplies no
  * `approvalPrompt` override) -- every field's exact literal value is still shown in full, just
  * without the braces/quotes/indentation that read as "still JSON" to a human skimming it. This
@@ -71,13 +71,109 @@ function boundedLegacyJson(value: unknown): string {
  * exists to keep secrets and oversized text out of *result* content an LLM/replay will see again,
  * whereas a security approval prompt must show the human the real, complete, untruncated input
  * they're about to authorize -- hiding or truncating a field here would defeat the point of asking.
+ *
+ * A flat `key: value` line per top-level field (the first cut of this) was still unreadable for
+ * the operations that matter most to actually review before approving: issue.create/issue.update
+ * carry a nested `input` object whose own `description`/`body` is real multi-line ticket/PR prose
+ * (e.g. Jira's own "h2. heading" + "* bullet" wiki markup, or a plain multi-paragraph GitHub issue
+ * body) -- squashed onto one JSON.stringify'd line, exactly the field a human most needs to
+ * actually read before authorizing a write. This recurses: a multi-line string gets its own
+ * indented block under its field name, a nested object gets its own indented `key: value` lines,
+ * and an array of plain values renders as a comma-joined line rather than `["a","b"]`.
  */
+const APPROVAL_INDENT_UNIT = "  ";
+
+function isApprovalRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function indentLines(text: string, indent: string): string {
+  return text
+    .split("\n")
+    .map((line) => (line.length === 0 ? "" : `${indent}${line}`))
+    .join("\n");
+}
+
+function formatApprovalValue(value: unknown, indent: string): string {
+  if (value === null || value === undefined) return `${indent}(none)`;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return `${indent}(none)`;
+    if (value.every((item) => !isApprovalRecord(item) && !Array.isArray(item))) return `${indent}${value.join(", ")}`;
+    return value.map((item) => `${indent}- ${formatApprovalValue(item, `${indent}${APPROVAL_INDENT_UNIT}`).trimStart()}`).join("\n");
+  }
+  if (isApprovalRecord(value)) return formatApprovalFields(value, indent);
+  return `${indent}${value}`;
+}
+
+function isFlatArray(value: readonly unknown[]): boolean {
+  return value.every((item) => !isApprovalRecord(item) && !Array.isArray(item));
+}
+
+function formatApprovalFields(record: Record<string, unknown>, indent: string): string {
+  const entries = Object.entries(record);
+  if (entries.length === 0) return `${indent}(no input)`;
+  return entries
+    .map(([key, value]) => {
+      if (typeof value === "string" && value.includes("\n")) {
+        return `${indent}${key}:\n${indentLines(value, `${indent}${APPROVAL_INDENT_UNIT}`)}`;
+      }
+      // A flat array (every element a primitive, e.g. labels: ["bug", "P1"]) stays a single
+      // comma-joined line next to its own key -- only a record, or an array of records, is
+      // structurally nested enough to need its own indented block on the next line.
+      if (Array.isArray(value) && (value.length === 0 || isFlatArray(value))) {
+        return `${indent}${key}: ${value.length === 0 ? "(none)" : value.join(", ")}`;
+      }
+      if (isApprovalRecord(value) || Array.isArray(value)) {
+        return `${indent}${key}:\n${formatApprovalValue(value, `${indent}${APPROVAL_INDENT_UNIT}`)}`;
+      }
+      return `${indent}${key}: ${value}`;
+    })
+    .join("\n");
+}
+
 export function formatApprovalInput(input: unknown): string {
-  if (input === null || input === undefined) return "(no input)";
-  if (typeof input !== "object" || Array.isArray(input)) return JSON.stringify(input);
-  const entries = Object.entries(input as Record<string, unknown>);
-  if (entries.length === 0) return "(no input)";
-  return entries.map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`).join("\n");
+  if (!isApprovalRecord(input)) return input === null || input === undefined ? "(no input)" : formatApprovalValue(input, "");
+  return formatApprovalFields(input, "");
+}
+
+/**
+ * A short, human verb phrase per operation for the approval prompt's title, falling back to a
+ * Title Cased split of the dot-form operation name for anything not explicitly listed (mirrors
+ * vehicle-client-pi's own displayLabel, without importing its unexported helper). Paired with the
+ * input's own `ref` (present on every issue.* operation except issue.create/issue.list/issue.search)
+ * for a concrete "Approve github:#1?" instead of the generic "Approve tickets approve?" default.
+ */
+const APPROVAL_VERB_FOR: Record<string, string> = {
+  "issue.approve": "Approve",
+  "issue.merge": "Merge",
+  "issue.request_changes": "Request changes on",
+  "issue.create": "Create",
+  "issue.update": "Update",
+  "issue.comment_add": "Comment on",
+};
+
+function approvalVerb(operationName: string): string {
+  return (
+    APPROVAL_VERB_FOR[operationName] ??
+    operationName
+      .split(/[^a-zA-Z0-9]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ")
+  );
+}
+
+export function titleForApproval(operationName: string, input: unknown): string {
+  const record = isApprovalRecord(input) ? input : undefined;
+  const ref = typeof record?.ref === "string" ? record.ref : undefined;
+  const verb = approvalVerb(operationName);
+  if (ref) return `${verb} ${ref}?`;
+  // issue.create has no ref yet (the backend mints one) -- name the new ticket's own title
+  // instead of falling all the way back to a bare, contextless "Create?".
+  const nestedInput = isApprovalRecord(record?.input) ? record.input : undefined;
+  const newTitle = typeof nestedInput?.title === "string" ? nestedInput.title : undefined;
+  if (newTitle) return `${verb} "${truncate(newTitle, 72)}"?`;
+  return `${verb}?`;
 }
 
 export function renderResultText(action: string, result: unknown, isError: boolean, theme: Theme): string {

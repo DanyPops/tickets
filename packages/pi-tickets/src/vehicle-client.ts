@@ -49,7 +49,7 @@ import {
   projectTicketsPresentation,
   TICKETS_PRESENTATION_MAX_BYTES,
 } from "./presentation.js";
-import { formatApprovalInput, renderResultText } from "./render.js";
+import { formatApprovalInput, renderResultText, titleForApproval } from "./render.js";
 import { WatchEventsPoll } from "./watch-events-poll.js";
 
 /**
@@ -240,7 +240,7 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // own doc comment for why this must stay lossless, unlike presentation.ts's result-formatting
     // redaction).
     approvalPrompt: (descriptor: VehicleOperationDescriptor, input: unknown) => ({
-      title: `Approve tickets ${legacyActionFor(descriptor.name)}?`,
+      title: titleForApproval(descriptor.name, input),
       message: `${descriptor.name} (${descriptor.effect} effect) requests approval before it can run.\n\n${formatApprovalInput(input)}`,
     }),
     renderers: (descriptor: VehicleOperationDescriptor) => ({
