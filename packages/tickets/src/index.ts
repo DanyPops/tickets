@@ -31,4 +31,5 @@ export * from "./issue/repository.js";
 export { type BackendCapabilities, NotSupportedError, TicketService, UnknownBackendError } from "./issue/service.js";
 export { type JiraOptions, JiraRepository } from "./jira/jira.js";
 export type { TicketOperation, TicketOpInputs, TicketOpOutputs } from "./rpc/ops.js";
+export { TICKETS_VEHICLE_NAME } from "./rpc/ops.js";
 export type { FocusStatus, TicketFocusState } from "./sqlite/focus.js";

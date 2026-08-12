@@ -14,7 +14,7 @@ import { createTicketsVehicleRegistry, syncDiscoverAvailability } from "../agent
 import { type BuildRepositories, buildRepositories, type Config, createBackendRefreshTask, loadConfig } from "../config/config.js";
 import type { IssueRepository } from "../issue/repository.js";
 import { TicketService } from "../issue/service.js";
-import { TICKETS_DAEMON_NAMES } from "../rpc/ops.js";
+import { TICKETS_DAEMON_NAMES, TICKETS_VEHICLE_NAME } from "../rpc/ops.js";
 import { buildApp, type TicketsAppDeps } from "../rpc/server.js";
 import { FOCUS_MIGRATIONS, FOCUS_STALE_AFTER_MS, FocusStore } from "../sqlite/focus.js";
 import { LEDGER_MIGRATIONS, Ledger } from "../sqlite/ledger.js";
@@ -121,6 +121,21 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
   const options: StartDaemonOptions = {
     daemonLabel: "Tickets",
     handlePath: paths.handle,
+    // Registers tickets into the shared, cross-package Vehicle Handle Directory (see
+    // @danypops/vehicle-server's startDaemon/resolveSharedVehicleHandlePath) -- the seam a
+    // broker-mode tools_list/tools_man discovery scan (in another live Vehicle-backed extension,
+    // e.g. Papyrus or Pipes) reads without needing to already know tickets' own state-directory
+    // convention in advance. Mirrors papyrus/pipes/web-spider/packed's own implementations of the
+    // same rollout. tokenPath lets a discovering broker authenticate; write/remove failures are
+    // logged, never fatal (startDaemon's own contract). Must match pi-tickets' own
+    // shell.broker.ownVehicleName exactly.
+    vehicleName: TICKETS_VEHICLE_NAME,
+    tokenPath: paths.token,
+    // Without this, the shared-handle write above would resolve against the real process.env's
+    // XDG_RUNTIME_DIR regardless of opts.pathEnv -- fine in production (there is no other env),
+    // but it would silently defeat a test's own scratch PathEnvironment, writing (and later
+    // failing to find) the shared entry in the wrong directory entirely.
+    env: opts.pathEnv?.env,
     logger,
     maintenanceTasks: [
       createSyncTask(service, ledger, opts.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS, logger),

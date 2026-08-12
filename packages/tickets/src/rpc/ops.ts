@@ -229,3 +229,12 @@ export const TICKETS_DAEMON_NAMES = {
   handleFilename: "handle.json",
   systemdUnitName: "tickets-daemon.service",
 } as const;
+
+/**
+ * Tickets' own stable identity name in the shared, cross-package Vehicle Handle Directory (see
+ * @danypops/vehicle-server's resolveSharedVehicleHandlePath) -- must match the ownVehicleName a
+ * broker-mode consumer (e.g. Papyrus, Pi Packed, Pipes) discovers it under, and process/
+ * bootstrap.ts's own StartDaemonOptions.vehicleName exactly. Derived from TICKETS_DAEMON_NAMES
+ * rather than a second hand-typed literal so the two can never drift apart.
+ */
+export const TICKETS_VEHICLE_NAME = TICKETS_DAEMON_NAMES.stateDirectoryName;
