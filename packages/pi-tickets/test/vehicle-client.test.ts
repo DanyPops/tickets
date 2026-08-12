@@ -164,9 +164,12 @@ describe("registerTicketsVehicle", () => {
   it("registers one Pi tool per real operation once session_start fires and a target resolves", async () => {
     const { pi, tools, fire } = fakePi();
     const client = new FakeClient(manifest([operation("issue.list"), operation("focus.set")]));
+    // Unrelated to broker/shell mode -- disabled so this test's registered-tool-names assertion
+    // stays about every real operation getting its own tool, not shell's own meta-tools.
     const deps: TicketsVehicleDeps = {
       resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
       createClient: () => client,
+      shell: undefined,
     };
     const ready = registerTicketsVehicle(pi, deps);
     await fire("session_start");
@@ -175,10 +178,42 @@ describe("registerTicketsVehicle", () => {
     expect(tools.map((t) => t.name).sort()).toEqual(["focus_set", "issue_list"]);
   });
 
+  it('turns Vehicle Shell broker mode on: registers a discoverable shell handle under the "tickets" vehicle name', async () => {
+    const { pi, fire } = fakePi();
+    const client = new FakeClient(manifest([operation("issue.list")]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    const result = await ready;
+    // registerVehicleTools only returns a shell handle at all when shell mode is on -- this is
+    // the same observable this repo's own sibling projects (e.g. pi-pipes) assert broker mode by.
+    expect(result?.shell).toBeDefined();
+  });
+
+  it("keeps only the core operations immediately active, leaving the rest behind tools_man", async () => {
+    const { pi, active, fire } = fakePi();
+    const client = new FakeClient(manifest([operation("issue.list"), operation("issue.get"), operation("discover.fields")]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+    // issue.list and issue.get are both in TICKETS_CORE_OPERATIONS -- active from turn one.
+    // discover.fields is not -- reachable only via tools_list/tools_man, not directly active.
+    expect(active().sort()).toEqual(["issue_get", "issue_list", "tools_list", "tools_man"]);
+  });
+
   it("retries with bounded backoff and eventually registers once the daemon becomes reachable", async () => {
     const { pi, tools, fire } = fakePi();
     const client = new FakeClient(manifest([operation("issue.list")]));
     let calls = 0;
+    // Unrelated to broker/shell mode -- disabled so this test's registered-tool-names assertion
+    // stays about the retry-then-register sequence, not shell's own meta-tools.
     const deps: TicketsVehicleDeps = {
       resolveTarget: () => {
         calls++;
@@ -186,6 +221,7 @@ describe("registerTicketsVehicle", () => {
       },
       createClient: () => client,
       retry: { attempts: 5, initialDelayMs: 1, maxDelayMs: 2 },
+      shell: undefined,
     };
     const ready = registerTicketsVehicle(pi, deps);
     await fire("session_start");
@@ -382,9 +418,12 @@ describe("registerTicketsVehicle's availability refresh", () => {
   it("re-syncs tool availability after one of its own tools runs, picking up a newly-unavailable operation", async () => {
     const { pi, active, fire } = fakePi();
     const client = new FakeClient(manifest([operation("issue.list"), operation("discover.fields")]));
+    // Unrelated to broker/shell mode -- disabled here so this test's own active-set assertions
+    // stay about availability refresh, not shell's own core/tools_man split.
     const deps: TicketsVehicleDeps = {
       resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
       createClient: () => client,
+      shell: undefined,
     };
     const ready = registerTicketsVehicle(pi, deps);
     await fire("session_start");
@@ -402,9 +441,11 @@ describe("registerTicketsVehicle's availability refresh", () => {
   it("does not refresh for a tool call outside the tickets namespace", async () => {
     const { pi, active, fire } = fakePi();
     const client = new FakeClient(manifest([operation("discover.fields")]));
+    // Unrelated to broker/shell mode -- disabled here for the same reason as the sibling test above.
     const deps: TicketsVehicleDeps = {
       resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
       createClient: () => client,
+      shell: undefined,
     };
     const ready = registerTicketsVehicle(pi, deps);
     await fire("session_start");

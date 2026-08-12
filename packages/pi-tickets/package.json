@@ -20,7 +20,7 @@
     ]
   },
   "dependencies": {
-    "@danypops/tickets": "^0.14.0",
+    "@danypops/tickets": "^0.15.0",
     "@danypops/vehicle-client": "^0.8.1",
     "@danypops/vehicle-client-pi": "^0.39.1",
     "@danypops/vehicle-core": "^0.13.0",

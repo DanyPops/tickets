@@ -24,12 +24,13 @@
  * fallback; malformed or future details fail closed to bounded model content.
  */
 
-import { resolveVehicleClientTarget, type VehicleClientTarget } from "@danypops/tickets";
+import { resolveVehicleClientTarget, TICKETS_VEHICLE_NAME, type VehicleClientTarget } from "@danypops/tickets";
 import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import {
   type PiVehicleToolDetails,
   type RegisteredPiVehicle,
+  type RegisterVehicleToolsOptions,
   type RegisterVehicleToolsWhenReadyOptions,
   refreshVehicleToolAvailability,
   registerVehicleToolsWhenReady,
@@ -155,7 +156,28 @@ export interface TicketsVehicleDeps {
   retry?: VehicleReadyRetryOptions;
   /** Overridden in tests to inspect every resolution/registration outcome directly instead of only its ctx.ui.notify side effect. */
   onReadyEvent?: (event: VehicleReadyEvent) => void;
+  /**
+   * Overridden in tests that need shell mode off to isolate an unrelated behavior -- pass
+   * `shell: undefined` explicitly to disable it. Omitting this field entirely (not present on
+   * deps at all) keeps the real default: core operations active, everything else behind
+   * tools_man, broker mode on under TICKETS_VEHICLE_NAME. Mirrors pi-pipes'/pi-papyrus' own
+   * identical escape hatch.
+   */
+  shell?: RegisterVehicleToolsOptions["shell"];
 }
+
+/**
+ * Vehicle Shell's core set (see @danypops/vehicle-client-pi's registerVehicleTools `shell`
+ * option): the handful of operations used in nearly every session, active from turn one with no
+ * tools_man round-trip. Every other operation boots inactive, reachable via tools_list/tools_man.
+ * Illustrative, not fixed -- tune from real usage, same as papyrus's own CORE_OPERATIONS.
+ */
+const TICKETS_CORE_OPERATIONS = ["issue.list", "issue.get", "issue.search", "issue.comment_add", "focus.set", "focus.get"];
+
+const DEFAULT_SHELL_OPTIONS: RegisterVehicleToolsOptions["shell"] = {
+  coreOperations: TICKETS_CORE_OPERATIONS,
+  broker: { ownVehicleName: TICKETS_VEHICLE_NAME },
+};
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -268,6 +290,10 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
       notifyReadyEvent(event);
       deps.onReadyEvent?.(event);
     },
+    // Turns Vehicle Shell (and broker mode) on: core operations active from turn one,
+    // everything else behind tools_man; activateForeignOperation is auto-supplied by
+    // registerVehicleTools, no extra wiring needed beyond DEFAULT_SHELL_OPTIONS above.
+    shell: "shell" in deps ? deps.shell : DEFAULT_SHELL_OPTIONS,
   };
 
   return registerVehicleToolsWhenReady(pi, () => Promise.resolve(resolveTarget() ? client : undefined), options).then((registered) => {
