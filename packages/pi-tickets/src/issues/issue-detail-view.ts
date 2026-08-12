@@ -13,15 +13,8 @@
 import type { Comment, Issue, IssueLink } from "@danypops/tickets";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, matchesKey, type TUI, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import {
-  buildDetailLines,
-  type DetailField,
-  type DetailSection,
-  formatChip,
-  neutralizeEmbeddedFullResets,
-  type TextMeasure,
-} from "malevich-tui-components";
-import { truncateToWidth } from "../component-lines.js";
+import { buildDetailLines, type DetailField, type DetailSection, formatChip, type TextMeasure } from "malevich-tui-components";
+import { guardedNeutralizeEmbeddedFullResets, truncateToWidth } from "../component-lines.js";
 import { statusStyle } from "../list-table.js";
 
 /**
@@ -83,7 +76,7 @@ function buildStatusSummaryLine(issue: Issue, theme: Theme): string {
   ]
     .filter((part): part is string => !!part)
     .join(" \u00b7 ");
-  return neutralizeEmbeddedFullResets(rest ? `${chip}  ${theme.fg("muted", rest)}` : chip);
+  return guardedNeutralizeEmbeddedFullResets(rest ? `${chip}  ${theme.fg("muted", rest)}` : chip);
 }
 
 const WIKI_HEADING_PATTERN = /^h[1-6]\.\s*(.*)$/i;
@@ -120,10 +113,11 @@ export function formatDescriptionLines(description: string, theme: Theme): strin
   return description.split("\n").map((rawLine) => {
     if (rawLine.length === 0) return "";
     const headingMatch = rawLine.match(WIKI_HEADING_PATTERN);
-    if (headingMatch) return neutralizeEmbeddedFullResets(theme.fg("accent", theme.bold(headingMatch[1] ?? "")));
+    if (headingMatch) return guardedNeutralizeEmbeddedFullResets(theme.fg("accent", theme.bold(headingMatch[1] ?? "")));
     const bulletMatch = rawLine.match(WIKI_BULLET_PATTERN);
-    if (bulletMatch) return neutralizeEmbeddedFullResets(`${bulletMatch[1]}\u2022 ${formatInlineWikiMarkup(bulletMatch[2] ?? "", theme)}`);
-    return neutralizeEmbeddedFullResets(formatInlineWikiMarkup(rawLine, theme));
+    if (bulletMatch)
+      return guardedNeutralizeEmbeddedFullResets(`${bulletMatch[1]}\u2022 ${formatInlineWikiMarkup(bulletMatch[2] ?? "", theme)}`);
+    return guardedNeutralizeEmbeddedFullResets(formatInlineWikiMarkup(rawLine, theme));
   });
 }
 
@@ -134,7 +128,7 @@ export function formatDescriptionLines(description: string, theme: Theme): strin
 function renderIssueLinkLine(link: IssueLink, theme: Theme): string {
   const chip = link.targetStatus ? formatChip(link.targetStatus, { style: (s) => statusStyle(theme, link.targetStatus, s) }) : "";
   const title = link.targetTitle ? ` ${link.targetTitle}` : "";
-  return neutralizeEmbeddedFullResets(`${link.type}  ${theme.fg("accent", link.targetKey)}${title}  ${chip}`.trimEnd());
+  return guardedNeutralizeEmbeddedFullResets(`${link.type}  ${theme.fg("accent", link.targetKey)}${title}  ${chip}`.trimEnd());
 }
 
 export class IssueDetailComponent implements Component {
