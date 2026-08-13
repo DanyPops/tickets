@@ -24,7 +24,7 @@
  * fallback; malformed or future details fail closed to bounded model content.
  */
 
-import { resolveVehicleClientTarget, TICKETS_VEHICLE_NAME, type VehicleClientTarget } from "@danypops/tickets";
+import { resolveVehicleClientTarget, type VehicleClientTarget } from "@danypops/tickets";
 import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import {
@@ -160,8 +160,9 @@ export interface TicketsVehicleDeps {
    * Overridden in tests that need shell mode off to isolate an unrelated behavior -- pass
    * `shell: undefined` explicitly to disable it. Omitting this field entirely (not present on
    * deps at all) keeps the real default: core operations active, everything else behind
-   * tools_man, broker mode on under TICKETS_VEHICLE_NAME. Mirrors pi-pipes'/pi-papyrus' own
-   * identical escape hatch.
+   * tools_man. Discovery of every other Vehicle in the process is unconditional now
+   * (vehicle-client-pi's own neutral, shared tools_list/tools_man) -- no ownVehicleName/broker
+   * option needed here anymore. Mirrors pi-pipes'/pi-papyrus' own identical escape hatch.
    */
   shell?: RegisterVehicleToolsOptions["shell"];
 }
@@ -176,7 +177,6 @@ const TICKETS_CORE_OPERATIONS = ["issue.list", "issue.get", "issue.search", "iss
 
 const DEFAULT_SHELL_OPTIONS: RegisterVehicleToolsOptions["shell"] = {
   coreOperations: TICKETS_CORE_OPERATIONS,
-  broker: { ownVehicleName: TICKETS_VEHICLE_NAME },
 };
 
 function errorMessage(error: unknown): string {
