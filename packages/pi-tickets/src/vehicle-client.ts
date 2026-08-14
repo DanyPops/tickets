@@ -165,6 +165,10 @@ export interface TicketsVehicleDeps {
    * option needed here anymore. Mirrors pi-pipes'/pi-papyrus' own identical escape hatch.
    */
   shell?: RegisterVehicleToolsOptions["shell"];
+  /** Overridden in tests that need a connector failure to surface immediately instead of waiting
+   * out the real ~5s background retry budget. Defaults to true -- see vehicle-client's own
+   * DEFAULT_CONNECT_RETRY, which covers a daemon that crashed and is mid systemd-restart. */
+  connectRetry?: boolean;
 }
 
 /**
@@ -230,11 +234,17 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
   // one instance already tolerates the daemon rebinding a new random port on
   // restart -- no need to rebuild it just because an earlier attempt found no
   // target yet.
-  const client = createReconnectingVehicleClient(async () => {
-    const resolved = resolveTarget();
-    if (!resolved) throw new Error("Tickets daemon is not running");
-    return createClient(resolved);
-  });
+  // connectRetry:true (vehicle-client's own bounded background retry budget) covers a
+  // daemon that crashed and is mid systemd-restart -- without it, the very first call
+  // during that window fails immediately instead of waiting the ~2s restart out.
+  const client = createReconnectingVehicleClient(
+    async () => {
+      const resolved = resolveTarget();
+      if (!resolved) throw new Error("Tickets daemon is not running");
+      return createClient(resolved);
+    },
+    { connectRetry: deps.connectRetry ?? true },
+  );
 
   const options: RegisterVehicleToolsWhenReadyOptions = {
     // vehicle:approvals:resolve is required alongside tickets:read/write: once

@@ -163,6 +163,11 @@ describe("registerTicketsVehicle", () => {
         throw new Error("connection refused");
       },
       retry: { attempts: 1 },
+      // "connection refused" is stale-connection-shaped -- without disabling connectRetry here,
+      // this would wait out the real ~5s background retry budget before failing (see
+      // vehicle-client's own DEFAULT_CONNECT_RETRY); this test is about the failure being
+      // logged, not about how long the retry budget itself takes.
+      connectRetry: false,
       onReadyEvent: (e) => events.push(e),
     };
     const ready = registerTicketsVehicle(pi, deps);

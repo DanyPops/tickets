@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@danypops/tickets": "^0.15.0",
-    "@danypops/vehicle-client": "^0.8.1",
+    "@danypops/vehicle-client": "^0.10.0",
     "@danypops/vehicle-client-pi": "^0.40.1",
     "@danypops/vehicle-core": "^0.13.0",
     "malevich-tui-components": "^0.28.0",
