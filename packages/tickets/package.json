@@ -39,17 +39,19 @@
       "name": "tickets",
       "displayName": "Tickets daemon",
       "binPath": "src/cli/index.ts",
-      "args": ["serve"],
+      "args": [
+        "serve"
+      ],
       "handleFilename": "handle.json",
       "restartOnFailure": true,
       "restartSec": 2
     }
   },
   "dependencies": {
+    "@danypops/enigma-client": "^0.6.1",
+    "@danypops/vehicle-client": "^0.8.1",
     "@danypops/vehicle-core": "^0.15.0",
     "@danypops/vehicle-server": "^0.24.1",
-    "@danypops/vehicle-client": "^0.8.1",
-    "@danypops/enigma-client": "^0.6.1",
     "@gitbeaker/rest": "^43.8.0",
     "commander": "^12.1.0",
     "jira.js": "^5.4.0",
