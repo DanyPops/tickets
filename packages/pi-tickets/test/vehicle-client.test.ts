@@ -221,7 +221,7 @@ describe("registerTicketsVehicle", () => {
     await ready;
     // issue.list and issue.get are both in TICKETS_CORE_OPERATIONS -- active from turn one.
     // discover.fields is not -- reachable only via tools_list/tools_man, not directly active.
-    expect(active().sort()).toEqual(["issue_get", "issue_list", "tools_list", "tools_man"]);
+    expect(active().sort()).toEqual(["issue_get", "issue_list", "tools_list", "tools_man", "tools_type"]);
   });
 
   it("retries with bounded backoff and eventually registers once the daemon becomes reachable", async () => {
