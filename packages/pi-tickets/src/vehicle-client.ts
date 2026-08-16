@@ -11,8 +11,8 @@
  * reads the handle if the daemon has already started, matching this
  * package's own established rule (see tui.ts's refreshStatus) that a
  * passive Pi lifecycle hook must never surprise-spawn a daemon process --
- * only an explicit user/LLM action does (the /tickets command, or
- * previously, an actual "tickets" tool call). If the daemon isn't running
+ * only an explicit user/LLM action does (the /tickets command, or an actual
+ * tool call). If the daemon isn't running
  * yet, no tickets tools are registered for this session; the next session
  * after the daemon has been started once (via /tickets, or the CLI) picks
  * them up normally.
@@ -190,11 +190,11 @@ function errorMessage(error: unknown): string {
 /**
  * Surfaces the outcomes worth a human seeing: a real resolution/registration
  * error (not just "daemon isn't up yet"), and the terminal exhausted state
- * (the case that used to leave zero tickets tools registered for the whole
- * session with no visible sign why). A daemon merely still starting up
- * (repeated client-unavailable before the last attempt) stays quiet --
- * that's the expected common case right after `tickets daemon start`, not
- * something worth a warning on every retry.
+ * (every attempt failed and no tickets tool will be registered this
+ * session). A daemon merely still starting up (repeated client-unavailable
+ * before the last attempt) stays quiet -- that's the expected common case
+ * right after `tickets daemon start`, not something worth a warning on
+ * every retry.
  */
 function notifyReadyEvent(event: VehicleReadyEvent): void {
   switch (event.kind) {
@@ -259,13 +259,12 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     permissions: ["tickets:read", "tickets:write", "vehicle:approvals:resolve"],
     principal: { id: "pi-tickets" },
     // requestPiAskPrompt (the component requestApproval below wires in) defaults to "integrated"
-    // (docked in place of Pi's input editor) whenever presentation is left unset -- confirmed
-    // live: a real issue.create's own multi-line description/labels/etc render tightly enough
-    // there to need scrolling (a leading "↑" in the box) for content that otherwise fits in one
-    // screen. "overlay" hosts the identical component as a centered floating box sized up to 80%
-    // of the terminal's own width/height (see vehicle-client-pi's own DUAL_HOST_OVERLAY_OPTIONS)
-    // -- meaningfully more reading room for exactly the approvalPrompt content below, without
-    // needing any change outside this package.
+    // (docked in place of Pi's input editor) whenever presentation is left unset -- too little
+    // room for a real issue.create's own multi-line description/labels/etc, which need
+    // scrolling (a leading "↑" in the box) to fit there. "overlay" hosts the identical component
+    // as a centered floating box sized up to 80% of the terminal's own width/height (see
+    // vehicle-client-pi's own DUAL_HOST_OVERLAY_OPTIONS) -- meaningfully more reading room for
+    // exactly the approvalPrompt content below, without needing any change outside this package.
     approvalPresentation: "overlay",
     // Presents Approve/Deny (plus an optional ctrl+g comment) through requestPiAskPrompt's
     // shared searchable-select component instead of registerVehicleTools' own default
@@ -275,10 +274,10 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // to fix before retrying).
     requestApproval: requestPiApprovalViaAskPrompt,
     // Without this, vehicle-pi.ts's own requestLocalApproval default renders the approval
-    // prompt's body as `Input:\n${JSON.stringify(input, null, 2)}` -- confirmed live: a human
-    // approving e.g. issue.approve saw a raw `{"ref": "github:#1", "body": "..."}" blob. Same
-    // literal field values, just formatted as plain `key: value` lines (see formatApprovalInput's
-    // own doc comment for why this must stay lossless, unlike presentation.ts's result-formatting
+    // prompt's body as `Input:\n${JSON.stringify(input, null, 2)}` -- a raw
+    // `{"ref": "github:#1", "body": "..."}` blob for e.g. issue.approve. Same literal field
+    // values, just formatted as plain `key: value` lines (see formatApprovalInput's own doc
+    // comment for why this must stay lossless, unlike presentation.ts's result-formatting
     // redaction).
     approvalPrompt: (descriptor: VehicleOperationDescriptor, input: unknown) => ({
       title: titleForApproval(descriptor.name, input),
