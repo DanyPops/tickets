@@ -47,7 +47,7 @@ afterEach(async () => {
   tmpRoot = undefined;
 });
 
-describe("tickets daemon walking skeleton", () => {
+describe("tickets daemon bootstrap integration", () => {
   it("boots on vehicle-server, authenticates, serves real ops, and pools into the ledger", async () => {
     tmpRoot = mkdtempSync(join(tmpdir(), "tickets-daemon-skeleton-"));
     const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
