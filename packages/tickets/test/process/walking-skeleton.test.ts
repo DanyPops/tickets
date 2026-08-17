@@ -169,13 +169,16 @@ describe("tickets daemon walking skeleton", () => {
     const gitlab = new FakeRepository("gitlab", [
       { ref: "gitlab:1", id: "1", key: "1", title: "Newly configured", status: "todo", priority: "none" },
     ]);
-    // Simulates `enigma login gitlab` happening after the daemon already booted: the
-    // first buildRepositories() call sees only github, the second (what the refresh
-    // task re-resolves to) also has gitlab.
-    let calls = 0;
+    // Simulates `enigma login gitlab` happening after the daemon already booted: every
+    // buildRepositories() call sees only github until the test flips gitlabAvailable,
+    // however many times the refresh task happens to have already run by then --
+    // vehicle-server's own maintenance-task scheduler now runs a task once immediately
+    // at startup *in addition to* its interval (a deliberate self-healing gap fix), so a
+    // fixed "first call vs. later calls" counter would race unpredictably against however
+    // many refreshes land before the test gets to read the pre-flip state.
+    let gitlabAvailable = false;
     const buildRepositories = async (): Promise<Record<string, typeof github>> => {
-      calls++;
-      return calls === 1 ? { github } : { github, gitlab };
+      return gitlabAvailable ? { github, gitlab } : { github };
     };
 
     const { options, db } = await bootstrap({
@@ -200,6 +203,8 @@ describe("tickets daemon walking skeleton", () => {
 
     const before = await client.call("backends.list", {});
     expect(before.backends).toEqual([GITHUB_CAPABILITIES_ONLY_RAW_QUERY]);
+
+    gitlabAvailable = true;
 
     // Give the refresh task at least one tick.
     await new Promise((resolve) => setTimeout(resolve, 60));

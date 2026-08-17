@@ -3,3 +3,4 @@ dist/
 *.log
 .DS_Store
 package-lock.json
+pi-setup.json

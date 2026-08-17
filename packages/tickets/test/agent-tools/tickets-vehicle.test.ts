@@ -657,16 +657,18 @@ describe("session-scoped ticket focus (Vehicle tool-call path)", () => {
     expect(cleared.cleared).toBe(true);
   });
 
-  it("an explicit sessionId in the tool call's own input still wins over callerSessionId, the same precedence issue.subscribe's subscriberId already has", async () => {
+  it("rejects an explicit sessionId in the tool call's own input as invalid -- unlike issue.subscribe's subscriberId, sessionId is never a declared property of focus.*'s schema at all, on either path", async () => {
+    // The RPC/HTTP dispatch (rpc/server.test.ts's own 'explicit sessionId' coverage) calls
+    // TICKET_OP_HANDLERS directly with no schema in between -- input.sessionId's real "explicit
+    // wins over callerSessionId" precedence lives entirely there. The Vehicle tool-call path goes
+    // through defineLooseObjectSchema first, whose additionalProperties enforcement (vehicle-core's
+    // own real fix for it) means a property absent from focus.set's declared schema is rejected as
+    // invalid input here, never silently accepted then ignored or honored -- the same schema that
+    // keeps sessionId off the model-visible tool schema also refuses it as a smuggled extra field.
     const { registry } = harness();
-    await registry.invoke("focus.set", 1, { ref: "github:#1", sessionId: "explicit-scope" }, { ...PERMS, callerSessionId: "session-a" });
-
-    const explicit = (await registry.invoke("focus.get", 1, { sessionId: "explicit-scope" }, PERMS)) as { focus: { ref: string } | null };
-    const implicit = (await registry.invoke("focus.get", 1, {}, { ...PERMS, callerSessionId: "session-a" })) as {
-      focus: { ref: string } | null;
-    };
-    expect(explicit.focus?.ref).toBe("github:#1");
-    expect(implicit.focus).toBeNull();
+    await expect(
+      registry.invoke("focus.set", 1, { ref: "github:#1", sessionId: "explicit-scope" }, { ...PERMS, callerSessionId: "session-a" }),
+    ).rejects.toThrow(/invalid input/);
   });
 
   it("focus_set/focus_get/focus_pause/focus_unpause/focus_clear never advertise a sessionId property in their own tool schema -- the model can't see or set it, it's transport metadata only", () => {
