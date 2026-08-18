@@ -8,6 +8,9 @@
 import type { Database } from "bun:sqlite";
 import type { StartDaemonOptions } from "@danypops/vehicle-server/daemon";
 import { createLogger, type Logger } from "@danypops/vehicle-server/logging";
+import { openVehicleMetricsStore, type VehicleMetricsStore } from "@danypops/vehicle-server/metrics";
+import { createVehicleMetricsMiddleware } from "@danypops/vehicle-server/metrics-middleware";
+import { registerVehicleMetricsOperations } from "@danypops/vehicle-server/metrics-operations";
 import { ensureAuthToken, type PathEnvironment, resolveDaemonPaths } from "@danypops/vehicle-server/paths";
 import { checkpoint, openSqliteWithPragmas } from "@danypops/vehicle-server/storage";
 import { createTicketsVehicleRegistry, syncDiscoverAvailability } from "../agent-tools/tickets-vehicle.js";
@@ -66,6 +69,7 @@ export interface BootstrappedDaemon {
   watches: WatchStore;
   sessionIdentity: SqliteSessionIdentityStore;
   service: TicketService;
+  metrics: VehicleMetricsStore;
   options: StartDaemonOptions;
 }
 
@@ -117,6 +121,15 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
     logger,
     onShutdownRequested,
   } as TicketsAppDeps);
+
+  // Records how often each real operation is invoked (server-side, every caller) plus, via
+  // metrics.recordClientEvent, client-observed Vehicle Shell meta-tool calls -- see
+  // @danypops/vehicle-server's own metrics README section. Wired directly onto the same registry
+  // every real ticket operation is already registered on, so it's discoverable through the exact
+  // same tools_list/tools_man path as any other operation.
+  const metrics = openVehicleMetricsStore(paths.metrics);
+  vehicleRegistry.useExecutionMiddleware(createVehicleMetricsMiddleware(metrics, TICKETS_VEHICLE_NAME));
+  registerVehicleMetricsOperations(vehicleRegistry, metrics, TICKETS_VEHICLE_NAME);
 
   const options: StartDaemonOptions = {
     daemonLabel: "Tickets",
@@ -186,8 +199,9 @@ export async function bootstrap(opts: BootstrapOptions = {}): Promise<Bootstrapp
       }),
     onShutdown: () => {
       db.close();
+      metrics.close();
     },
   };
 
-  return { db, ledger, focusStore, queries, stageStore, watches, sessionIdentity, service, options };
+  return { db, ledger, focusStore, queries, stageStore, watches, sessionIdentity, service, metrics, options };
 }

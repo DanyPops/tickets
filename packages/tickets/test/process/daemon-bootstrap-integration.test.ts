@@ -115,6 +115,49 @@ describe("tickets daemon bootstrap integration", () => {
     db.close();
   });
 
+  it("a real Vehicle-surface op call (the path Pi/pi-tickets' own RemoteVehicleClient actually uses) is recorded by the wired-in metrics store", async () => {
+    // Deliberately NOT AuthenticatedRpcClient/`/api/v1/ops` here -- that's tickets' own separate,
+    // hand-written native RPC surface (see server.ts's own buildApp: `/vehicle/*` and
+    // `/api/v1/ops` are two independent dispatch paths sharing one HTTP app and one
+    // TICKET_OP_HANDLERS table, but only the former ever reaches vehicleRegistry.invoke(), which
+    // is where the metrics middleware is wired). pi-tickets' own real vehicle-client.ts uses
+    // RemoteVehicleClient (`@danypops/vehicle-client/http`) against exactly this surface -- this
+    // test proves metrics capture the path that actually matters (agent/Pi-driven usage), and its
+    // own doc comment records the honest limitation: a caller using AuthenticatedRpcClient
+    // directly (tickets' own CLI, or another daemon calling tickets natively) bypasses it.
+    const { RemoteVehicleClient } = await import("@danypops/vehicle-client/http");
+    tmpRoot = mkdtempSync(join(tmpdir(), "tickets-daemon-metrics-"));
+    const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
+    const github = new FakeRepository("github", [
+      { ref: "github:#1", id: "1", key: "#1", title: "Skeleton issue", status: "todo", priority: "none" },
+    ]);
+    const { options, metrics, db } = await bootstrap({ pathEnv, repos: { github }, version: "0.0.0-skeleton" });
+    daemon = await startDaemon(options);
+
+    const { ensureAuthToken, resolveDaemonPaths } = await import("@danypops/vehicle-server/paths");
+    const { TICKETS_DAEMON_NAMES } = await import("../../src/rpc/ops.js");
+    const paths = resolveDaemonPaths(TICKETS_DAEMON_NAMES, pathEnv);
+    const token = ensureAuthToken(paths.token, "Tickets");
+    const vehicleClient = new RemoteVehicleClient({ baseUrl: `http://${daemon.host}:${daemon.port}`, token });
+
+    const manifest = await vehicleClient.manifest();
+    expect(manifest.operations.map((op) => op.name)).toContain("metrics.query");
+    expect(manifest.operations.map((op) => op.name)).toContain("metrics.recordClientEvent");
+
+    const got = (await vehicleClient.invoke("issue.get", 1, { ref: "github:#1" }, { permissions: ["tickets:read", "tickets:write"] })) as {
+      issue: { title: string };
+    };
+    expect(got.issue.title).toBe("Skeleton issue");
+
+    // Read the metrics store directly (bootstrap's own returned handle) rather than through
+    // metrics.query's own RPC path -- equivalent data, no extra round trip needed for this test.
+    const rows = metrics.query({ toolName: "issue.get" });
+    expect(rows[0]).toMatchObject({ count: 1, successCount: 1, failureCount: 0 });
+
+    await vehicleClient.close();
+    db.close();
+  });
+
   it("wrong token is rejected before any op runs", async () => {
     tmpRoot = mkdtempSync(join(tmpdir(), "tickets-daemon-skeleton-auth-"));
     const pathEnv = { env: { XDG_DATA_HOME: tmpRoot, XDG_STATE_HOME: tmpRoot, XDG_RUNTIME_DIR: tmpRoot, XDG_CONFIG_HOME: tmpRoot } };
