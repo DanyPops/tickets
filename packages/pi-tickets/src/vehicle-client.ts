@@ -28,6 +28,7 @@ import { resolveVehicleClientTarget, type VehicleClientTarget } from "@danypops/
 import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import {
+  createMetricsAwareToolName,
   type PiVehicleToolDetails,
   type RegisteredPiVehicle,
   type RegisterVehicleToolsOptions,
@@ -267,6 +268,16 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
   );
 
   const options: RegisterVehicleToolsWhenReadyOptions = {
+    permissions: ["tickets:read", "tickets:write", "vehicle:approvals:resolve"],
+    principal: { id: "pi-tickets" },
+    // registerVehicleMetricsOperations(..., "tickets") in @danypops/tickets's own bootstrap.ts
+    // uses the default "metrics" prefix -- without this, its metrics.query/
+    // metrics.recordClientEvent operations would project to the exact same bare
+    // "metrics_query"/"metrics_record_client_event" Pi tool names as any other Vehicle that
+    // adopts the same shared module with its own default (a real, live incident: papyrus did
+    // too, and Pi's own tool registry refused the second registration outright, aborting that
+    // Vehicle's entire tool surface for the session).
+    toolName: createMetricsAwareToolName("tickets"),
     // vehicle:approvals:resolve is required alongside tickets:read/write: once
     // the tickets VehicleRegistry gates external-write behind an approval (see
     // its own configureApprovals() call), registerVehicleTools' interactive
@@ -276,8 +287,6 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // would have no effect. vehicle-client-pi never projects
     // vehicle.approval.resolve as a directly LLM-callable tool regardless of
     // this grant, so this does not let the model resolve its own requests.
-    permissions: ["tickets:read", "tickets:write", "vehicle:approvals:resolve"],
-    principal: { id: "pi-tickets" },
     // requestPiAskPrompt (the component requestApproval below wires in) defaults to "integrated"
     // (docked in place of Pi's input editor) whenever presentation is left unset -- too little
     // room for a real issue.create's own multi-line description/labels/etc, which need
