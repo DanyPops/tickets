@@ -23,7 +23,13 @@ function boardPresentation(overrides: Partial<BoardPresentation> = {}): BoardPre
   };
 }
 
-function renderText(board: BoardPresentation, width = 100): string {
+// 120, not 100 -- malevich-tui-components' Board now correctly truncates an oversized column
+// header to its own column width (see malevich-tui-components fix in this same initiative,
+// doc 4e9e08c1); at width=100 a 5-column PR board's own "CHANGES REQUESTED: N" header no longer
+// fits its ~19-char column share, which would silently truncate the very text these tests assert
+// on. 120 gives every column enough room for its longest real header, matching this ecosystem's
+// own 40/80/120 standard render-width triad rather than an arbitrary narrower number.
+function renderText(board: BoardPresentation, width = 120): string {
   return renderTicketsBoard(board, fakeTheme).render(width).join("\n");
 }
 
