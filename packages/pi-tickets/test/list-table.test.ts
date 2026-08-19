@@ -60,6 +60,22 @@ describe("renderTicketsListTable", () => {
     expect(text).toContain("done");
   });
 
+  it("QoL: wraps the Ref cell in a clickable OSC 8 hyperlink when the row carries a real url, plain text otherwise", () => {
+    const text = renderText(
+      listPresentation({
+        rows: [
+          { id: "jira:CNF-25982", label: "Has a url", status: "todo", metadata: [], url: "https://issues.redhat.com/browse/CNF-25982" },
+          { id: "github:#2", label: "No url", status: "done", metadata: [] },
+        ],
+      }),
+    );
+    // OSC 8: ESC ] 8 ; ; <url> ESC \ <text> ESC ] 8 ; ; ESC \
+    expect(text).toContain("\x1b]8;;https://issues.redhat.com/browse/CNF-25982\x1b\\jira:CNF-25982\x1b]8;;\x1b\\");
+    // No stray hyperlink escape anywhere near the url-less row's own ref.
+    expect(text).toContain("github:#2");
+    expect(text).not.toContain("]8;;\x1b\\github:#2");
+  });
+
   it("shows a leading title/count line", () => {
     const text = renderText(listPresentation({ completeness: { total: 7, returned: 2, omitted: 5 } }));
     expect(text.split("\n")[0]).toContain("Issues (7)");

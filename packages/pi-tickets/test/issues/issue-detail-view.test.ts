@@ -145,6 +145,15 @@ describe("IssueDetailComponent", () => {
     expect(view.render(100).join("\n")).not.toContain("Comments");
   });
 
+  it("QoL: wraps the footer's own url in a clickable OSC 8 hyperlink when the issue has one, shows nothing there otherwise", () => {
+    const withUrl = new IssueDetailComponent(fakeTui(), fakeTheme, issue({ url: "https://issues.redhat.com/browse/ENG-1" }), [], () => {});
+    const rendered = withUrl.render(100).join("\n");
+    expect(rendered).toContain("\x1b]8;;https://issues.redhat.com/browse/ENG-1\x1b\\issues.redhat.com/browse/ENG-1\x1b]8;;\x1b\\");
+
+    const withoutUrl = new IssueDetailComponent(fakeTui(), fakeTheme, issue({ url: undefined }), [], () => {});
+    expect(withoutUrl.render(100).join("\n")).not.toContain("]8;;");
+  });
+
   it("escape calls close", () => {
     let closed = false;
     const view = new IssueDetailComponent(fakeTui(), fakeTheme, issue(), [], () => {

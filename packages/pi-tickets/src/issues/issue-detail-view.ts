@@ -12,7 +12,7 @@
 
 import type { Comment, Issue, IssueLink } from "@danypops/tickets";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, matchesKey, type TUI, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Component, hyperlink, matchesKey, type TUI, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { buildDetailLines, type DetailField, type DetailSection, formatChip, type TextMeasure } from "malevich-tui-components";
 import { guardedNeutralizeEmbeddedFullResets, truncateToWidth } from "../component-lines.js";
 import { statusStyle } from "../list-table.js";
@@ -168,7 +168,9 @@ export class IssueDetailComponent implements Component {
       "pgup/pgdn page",
       this.lines.length > visibleRows ? `${this.offsetY + 1}-${end}/${this.lines.length}` : undefined,
       "esc back",
-      this.issue.url ? this.issue.url.replace(/^https?:\/\//, "") : undefined,
+      // A clickable OSC 8 hyperlink (falls back to plain text automatically on a terminal
+      // without OSC 8 support) so an end user can actually reach the issue, not just read its URL.
+      this.issue.url ? hyperlink(this.issue.url.replace(/^https?:\/\//, ""), this.issue.url) : undefined,
     ]
       .filter(Boolean)
       .join(" \u2022 ");

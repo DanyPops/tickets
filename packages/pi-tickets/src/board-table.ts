@@ -16,7 +16,7 @@
 
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Text, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { hyperlink, Text, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { Board, type BoardColumn, type BoardTheme, formatChip, type TextMeasure } from "malevich-tui-components";
 import { epicBadgeColor } from "./board-view.js";
 import { truncateToWidth, withLeadingLine, withTrailingLine } from "./component-lines.js";
@@ -74,7 +74,8 @@ function renderIssueCard(row: TicketsBoardRow, theme: Theme, width: number): str
   if (row.parent) lines.push(truncateToWidth(theme.fg(epicBadgeColor(row.parent.key), `  ${row.parent.label}`), width));
   if (row.labels?.length) lines.push(truncateToWidth(theme.fg("muted", `  ${row.labels.map((l) => `\u2039${l}\u203a`).join(" ")}`), width));
 
-  const meta = [row.ref, row.storyPoints ? `\u2022${row.storyPoints}` : undefined, row.assignee ? initials(row.assignee) : undefined]
+  const ref = row.url ? hyperlink(row.ref, row.url) : row.ref;
+  const meta = [ref, row.storyPoints ? `\u2022${row.storyPoints}` : undefined, row.assignee ? initials(row.assignee) : undefined]
     .filter(Boolean)
     .join("  ");
   lines.push(theme.fg("dim", `  ${meta}`));
@@ -144,7 +145,8 @@ function renderPrCard(row: TicketsBoardRow, theme: Theme, width: number): string
   ];
   if (reviewerBits.length) lines.push(truncateToWidth(`  ${reviewerBits.join("  ")}`, width));
 
-  const meta = [row.ref, row.assignee ? `by ${initials(row.assignee)}` : undefined].filter(Boolean).join("  ");
+  const ref = row.url ? hyperlink(row.ref, row.url) : row.ref;
+  const meta = [ref, row.assignee ? `by ${initials(row.assignee)}` : undefined].filter(Boolean).join("  ");
   lines.push(theme.fg("dim", `  ${meta}`));
   return lines;
 }

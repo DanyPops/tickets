@@ -21,7 +21,7 @@
  */
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Text, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { hyperlink, Text, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { firstDistinctStyle, renderBoundedTable, type TextMeasure } from "malevich-tui-components";
 import { truncateToWidth, withLeadingLine, withTrailingLine } from "./component-lines.js";
 import { omissionLine, type TicketsPresentation } from "./presentation.js";
@@ -118,7 +118,10 @@ export function renderTicketsListTable(list: TicketsListPresentation, theme: The
     { header: "Details", key: "details" },
   ];
   const rows = list.rows.map((row) => ({
-    ref: row.id,
+    // A clickable OSC 8 hyperlink when the backend reports a real issue URL -- plain text
+    // (falls back automatically on a terminal without OSC 8 support) otherwise, so an end
+    // user can actually reach the issue from the TUI, not just see its bare ref.
+    ref: row.url ? hyperlink(row.id, row.url) : row.id,
     title: row.label,
     status: row.status ?? "",
     details: row.metadata.join(" \u00b7 "),

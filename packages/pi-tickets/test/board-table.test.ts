@@ -79,6 +79,12 @@ describe("renderTicketsBoard", () => {
       expect(text).not.toContain("DRAFT");
       expect(text).not.toContain("MERGED");
     });
+
+    it("QoL: wraps the card's own ref in a clickable OSC 8 hyperlink when the row carries a real url", () => {
+      const rows = [{ ref: "jira:PROJ-1", title: "Wire SSO", status: "todo", url: "https://issues.example.com/browse/PROJ-1" }];
+      const text = renderText(boardPresentation({ rows }));
+      expect(text).toContain("\x1b]8;;https://issues.example.com/browse/PROJ-1\x1b\\jira:PROJ-1\x1b]8;;\x1b\\");
+    });
   });
 
   describe("pr variant", () => {
@@ -105,6 +111,12 @@ describe("renderTicketsBoard", () => {
       expect(text).toContain("Blocked PR");
       expect(text).toContain("Ready PR");
       expect(text).toContain("Landed PR");
+    });
+
+    it("QoL: wraps a PR card's own ref in a clickable OSC 8 hyperlink when the row carries a real url", () => {
+      const rows = [{ ref: "github:#42", title: "Add feature", url: "https://github.com/example/repo/pull/42", pullRequest: {} }];
+      const text = renderText(prBoard(rows));
+      expect(text).toContain("\x1b]8;;https://github.com/example/repo/pull/42\x1b\\github:#42\x1b]8;;\x1b\\");
     });
 
     it("shows a draft badge, mergeable-state badge, and per-reviewer approve/changes-requested/waiting icons", () => {

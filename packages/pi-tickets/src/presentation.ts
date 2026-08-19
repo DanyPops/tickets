@@ -18,6 +18,10 @@ export interface TicketsPresentationRow {
   readonly label: string;
   readonly status?: string;
   readonly metadata: readonly string[];
+  /** The issue's own web URL, when the backend reports one -- rendered as a clickable OSC 8
+   * terminal hyperlink on the Ref cell rather than dropped as an omitted field, so an end user
+   * can actually reach the issue from the TUI instead of only ever seeing its bare ref. */
+  readonly url?: string;
 }
 
 export interface TicketsPresentationField {
@@ -44,6 +48,8 @@ export interface TicketsBoardRow {
   readonly ref: string;
   readonly title: string;
   readonly status?: string;
+  /** Same rationale as TicketsPresentationRow.url -- surfaced as a clickable hyperlink on the card's own ref, not omitted. */
+  readonly url?: string;
   readonly parent?: { readonly key: string; readonly label: string };
   readonly labels?: readonly string[];
   readonly storyPoints?: string;
@@ -169,12 +175,13 @@ function field(label: string, value: unknown): TicketsPresentationField {
   return { label: boundedText(label), value: boundedText(value, TICKETS_PRESENTATION_MAX_TEXT_BYTES) };
 }
 
-function row(id: unknown, label: unknown, status?: unknown, metadata: readonly string[] = []): TicketsPresentationRow {
+function row(id: unknown, label: unknown, status?: unknown, metadata: readonly string[] = [], url?: unknown): TicketsPresentationRow {
   return {
     id: boundedText(id),
     label: boundedText(label, TICKETS_PRESENTATION_MAX_TEXT_BYTES),
     ...(status === undefined ? {} : { status: boundedText(status) }),
     metadata: metadata.slice(0, 8).map((value) => boundedText(value)),
+    ...(typeof url === "string" && url.length > 0 ? { url: boundedText(url) } : {}),
   };
 }
 
@@ -210,7 +217,7 @@ function issueRow(value: unknown): TicketsPresentationRow | undefined {
     typeof issue.assignee === "string" ? issue.assignee : "",
     ...boundedStrings(issue.labels),
   ].filter(Boolean);
-  return row(issue.ref, issue.title, issue.status ?? "unknown", metadata);
+  return row(issue.ref, issue.title, issue.status ?? "unknown", metadata, issue.url);
 }
 
 function boundedReviewers(value: unknown, maximum = 8): TicketsBoardReviewer[] | undefined {
@@ -242,6 +249,7 @@ function boardRow(value: unknown): TicketsBoardRow | undefined {
     ...(Array.isArray(issue.labels) ? { labels: boundedStrings(issue.labels) } : {}),
     ...(typeof storyPoints === "string" ? { storyPoints: boundedText(storyPoints) } : {}),
     ...(typeof issue.assignee === "string" ? { assignee: boundedText(issue.assignee) } : {}),
+    ...(typeof issue.url === "string" && issue.url.length > 0 ? { url: boundedText(issue.url) } : {}),
     ...(pr
       ? {
           pullRequest: {
@@ -298,9 +306,9 @@ function issueFields(value: unknown): TicketsPresentationField[] | undefined {
 function issueOmissions(value: unknown): string[] {
   const issue = record(value);
   if (!issue) return ["malformed issue output omitted"];
-  return ["description", "customFields", "issueLinks", "externalLinks", "url", "reporter", "rawStatus"].filter(
-    (key) => issue[key] !== undefined,
-  );
+  // "url" deliberately absent from this list -- it's surfaced as a clickable hyperlink on the
+  // row/card itself now (see TicketsPresentationRow.url / TicketsBoardRow.url), not omitted.
+  return ["description", "customFields", "issueLinks", "externalLinks", "reporter", "rawStatus"].filter((key) => issue[key] !== undefined);
 }
 
 function summaryFallback(operation: string, reason: string): TicketsPresentation {
@@ -680,11 +688,12 @@ function validRow(value: unknown): value is TicketsPresentationRow {
   const item = record(value);
   return (
     !!item &&
-    Object.keys(item).every((key) => ["id", "label", "status", "metadata"].includes(key)) &&
+    Object.keys(item).every((key) => ["id", "label", "status", "metadata", "url"].includes(key)) &&
     boundedString(item.id) &&
     boundedString(item.label, TICKETS_PRESENTATION_MAX_TEXT_BYTES) &&
     (item.status === undefined || boundedString(item.status)) &&
-    validStringArray(item.metadata, 8)
+    validStringArray(item.metadata, 8) &&
+    (item.url === undefined || boundedString(item.url))
   );
 }
 
@@ -701,10 +710,11 @@ function validBoardReviewer(value: unknown): value is TicketsBoardReviewer {
 function validBoardRow(value: unknown): value is TicketsBoardRow {
   const item = record(value);
   if (!item) return false;
-  const allowed = ["ref", "title", "status", "parent", "labels", "storyPoints", "assignee", "pullRequest"];
+  const allowed = ["ref", "title", "status", "parent", "labels", "storyPoints", "assignee", "pullRequest", "url"];
   if (!Object.keys(item).every((key) => allowed.includes(key))) return false;
   if (!boundedString(item.ref) || !boundedString(item.title, TICKETS_PRESENTATION_MAX_TEXT_BYTES)) return false;
   if (item.status !== undefined && !boundedString(item.status)) return false;
+  if (item.url !== undefined && !boundedString(item.url)) return false;
   if (item.parent !== undefined) {
     const parent = record(item.parent);
     if (!parent || !onlyKeys(parent, ["key", "label"]) || !boundedString(parent.key) || !boundedString(parent.label)) return false;
