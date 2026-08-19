@@ -125,7 +125,10 @@ function fakePi() {
   } as unknown as ExtensionAPI;
   const notifications: Array<{ message: string; type: string }> = [];
   const fire = async (event: string, toolName?: string, ctxOverrides: Record<string, unknown> = {}) => {
-    const ctx = { ui: { notify: (message: string, type: string) => notifications.push({ message, type }) }, ...ctxOverrides };
+    const ctx = {
+      ui: { notify: (message: string, type: string) => notifications.push({ message, type }), setWidget: () => {} },
+      ...ctxOverrides,
+    };
     for (const handler of handlers[event] ?? []) await handler({ toolName }, ctx);
   };
   return { pi, tools, active: () => active, fire, notifications };

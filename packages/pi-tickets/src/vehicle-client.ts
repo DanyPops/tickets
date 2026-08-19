@@ -53,6 +53,7 @@ import {
 } from "./presentation.js";
 import { formatApprovalInput, renderResultText, titleForApproval } from "./render.js";
 import { WatchEventsPoll } from "./watch-events-poll.js";
+import { WatchesOverlay } from "./watches-overlay.js";
 
 /**
  * issue.* operations drop the "issue" prefix in render.ts's existing action
@@ -351,12 +352,17 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     });
 
     // "Get notified about a watched issue/query changing" -- the pi-tickets analog of pi-pipes'
-    // own JobsOverlay poll, minus the visual widget (see watch-events-poll.ts's own doc comment
-    // for why no client-side diffing is needed here). Gated on ctx.hasUI, same as pi-pipes' own
-    // jobs overlay: a passive background notifier has no reason to run for a headless/RPC caller
-    // with nobody to notice it. Reuses this exact same reconnecting `client` -- no second daemon
-    // connection, and it already tolerates the daemon not being up yet or rebinding a new port.
+    // own JobsOverlay poll (see watch-events-poll.ts's own doc comment for why no client-side
+    // diffing is needed here for the notification half). Gated on ctx.hasUI, same as pi-pipes'
+    // own jobs overlay: a passive background notifier has no reason to run for a headless/RPC
+    // caller with nobody to notice it. Reuses this exact same reconnecting `client` -- no second
+    // daemon connection, and it already tolerates the daemon not being up yet or rebinding a new
+    // port.
     let watchEventsPoll: WatchEventsPoll | undefined;
+    // The visual counterpart: a persistent widget listing every currently-watched issue/query.
+    // issue.subscribed/query.subscribed already exist and are documented "never a live backend
+    // call, cheap to call frequently" -- no new backend operation was needed for this widget.
+    let watchesOverlay: WatchesOverlay | undefined;
     pi.on("session_start", (_event, ctx) => {
       if (!ctx.hasUI) return;
       watchEventsPoll ??= new WatchEventsPoll({
@@ -366,9 +372,14 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
         permissions: options.permissions ?? [],
       });
       watchEventsPoll.start();
+      watchesOverlay ??= new WatchesOverlay(client, options.permissions ?? [], ctx.sessionManager.getSessionId());
+      watchesOverlay.setUI(ctx.ui);
+      void watchesOverlay.refresh();
+      watchesOverlay.startPolling();
     });
     pi.on("session_shutdown", () => {
       watchEventsPoll?.stop();
+      watchesOverlay?.dispose();
     });
 
     return current;
