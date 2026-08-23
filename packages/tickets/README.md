@@ -237,14 +237,14 @@ scoped client token is the least-privilege default.
 
 ## The `pi-tickets` extension
 
-Published as `@danypops/pi-tickets`. `../pi-tickets/` (this repo's workspace member) registers a single `tickets` tool for
-[pi](https://github.com/badlogic/pi) with one action per CLI command (`list`,
-`get`, `create`, `update`, `search`, `children`, `comments`, `comment_add`,
-`backends`, `ledger_search`, `ledger_stats`, `focus_set`, `focus_get`,
-`focus_pause`, `focus_unpause`, `focus_clear`, `discover_fields`,
-`discover_statuses`, `discover_template`). It talks to the same daemon
-through the same authenticated RPC client the CLI uses — never a direct
-backend call or a direct SQLite open. OAuth login and daemon lifecycle
+Published as `@danypops/pi-tickets`. `../pi-tickets/` (this repo's workspace member) registers one real Pi tool per operation—`issue_list`,
+`issue_get`, `issue_create`, `issue_update`, `issue_search`,
+`issue_children`, `issue_comments`, `issue_comment_add`, `backends_list`,
+`ledger_search`, `ledger_stats`, `focus_set`, `focus_get`, `focus_pause`,
+`focus_unpause`, `focus_clear`, `discover_fields`, `discover_statuses`,
+`discover_template`—not a single action-dispatch mega-tool. Each talks to
+the same daemon through the same authenticated RPC client the CLI uses —
+never a direct backend call or a direct SQLite open. OAuth login and daemon lifecycle
 control are deliberately **not** exposed here (neither as a tool action nor
 as the `/tickets` command below): approving OAuth access requires a human in
 a browser, and stopping a shared daemon is an operational decision, not
