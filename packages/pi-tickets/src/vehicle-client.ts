@@ -416,7 +416,13 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // a headless/RPC caller's own follow-up message anyway.
     const approvalOutcomePolling = new BoundedPoll();
     pi.on("session_start", (_event, ctx) => {
+      // TEMPORARY diagnostic pending a real fix: confirms live whether session_start's own
+      // ctx.hasUI actually reflects a real UI session -- everything downstream (this poll,
+      // WatchEventsPoll, WatchesOverlay) is gated on exactly this value, never independently
+      // verified against a real deployment before now.
+      ctx.ui?.notify?.(`[pi-tickets diagnostic] session_start fired, hasUI=${ctx.hasUI}`, "info");
       if (!ctx.hasUI) return;
+      ctx.ui.notify("[pi-tickets diagnostic] approval outcome poll starting now", "info");
       watchEventsPoll ??= new WatchEventsPoll({
         client,
         pi,
