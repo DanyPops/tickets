@@ -88,7 +88,7 @@ function legacyActionFor(operationName: string): string {
  * Every Vehicle-projected ticket tool name starts with one of these
  * namespace prefixes (issue_list, focus_set, ledger_search,
  * discover_fields, backends_list -- see tickets-vehicle.ts's OPERATIONS).
- * Exported so tui.ts's own footer-status refresh shares the exact same
+ * Exported so tui.ts's own focus-widget refresh shares the exact same
  * list instead of keeping a second copy in sync by hand.
  *
  * query_ was a pre-existing gap here (query.save/list/remove/run have projected query_* tools

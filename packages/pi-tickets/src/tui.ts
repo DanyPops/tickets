@@ -38,11 +38,13 @@
  *
  * Enter sets focus (or clears it on the synthetic first row), 'v' opens
  * the full ticket detail view, 'o' opens the issue's real web URL, 'r'
- * refreshes from source. A footer status always shows the current focus
- * so it's visible outside the dialog too, refreshed on session start and
- * after every "tickets" tool call -- including autonomous focus_* calls
- * the LLM makes mid-conversation, so the human and the LLM are always
- * looking at the same focus state.
+ * refreshes from source. A persistent above-editor widget (see
+ * focus-widget.ts/focus-overlay.ts) always shows the current focus -- ref,
+ * title, and URL -- so it's visible outside the dialog too, hidden entirely
+ * when nothing's focused, and refreshed on session start and after every
+ * "tickets" tool call -- including autonomous focus_* calls the LLM makes
+ * mid-conversation, so the human and the LLM are always looking at the same
+ * focus state.
  *
  * Deliberately NOT exposed here: OAuth login and daemon lifecycle control,
  * for the same reason they're excluded from the tool actions in index.ts --
@@ -50,15 +52,7 @@
  * daemon stop`), not a `/` command an LLM conversation could trigger.
  */
 
-import {
-  type Comment,
-  createTicketsClient,
-  type EnsureDaemonOptions,
-  type Issue,
-  openUrl,
-  type TicketFocusState,
-  type TicketsRpcClient,
-} from "@danypops/tickets";
+import { type Comment, createTicketsClient, type EnsureDaemonOptions, type Issue, openUrl, type TicketsRpcClient } from "@danypops/tickets";
 import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-status-refresh";
 import { listSecretsContributors, mergeSecretsContributions, runSecretsCommand } from "@danypops/vehicle-client-pi/secrets-tui";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
@@ -67,12 +61,13 @@ import { Envelope, TabbedContainer, type TextMeasure } from "malevich-tui-compon
 import { BackendTabGroupComponent } from "./backends/backend-tab-group.js";
 import { activeScopedTab, handleHorizontalArrow, handleMnemonicJump, type ScopedTab } from "./backends/tab-dispatch.js";
 import { BoardTabComponent } from "./board-view.js";
+import { FocusOverlay } from "./focus-overlay.js";
 import { IssueDetailComponent } from "./issues/issue-detail-view.js";
 import { IssueListComponent } from "./issues/issue-list-view.js";
 import { tabBarTheme } from "./menu-theme.js";
 import { pushView } from "./navigation.js";
 import { SavedQueryTabComponent } from "./saved-queries/saved-query-view.js";
-import { cacheSessionSecret, focusSessionFields, forgetSessionSecret, sessionSecretField } from "./session-identity.js";
+import { cacheSessionSecret, forgetSessionSecret, sessionSecretField } from "./session-identity.js";
 import { TICKETS_TOOL_PREFIXES } from "./vehicle-client.js";
 
 const BROWSE_LIMIT = 100;
@@ -104,26 +99,27 @@ function backendDisplayName(backend: string): string {
   return known[backend] ?? backend.charAt(0).toUpperCase() + backend.slice(1);
 }
 
-function focusStatusText(theme: Theme, focus: TicketFocusState | null): string | undefined {
-  if (!focus) return undefined;
-  const icon = focus.status === "paused" ? "\u23f8" : "\ud83c\udfaf";
-  return theme.fg("accent", `${icon} ${focus.ref}`);
-}
-
 export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}): void {
   const getClient = deps.getClient ?? createTicketsClient;
   const open = deps.openUrl ?? openUrl;
   const openSettings = deps.openSettings ?? openTicketsSettings;
 
+  // Reused across every refreshStatus() call for this extension's whole lifetime -- constructed
+  // lazily (first successful daemon reach) since it needs a real client and this session's own
+  // id, both only available once refreshStatus actually runs.
+  let focusOverlay: FocusOverlay | undefined;
+
   async function refreshStatus(ctx: ExtensionContext, client?: TicketsRpcClient): Promise<void> {
     try {
       const active = client ?? (await getClient({ autoStart: false }));
-      const { focus } = await active.call("focus.get", focusSessionFields(ctx.sessionManager.getSessionId()));
-      ctx.ui.setStatus("tickets-focus", focusStatusText(ctx.ui.theme, focus));
+      focusOverlay ??= new FocusOverlay(active, ctx.sessionManager.getSessionId());
+      focusOverlay.setUI(ctx.ui);
+      await focusOverlay.refresh();
+      focusOverlay.startPolling(); // idempotent -- catches a focus change made from outside this session (CLI, another session)
     } catch {
       // Daemon not running or unreachable — nothing to show, and starting it
-      // just to paint a footer would surprise a user who hasn't touched
-      // tickets yet. Leave whatever status was last shown.
+      // just to paint a widget would surprise a user who hasn't touched
+      // tickets yet. Leave whatever state was last shown.
     }
   }
 
@@ -143,6 +139,8 @@ export function registerTicketsTui(pi: ExtensionAPI, deps: TicketsTuiDeps = {}):
     }
   });
   pi.on("session_shutdown", async (_event, ctx: ExtensionContext) => {
+    focusOverlay?.dispose();
+    focusOverlay = undefined;
     try {
       const sessionId = ctx.sessionManager.getSessionId();
       const client = await getClient({ autoStart: false });

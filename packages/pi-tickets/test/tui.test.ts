@@ -78,6 +78,7 @@ function fakeCtx(theme: typeof fakeTheme = fakeTheme, sessionId = "test-session"
       theme,
       notify: mock(() => {}),
       setStatus: mock(() => {}),
+      setWidget: mock(() => {}),
       custom: mock(
         <T>(factory: (tui: unknown, theme: unknown, kb: unknown, done: (v: T) => void) => Component, _options?: unknown) =>
           new Promise<T>((resolve) => {
@@ -167,7 +168,7 @@ describe("registerTicketsTui", () => {
     expect(pi.handlers.has("tool_execution_end")).toBe(true);
   });
 
-  it("session_start sets a focus status when a focus already exists, none when it doesn't", async () => {
+  it("session_start registers the focus widget (with the ticket URL) when a focus already exists, never registers one when it doesn't", async () => {
     const pi = fakePi();
     let hasFocus = false;
     const client = fakeClient({
@@ -179,11 +180,23 @@ describe("registerTicketsTui", () => {
 
     const ctx = fakeCtx();
     await fireEvent(pi, "session_start", {}, ctx);
-    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("tickets-focus", undefined);
+    expect(ctx.ui.setWidget).not.toHaveBeenCalled();
 
     hasFocus = true;
-    await fireEvent(pi, "session_start", {}, ctx);
-    expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("tickets-focus", "\ud83c\udfaf github:#1");
+    await fireEvent(pi, "tool_execution_end", { toolName: "focus_set" }, ctx);
+    const [key, factory] = (ctx.ui.setWidget as ReturnType<typeof mock>).mock.calls.at(-1)!;
+    expect(key).toBe("pi-tickets-focus");
+    expect(factory).toBeDefined();
+    const rendered = (factory as (tui: unknown, theme: unknown) => { render(w: number): string[] })(
+      { requestRender: () => {} },
+      fakeTheme,
+    ).render(80);
+    expect(rendered.join("\n")).toContain("github:#1");
+    expect(rendered.join("\n")).toContain("https://x");
+
+    hasFocus = false;
+    await fireEvent(pi, "tool_execution_end", { toolName: "focus_clear" }, ctx);
+    expect((ctx.ui.setWidget as ReturnType<typeof mock>).mock.calls.at(-1)?.[1]).toBeUndefined();
   });
 
   it("session_start registers this session's own identity, caching the secret; session_shutdown releases it with that same secret", async () => {
@@ -230,8 +243,9 @@ describe("registerTicketsTui", () => {
 
     const ctx = fakeCtx();
     await expect(fireEvent(pi, "session_start", {}, ctx)).resolves.toBeUndefined();
-    // The rest of session_start (the footer status refresh) still ran despite the failed registration.
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("tickets-focus", undefined);
+    // The rest of session_start (the focus widget refresh) still ran despite the failed registration --
+    // nothing focused, so the widget stays hidden (never registered) rather than throwing.
+    expect(ctx.ui.setWidget).not.toHaveBeenCalled();
   });
 
   it("refreshStatus's own focus.get call carries this session's own sessionId, the same as IssueListComponent's", async () => {
@@ -252,7 +266,7 @@ describe("registerTicketsTui", () => {
     expect(getCall).toBeDefined();
   });
 
-  it("tool_execution_end refreshes status only for a real tickets Vehicle tool", async () => {
+  it("tool_execution_end refreshes the focus widget only for a real tickets Vehicle tool", async () => {
     const pi = fakePi();
     const client = fakeClient({
       "focus.get": () => ({ focus: { ref: "jira:PROJ-1", title: "x", url: "https://x", status: "paused", updatedAt: "now" } }),
@@ -261,10 +275,16 @@ describe("registerTicketsTui", () => {
 
     const ctx = fakeCtx();
     await fireEvent(pi, "tool_execution_end", { toolName: "bash" }, ctx);
-    expect(ctx.ui.setStatus).not.toHaveBeenCalled();
+    expect(ctx.ui.setWidget).not.toHaveBeenCalled();
 
     await fireEvent(pi, "tool_execution_end", { toolName: "focus_set" }, ctx);
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("tickets-focus", "\u23f8 jira:PROJ-1");
+    const [, factory] = (ctx.ui.setWidget as ReturnType<typeof mock>).mock.calls.at(-1)!;
+    const rendered = (factory as (tui: unknown, theme: unknown) => { render(w: number): string[] })(
+      { requestRender: () => {} },
+      fakeTheme,
+    ).render(80);
+    expect(rendered.join("\n")).toContain("\u23f8");
+    expect(rendered.join("\n")).toContain("jira:PROJ-1");
   });
 
   it("surfaces the daemon-unavailable error via notify instead of throwing", async () => {

@@ -4,8 +4,8 @@
  * discover_fields, ...) projected from the daemon's own VehicleRegistry
  * (see vehicle-client.ts and @danypops/tickets' src/agent-tools/tickets-vehicle.ts),
  * and a `/tickets` interactive TUI for the human (see tui.ts) — a browsable
- * list of pooled issues across every backend, with a persistent footer status
- * showing the current focus. Neither ever talks to a backend or opens the
+ * list of pooled issues across every backend, with a persistent above-editor
+ * widget showing the current focus. Neither ever talks to a backend or opens the
  * daemon's SQLite ledger directly — both go through the same authenticated
  * client the CLI uses.
  *
