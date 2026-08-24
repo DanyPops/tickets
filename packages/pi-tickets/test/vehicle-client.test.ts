@@ -641,6 +641,7 @@ describe("isTicketsVehicleTool", () => {
     expect(isTicketsVehicleTool("backends_list")).toBe(true);
     expect(isTicketsVehicleTool("stage_add")).toBe(true);
     expect(isTicketsVehicleTool("stage_push")).toBe(true);
+    expect(isTicketsVehicleTool("vehicle_approval_status")).toBe(true);
   });
 
   it("rejects an unrelated tool name", () => {

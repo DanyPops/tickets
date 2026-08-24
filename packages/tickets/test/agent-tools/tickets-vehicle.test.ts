@@ -99,15 +99,21 @@ describe("createTicketsVehicleRegistry", () => {
       .manifest()
       .operations.map((op) => op.name)
       .sort();
-    // vehicle.approval.resolve is VehicleRegistry's own built-in, registered by
-    // configureApprovals() -- never a tickets operation itself, and (per
-    // vehicle-client-pi's own exclusion) never projected as a callable Pi tool.
+    // vehicle.approval.resolve/status are VehicleRegistry's own built-ins, registered by
+    // configureApprovals() -- never tickets operations themselves. resolve stays hidden (per
+    // vehicle-client-pi's own fixed-name exclusion) since granting/denying must never be
+    // model-callable; status IS projected as an ordinary Pi tool, since reading an
+    // already-made decision can never let a caller grant its own request.
     // session.register/session.release are excluded the same way daemon.shutdown is: an
     // internal client<->daemon handshake (see rpc/server.ts's own session-identity armor doc
     // comment), never something an LLM should be able to call as a tool -- reached only via
     // the raw /api/v1/ops dispatch pi-tickets' own extension code uses directly.
     const EXCLUDED_FROM_VEHICLE = new Set(["daemon.shutdown", "session.register", "session.release"]);
-    const expected = [...TICKET_OPERATIONS.filter((op) => !EXCLUDED_FROM_VEHICLE.has(op)), "vehicle.approval.resolve"].sort();
+    const expected = [
+      ...TICKET_OPERATIONS.filter((op) => !EXCLUDED_FROM_VEHICLE.has(op)),
+      "vehicle.approval.resolve",
+      "vehicle.approval.status",
+    ].sort();
     expect(names).toEqual(expected);
     for (const excluded of EXCLUDED_FROM_VEHICLE) expect(names).not.toContain(excluded);
   });

@@ -95,8 +95,13 @@ function legacyActionFor(operationName: string): string {
  * since before this list was last touched) -- fixed alongside adding watch_ for the new
  * issue.subscribe/query.subscribe family's own watch_events tool, rather than leaving a second,
  * unrelated bug in place while editing this exact line for a different reason.
+ *
+ * vehicle_ covers vehicle.approval.status -- registerTicketsVehicle's own configureApprovals()
+ * call registers it directly on this Vehicle's registry (same as vehicle.approval.resolve,
+ * which stays hidden by vehicle-client-pi's own fixed-name exclusion instead of ever reaching
+ * this list), so it's a real tickets-owned tool the same way stage_push is.
  */
-export const TICKETS_TOOL_PREFIXES = ["issue_", "focus_", "ledger_", "discover_", "backends_", "stage_", "query_", "watch_"];
+export const TICKETS_TOOL_PREFIXES = ["issue_", "focus_", "ledger_", "discover_", "backends_", "stage_", "query_", "watch_", "vehicle_"];
 
 export function isTicketsVehicleTool(toolName: string): boolean {
   return TICKETS_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix));
