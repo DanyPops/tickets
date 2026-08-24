@@ -332,6 +332,15 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
       }
     },
     onApprovalPending: (requestId, descriptor) => approvalOutcomePoll.record(requestId, descriptor.name),
+    // Real users routinely take longer than vehicle-client-pi's own 2-minute local-prompt default
+    // to answer an approval dialog (stepping away mid-conversation, thinking something over) --
+    // on that default, an unanswered prompt auto-denies and consumes the pending request the
+    // moment 2 minutes elapse, so a human who comes back and answers even slightly late finds
+    // their real click landing on a request that's already gone (confirmed live: several
+    // denials this session carried no comment because they were this auto-deny, not a real
+    // human answer). 0 blocks indefinitely instead -- an explicit Deny/cancel/abort still fails
+    // closed exactly as before, only the elapsed-time-based auto-deny is disabled.
+    approval: { approvalPromptTimeoutMs: 0 },
     approvalPresentation: "overlay",
     // Presents Approve/Deny (plus an optional ctrl+g comment) through requestPiAskPrompt's
     // shared searchable-select component instead of registerVehicleTools' own default
@@ -416,13 +425,7 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // a headless/RPC caller's own follow-up message anyway.
     const approvalOutcomePolling = new BoundedPoll();
     pi.on("session_start", (_event, ctx) => {
-      // TEMPORARY diagnostic pending a real fix: confirms live whether session_start's own
-      // ctx.hasUI actually reflects a real UI session -- everything downstream (this poll,
-      // WatchEventsPoll, WatchesOverlay) is gated on exactly this value, never independently
-      // verified against a real deployment before now.
-      ctx.ui?.notify?.(`[pi-tickets diagnostic] session_start fired, hasUI=${ctx.hasUI}`, "info");
       if (!ctx.hasUI) return;
-      ctx.ui.notify("[pi-tickets diagnostic] approval outcome poll starting now", "info");
       watchEventsPoll ??= new WatchEventsPoll({
         client,
         pi,

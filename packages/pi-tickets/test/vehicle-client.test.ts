@@ -469,6 +469,48 @@ describe("registerTicketsVehicle", () => {
     expect(result).toBeTruthy();
   });
 
+  it("configures approvalPromptTimeoutMs: 0 -- no elapsed-time auto-deny reaches the dialog fallback's own timeout option at all", async () => {
+    const { pi, tools, fire } = fakePi();
+    const client = new ApprovalFlowClient(manifest([operation("issue.create", { effect: "external-write" })]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+    const tool = tools.find((t) => t.name === "issue_create")!;
+    const execute = tool.execute as unknown as (
+      toolCallId: string,
+      input: unknown,
+      signal: AbortSignal,
+      onUpdate: undefined,
+      context: unknown,
+    ) => Promise<unknown>;
+
+    // No mode/ui.custom/setEditorComponent -- neither overlay nor integrated hosting is
+    // available, so this falls through to the plain dialog fallback (ctx.ui.select), the one
+    // path that exposes its own resolved timeout option directly for inspection.
+    const dialogOpts: unknown[] = [];
+    await execute("call-1", { backend: "github", input: {} }, new AbortController().signal, undefined, {
+      hasUI: true,
+      sessionManager: { getSessionId: () => "session-a" },
+      ui: {
+        select: async (_title: string, _options: string[], opts: unknown) => {
+          dialogOpts.push(opts);
+          return "Approve";
+        },
+        input: async () => undefined,
+        confirm: async () => {
+          throw new Error("must not use the default requestPiApproval confirm dialog");
+        },
+        notify: () => {},
+      },
+    });
+
+    expect(dialogOpts).toEqual([undefined]); // falsy timeout -- askViaDialogs never builds a {timeout} dialogOpts at all
+  });
+
   it("wires renderCall/renderResult for every registered operation, using the paired bounded presentation contract", async () => {
     const { pi, tools, fire } = fakePi();
     const client = new FakeClient(manifest([operation("issue.comment_add")]));
