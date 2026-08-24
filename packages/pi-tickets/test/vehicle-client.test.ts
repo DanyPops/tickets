@@ -147,6 +147,7 @@ function fakePi() {
   const tools: ToolDefinition[] = [];
   let active: string[] = [];
   const handlers: Record<string, FakeEventHandler[]> = {};
+  const sentMessages: Array<{ message: unknown; options: unknown }> = [];
   const pi = {
     registerTool: (tool: ToolDefinition) => {
       tools.push(tool);
@@ -161,6 +162,7 @@ function fakePi() {
       if (!handlers[event]) handlers[event] = [];
       handlers[event].push(handler);
     },
+    sendMessage: (message: unknown, options: unknown) => sentMessages.push({ message, options }),
   } as unknown as ExtensionAPI;
   const notifications: Array<{ message: string; type: string }> = [];
   const fire = async (event: string, toolName?: string, ctxOverrides: Record<string, unknown> = {}) => {
@@ -170,7 +172,7 @@ function fakePi() {
     };
     for (const handler of handlers[event] ?? []) await handler({ toolName }, ctx);
   };
-  return { pi, tools, active: () => active, fire, notifications };
+  return { pi, tools, active: () => active, fire, notifications, sentMessages };
 }
 
 // registerVehicleTools()'s shared Vehicle Shell handle and in-process vehicle registry are both
@@ -629,6 +631,117 @@ describe("registerTicketsVehicle's watch-events poll", () => {
 
     expect(client.calls.some((c) => c.name === "watch.events")).toBe(false);
     await fire("session_shutdown");
+  });
+});
+
+describe("registerTicketsVehicle's approval outcome poll", () => {
+  /** Simulates a VehicleRegistry with configureApprovals() enabled but hasUI: false throughout --
+   * every gated call fails immediately with the generic pre-ask approval-required failure, the
+   * exact case onApprovalPending exists for. Separately answers vehicle.approval.status with
+   * whatever a test configures via statusResponse. */
+  class ApprovalPendingStatusClient implements VehicleClient {
+    readonly calls: Array<{ name: string; input: unknown }> = [];
+    statusResponse: unknown = { requestId: "req-1", status: "pending" };
+
+    constructor(private value: VehicleManifest) {}
+
+    manifest(): Promise<VehicleManifest> {
+      return Promise.resolve(this.value);
+    }
+
+    async invoke<Output = unknown>(name: string, version: number, input: unknown): Promise<Output> {
+      this.calls.push({ name, input });
+      if (name === "vehicle.approval.status") return this.statusResponse as Output;
+      throw new VehicleError("approval-required", `${name}@${version} requires approval`, {
+        category: "authorization",
+        retryable: true,
+        details: { requestId: "req-1", expiresAt: Date.now() + 60_000 },
+      });
+    }
+
+    close(): Promise<void> {
+      return Promise.resolve();
+    }
+  }
+
+  it("delivers a resolved outcome -- with the human's own comment -- for a requestId onApprovalPending recorded from a no-UI call", async () => {
+    const { pi, tools, fire, sentMessages } = fakePi();
+    const client = new ApprovalPendingStatusClient(manifest([operation("issue.create", { effect: "external-write" })]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+
+    const tool = tools.find((t) => t.name === "issue_create")!;
+    const execute = tool.execute as unknown as (
+      toolCallId: string,
+      input: unknown,
+      signal: AbortSignal,
+      onUpdate: undefined,
+      context: unknown,
+    ) => Promise<unknown>;
+    await execute("call-1", { backend: "github", input: {} }, new AbortController().signal, undefined, {
+      hasUI: false,
+      sessionManager: { getSessionId: () => "session-a" },
+    }).catch(() => {});
+
+    try {
+      client.statusResponse = {
+        requestId: "req-1",
+        status: "resolved",
+        outcome: { decision: "denied", decidedAt: Date.now(), comment: "wrong environment" },
+      };
+      await fire("session_start", undefined, { hasUI: true, sessionManager: { getSessionId: () => "session-a" } });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(
+        client.calls.some((c) => c.name === "vehicle.approval.status" && (c.input as { requestId: string }).requestId === "req-1"),
+      ).toBe(true);
+      expect(sentMessages).toHaveLength(1);
+      const content = (sentMessages[0]?.message as { content?: string })?.content ?? "";
+      expect(content).toContain("req-1");
+      expect(content).toContain("denied");
+      expect(content).toContain("wrong environment");
+    } finally {
+      await fire("session_shutdown");
+    }
+  });
+
+  it("never delivers anything for a requestId still pending", async () => {
+    const { pi, tools, fire, sentMessages } = fakePi();
+    const client = new ApprovalPendingStatusClient(manifest([operation("issue.create", { effect: "external-write" })]));
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+
+    const tool = tools.find((t) => t.name === "issue_create")!;
+    const execute = tool.execute as unknown as (
+      toolCallId: string,
+      input: unknown,
+      signal: AbortSignal,
+      onUpdate: undefined,
+      context: unknown,
+    ) => Promise<unknown>;
+    await execute("call-1", { backend: "github", input: {} }, new AbortController().signal, undefined, {
+      hasUI: false,
+      sessionManager: { getSessionId: () => "session-a" },
+    }).catch(() => {});
+
+    try {
+      await fire("session_start", undefined, { hasUI: true, sessionManager: { getSessionId: () => "session-a" } });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(sentMessages).toEqual([]);
+    } finally {
+      await fire("session_shutdown");
+    }
   });
 });
 

@@ -38,12 +38,15 @@ import {
   type VehicleReadyEvent,
   type VehicleReadyRetryOptions,
 } from "@danypops/vehicle-client-pi";
+import { createAgentNotifier } from "@danypops/vehicle-client-pi/agent-poll-ticker";
 import { requestPiApprovalViaAskPrompt } from "@danypops/vehicle-client-pi/hitl-approval-ask-prompt";
 import { registerVehicleStatusRefresh } from "@danypops/vehicle-client-pi/pi-status-refresh";
+import { VehicleApprovalOutcomePoll } from "@danypops/vehicle-client-pi/vehicle-approval-outcome-poll";
 import type { VehicleClient, VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { renderTicketsBoard } from "./board-table.js";
+import { BoundedPoll } from "./bounded-poll.js";
 import { renderTicketsListTable } from "./list-table.js";
 import {
   formatTicketsPresentation,
@@ -53,7 +56,7 @@ import {
 } from "./presentation.js";
 import { buildStagePushApprovalPrompt, formatApprovalInput, renderResultText, titleForApproval } from "./render.js";
 import { forgetStagedPayload, getStagedPayload, recordStagedItemsFromOutput } from "./stage-cache.js";
-import { WatchEventsPoll } from "./watch-events-poll.js";
+import { DEFAULT_WATCH_EVENTS_POLL_INTERVAL_MS, WatchEventsPoll } from "./watch-events-poll.js";
 import { WatchesOverlay } from "./watches-overlay.js";
 
 /**
@@ -281,6 +284,14 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     { connectRetry: deps.connectRetry ?? true },
   );
 
+  // Push half of the Approval Gate's outcome-visibility story (see
+  // @danypops/vehicle-client-pi's own vehicle-approval-outcome-poll.ts doc comment for the
+  // Papyrus Discussion parallel this closes the gap with): onApprovalPending below records every
+  // requestId whose eventual decision this exact call could never carry back on its own (no UI to
+  // ask, or the resolve round trip itself failing); pollApprovalOutcomes below delivers the
+  // decision -- and any human comment -- the first time a later poll observes it resolved.
+  const approvalOutcomePoll = new VehicleApprovalOutcomePoll(client, createAgentNotifier(pi));
+
   const options: RegisterVehicleToolsWhenReadyOptions = {
     permissions: ["tickets:read", "tickets:write", "vehicle:approvals:resolve"],
     principal: { id: "pi-tickets" },
@@ -320,6 +331,7 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
         if (id) forgetStagedPayload(id);
       }
     },
+    onApprovalPending: (requestId, descriptor) => approvalOutcomePoll.record(requestId, descriptor.name),
     approvalPresentation: "overlay",
     // Presents Approve/Deny (plus an optional ctrl+g comment) through requestPiAskPrompt's
     // shared searchable-select component instead of registerVehicleTools' own default
@@ -399,6 +411,10 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // issue.subscribed/query.subscribed already exist and are documented "never a live backend
     // call, cheap to call frequently" -- no new backend operation was needed for this widget.
     let watchesOverlay: WatchesOverlay | undefined;
+    // Drives approvalOutcomePoll.poll() -- see its own construction above for why. Gated on
+    // ctx.hasUI the same as every other passive background notifier here: nobody would ever see
+    // a headless/RPC caller's own follow-up message anyway.
+    const approvalOutcomePolling = new BoundedPoll();
     pi.on("session_start", (_event, ctx) => {
       if (!ctx.hasUI) return;
       watchEventsPoll ??= new WatchEventsPoll({
@@ -412,10 +428,13 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
       watchesOverlay.setUI(ctx.ui);
       void watchesOverlay.refresh();
       watchesOverlay.startPolling();
+      approvalOutcomePolling.start(DEFAULT_WATCH_EVENTS_POLL_INTERVAL_MS, () => void approvalOutcomePoll.poll());
+      void approvalOutcomePoll.poll(); // an outcome may already be resolved before this session ever started polling
     });
     pi.on("session_shutdown", () => {
       watchEventsPoll?.stop();
       watchesOverlay?.dispose();
+      approvalOutcomePolling.stop();
     });
 
     return current;
