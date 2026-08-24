@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "tickets-workspace",
+      "dependencies": {
+        "@danypops/vehicle-client-pi": "^0.48.1",
+      },
       "devDependencies": {
         "@biomejs/biome": "^2.5.6",
         "eslint": "^10.8.0",
@@ -15,7 +18,7 @@
     },
     "packages/pi-tickets": {
       "name": "@danypops/pi-tickets",
-      "version": "0.29.2",
+      "version": "0.29.3",
       "dependencies": {
         "@danypops/tickets": "^0.16.0",
         "@danypops/vehicle-client": "^0.10.1",
@@ -146,7 +149,7 @@
 
     "@danypops/vehicle-client": ["@danypops/vehicle-client@0.10.7", "", { "dependencies": { "@danypops/vehicle-core": "^0.19.0", "@danypops/vehicle-server": "^0.27.0" } }, "sha512-mRkpiJ/ag5I3yMf4Fx9U8E80TRQzuPZfmNz5hhIV3Wt5e8P+BazxJZ+BjJrtTZXCTMbkGP0D+h8iZUORQ/IT2A=="],
 
-    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.48.0", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.10.7", "@danypops/vehicle-core": "^0.19.0", "@danypops/vehicle-server": "^0.27.0", "malevich-tui-components": "^0.28.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-beSYrTveOOilsoxoqRwC2jWJZsNjgphO81va5n5D2RANjKok1EY4x0aVsmAPFGP/6/2ElMvufzbPm3QVeWAz/A=="],
+    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.48.1", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.10.7", "@danypops/vehicle-core": "^0.19.0", "@danypops/vehicle-server": "^0.27.0", "malevich-tui-components": "^0.28.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-+mO8v4IsWUUNLVcd3mCTderkKFwZATa89z4AzxWCfE1Oq+yvyoUyWWefuq8Yg+vRbaYGndqczY4QXqIrlfzMgA=="],
 
     "@danypops/vehicle-conformance": ["@danypops/vehicle-conformance@0.4.0", "", { "dependencies": { "@danypops/vehicle-core": "^0.17.1", "@danypops/vehicle-server": "^0.25.2" } }, "sha512-Qvp0SZ1I1M758Cp2onSK3r7YWIK/hrqd8tUP1Fl1zG25eigjSjhgmEA9HHRNRYg+D8pZeUUNINwTLRfKlZ0rVg=="],
 
