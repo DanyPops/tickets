@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { formatApprovalInput, renderResultText, titleForApproval } from "../src/render.js";
+import { buildStagePushApprovalPrompt, formatApprovalInput, renderResultText, titleForApproval } from "../src/render.js";
 import {
   SYNTHETIC_APPROVE_INPUT,
   SYNTHETIC_GITHUB_CREATE_INPUT,
@@ -196,6 +196,43 @@ describe("titleForApproval", () => {
 
   it("falls back to a Title Cased split of the operation name for anything not explicitly listed", () => {
     expect(titleForApproval("stage.push", { id: "stage-1" })).toBe("Stage Push?");
+  });
+});
+
+describe("buildStagePushApprovalPrompt", () => {
+  it("returns undefined for a cold cache -- the caller falls back to the plain id-only default prompt", () => {
+    expect(buildStagePushApprovalPrompt(undefined)).toBeUndefined();
+  });
+
+  it("names the new ticket's own title for a cached create-kind payload, same as a direct issue.create approval would", () => {
+    const staged = buildStagePushApprovalPrompt({
+      kind: "create",
+      backend: "jira",
+      input: { title: "Add retry/backoff", issueType: "Story" },
+    });
+    expect(staged?.title).toBe('Create "Add retry/backoff"?');
+    expect(staged?.message).toContain("stage.push (external-write effect) commits this staged payload to its live backend.");
+    expect(staged?.message).toContain("kind: create");
+    expect(staged?.message).toContain("issueType: Story");
+    expect(staged?.message).not.toContain("{");
+  });
+
+  it("names the real ref for a cached update-kind payload, same as a direct issue.update approval would", () => {
+    const staged = buildStagePushApprovalPrompt({ kind: "update", ref: "jira:PROJ-1", input: { title: "Renamed" } });
+    expect(staged?.title).toBe("Update jira:PROJ-1?");
+    expect(staged?.message).toContain("ref: jira:PROJ-1");
+  });
+
+  it("names the real ref for a cached comment-kind payload, same as a direct issue.comment_add approval would", () => {
+    const staged = buildStagePushApprovalPrompt({ kind: "comment", ref: "github:#101", body: "lgtm" });
+    expect(staged?.title).toBe("Comment on github:#101?");
+    expect(staged?.message).toContain("body: lgtm");
+  });
+
+  it("falls back to titleForApproval's own generic stage.push naming for a payload with an unrecognized/missing kind, but still shows its real content", () => {
+    const staged = buildStagePushApprovalPrompt({ backend: "jira", input: { title: "No kind field" } });
+    expect(staged?.title).toBe('Stage Push "No kind field"?');
+    expect(staged?.message).toContain("title: No kind field");
   });
 });
 

@@ -100,6 +100,45 @@ class ApprovalFlowClient implements VehicleClient {
   }
 }
 
+/**
+ * Simulates the exact stage.add -> stage.push sequence a real approval flow exercises: stage.add
+ * is un-gated (local-write) and returns its real item immediately; stage.push mirrors
+ * ApprovalFlowClient's own approval-required dance, but only for its own operation.
+ */
+class StagePushApprovalFlowClient implements VehicleClient {
+  readonly calls: Array<{ name: string; version: number; input: unknown; options: VehicleInvocationOptions | undefined }> = [];
+
+  constructor(private value: VehicleManifest) {}
+
+  manifest(): Promise<VehicleManifest> {
+    return Promise.resolve(this.value);
+  }
+
+  async invoke<Output = unknown>(name: string, version: number, input: unknown, options?: VehicleInvocationOptions): Promise<Output> {
+    this.calls.push({ name, version, input, options });
+    if (name === "stage.add") {
+      const { payload } = input as { payload: unknown };
+      return {
+        item: { id: "staged-1", payload, createdAt: "2026-01-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z" },
+      } as Output;
+    }
+    if (name === "vehicle.approval.resolve") {
+      const { requestId, decision } = input as { requestId: string; decision: "granted" | "denied" };
+      return { requestId, decision, ...(decision === "granted" ? { capability: "real-capability" } : {}) } as Output;
+    }
+    if (options?.approvalCapability === "real-capability") return { result: { issue: { ref: "jira:PROJ-1" } } } as Output;
+    throw new VehicleError("approval-required", `${name}@${version} requires approval`, {
+      category: "authorization",
+      retryable: true,
+      details: { requestId: "req-1", expiresAt: Date.now() + 60_000 },
+    });
+  }
+
+  close(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
 // Kept as a hand-rolled fake here rather than @danypops/pi-extension-harness
 // (not yet published as of this commit -- once it is, this and the ExtensionAPI
 // stub below become a real follow-up: see the tracked task for adopting it in
@@ -316,6 +355,59 @@ describe("registerTicketsVehicle", () => {
     expect(client.calls[1]?.input).toMatchObject({ requestId: "req-1", decision: "granted" });
     expect(client.calls[2]?.options?.approvalCapability).toBe("real-capability");
     expect(result).toBeTruthy();
+  });
+
+  it("stage.push's approval prompt shows the real staged payload -- cached from this session's own earlier stage.add -- instead of the bare {id} its own call input carries", async () => {
+    const { pi, tools, fire } = fakePi();
+    const client = new StagePushApprovalFlowClient(
+      manifest([operation("stage.add", { effect: "local-write" }), operation("stage.push", { effect: "external-write" })]),
+    );
+    const deps: TicketsVehicleDeps = {
+      resolveTarget: () => ({ baseUrl: "http://127.0.0.1:9", token: "t" }),
+      createClient: () => client,
+    };
+    const ready = registerTicketsVehicle(pi, deps);
+    await fire("session_start");
+    await ready;
+
+    const addTool = tools.find((t) => t.name === "stage_add")!;
+    const pushTool = tools.find((t) => t.name === "stage_push")!;
+    type Execute = (toolCallId: string, input: unknown, signal: AbortSignal, onUpdate: undefined, context: unknown) => Promise<unknown>;
+    const execute = (tool: typeof addTool) => tool.execute as unknown as Execute;
+
+    const stagedPayload = { kind: "create", backend: "jira", input: { title: "Add retry/backoff", issueType: "Story" } };
+    await execute(addTool)("call-add", { payload: stagedPayload }, new AbortController().signal, undefined, {
+      sessionManager: { getSessionId: () => "session-a" },
+      hasUI: false,
+    });
+
+    const selectCalls: Array<{ title: string; options: string[] }> = [];
+    await execute(pushTool)("call-push", { id: "staged-1" }, new AbortController().signal, undefined, {
+      sessionManager: { getSessionId: () => "session-a" },
+      hasUI: true,
+      ui: {
+        select: async (title: string, opts: string[]) => {
+          selectCalls.push({ title, options: opts });
+          return "Approve";
+        },
+        input: async () => undefined,
+        confirm: async () => {
+          throw new Error("the default requestPiApproval dialog must not run once requestApproval is wired");
+        },
+        notify: () => {},
+      },
+    });
+
+    expect(selectCalls).toHaveLength(1);
+    const shownPrompt = selectCalls[0]?.title ?? "";
+    // The real approval question (issue.create's own new-ticket-title naming), not the generic "Stage Push?".
+    expect(shownPrompt).toContain('Create "Add retry/backoff"?');
+    expect(shownPrompt).toContain("stage.push (external-write effect) commits this staged payload to its live backend.");
+    // The real staged field content, not just the bare {id: "staged-1"} stage.push's own call input carries.
+    expect(shownPrompt).toContain("issueType: Story");
+    expect(shownPrompt).not.toContain("staged payload content isn't cached");
+    expect(client.calls.map((call) => call.name)).toEqual(["stage.add", "stage.push", "vehicle.approval.resolve", "stage.push"]);
+    expect(client.calls[3]?.options?.approvalCapability).toBe("real-capability");
   });
 
   it('requests the overlay presentation (a bigger centered box) rather than requestPiAskPrompt\'s own "integrated" default (docked in the input editor, confirmed live to need scrolling for ordinary approval content)', async () => {

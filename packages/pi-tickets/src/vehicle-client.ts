@@ -51,7 +51,8 @@ import {
   projectTicketsPresentation,
   TICKETS_PRESENTATION_MAX_BYTES,
 } from "./presentation.js";
-import { formatApprovalInput, renderResultText, titleForApproval } from "./render.js";
+import { buildStagePushApprovalPrompt, formatApprovalInput, renderResultText, titleForApproval } from "./render.js";
+import { forgetStagedPayload, getStagedPayload, recordStagedItemsFromOutput } from "./stage-cache.js";
 import { WatchEventsPoll } from "./watch-events-poll.js";
 import { WatchesOverlay } from "./watches-overlay.js";
 
@@ -209,6 +210,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Extracts a staged item's own `id` from a stage.* operation's call input, without assuming a schema beyond "has a string id field" -- shared by onInvoked's cache-eviction side effect and approvalPrompt's cache lookup. */
+function stageItemId(input: unknown): string | undefined {
+  return typeof input === "object" && input !== null && typeof (input as { id?: unknown }).id === "string"
+    ? (input as { id: string }).id
+    : undefined;
+}
+
 /**
  * Surfaces the outcomes worth a human seeing: a real resolution/registration
  * error (not just "daemon isn't up yet"), and the terminal exhausted state
@@ -295,6 +303,18 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // as a centered floating box sized up to 80% of the terminal's own width/height (see
     // vehicle-client-pi's own DUAL_HOST_OVERLAY_OPTIONS) -- meaningfully more reading room for
     // exactly the approvalPrompt content below, without needing any change outside this package.
+    // Best-effort side effect only (see stage-cache.ts's own doc comment): records whichever
+    // staged item(s) a stage.add/stage.list/stage.show/stage.patch call just returned, and
+    // forgets one once its stage.push actually lands (or it's explicitly dropped) -- so a
+    // same-session stage.push approval prompt below can show the real payload instead of the
+    // bare `{id}` its own call input carries.
+    onInvoked: (request, output) => {
+      recordStagedItemsFromOutput(request.descriptor.name, output);
+      if (request.descriptor.name === "stage.push" || request.descriptor.name === "stage.drop") {
+        const id = stageItemId(request.input);
+        if (id) forgetStagedPayload(id);
+      }
+    },
     approvalPresentation: "overlay",
     // Presents Approve/Deny (plus an optional ctrl+g comment) through requestPiAskPrompt's
     // shared searchable-select component instead of registerVehicleTools' own default
@@ -309,10 +329,21 @@ export function registerTicketsVehicle(pi: ExtensionAPI, deps: TicketsVehicleDep
     // values, just formatted as plain `key: value` lines (see formatApprovalInput's own doc
     // comment for why this must stay lossless, unlike presentation.ts's result-formatting
     // redaction).
-    approvalPrompt: (descriptor: VehicleOperationDescriptor, input: unknown) => ({
-      title: titleForApproval(descriptor.name, input),
-      message: `${descriptor.name} (${descriptor.effect} effect) requests approval before it can run.\n\n${formatApprovalInput(input)}`,
-    }),
+    approvalPrompt: (descriptor: VehicleOperationDescriptor, input: unknown) => {
+      if (descriptor.name === "stage.push") {
+        const id = stageItemId(input);
+        const staged = buildStagePushApprovalPrompt(id ? getStagedPayload(id) : undefined);
+        if (staged) return staged;
+        return {
+          title: titleForApproval(descriptor.name, input),
+          message: `${descriptor.name} (${descriptor.effect} effect) requests approval before it can run.\n\n${formatApprovalInput(input)}\n\n(staged payload content isn't cached in this session -- run stage_show first to review it before approving.)`,
+        };
+      }
+      return {
+        title: titleForApproval(descriptor.name, input),
+        message: `${descriptor.name} (${descriptor.effect} effect) requests approval before it can run.\n\n${formatApprovalInput(input)}`,
+      };
+    },
     renderers: (descriptor: VehicleOperationDescriptor) => ({
       renderCall: (args, theme) => renderTicketsCall(descriptor.name, args, theme),
     }),

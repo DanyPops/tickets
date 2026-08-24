@@ -163,6 +163,42 @@ function approvalVerb(operationName: string): string {
   );
 }
 
+/**
+ * Maps a staged payload's own `kind` discriminant (create/update/comment) to the underlying
+ * ticket operation whose approval-prompt shape it should reuse -- titleForApproval already knows
+ * how to name each of the three (issue.create's new-ticket title, issue.update/issue.comment_add's
+ * ref), so a staged item's own prompt reuses that logic on its real payload shape instead of
+ * re-deriving the same three cases a second time.
+ */
+const UNDERLYING_OPERATION_FOR_STAGE_KIND: Record<string, string> = {
+  create: "issue.create",
+  update: "issue.update",
+  comment: "issue.comment_add",
+};
+
+function stagePayloadKind(payload: unknown): string | undefined {
+  return isApprovalRecord(payload) && typeof payload.kind === "string" ? payload.kind : undefined;
+}
+
+/**
+ * Builds a stage.push approval prompt around the real staged payload instead of stage.push's own
+ * bare `{id}` call input -- the payload itself is never part of stage.push's own tool-call
+ * arguments, only the daemon-side stage store has it (see vehicle-client.ts's session-local stage
+ * payload cache). Returns undefined when there's no cached payload to show (a cold cache: a
+ * different session staged it, or this one restarted since), so the caller falls back to the
+ * plain id-only default prompt instead of a broken/empty one.
+ */
+export function buildStagePushApprovalPrompt(cachedPayload: unknown): { title: string; message: string } | undefined {
+  if (cachedPayload === undefined) return undefined;
+  const kind = stagePayloadKind(cachedPayload);
+  const underlyingOperation = kind ? UNDERLYING_OPERATION_FOR_STAGE_KIND[kind] : undefined;
+  const title = underlyingOperation ? titleForApproval(underlyingOperation, cachedPayload) : titleForApproval("stage.push", cachedPayload);
+  return {
+    title,
+    message: `stage.push (external-write effect) commits this staged payload to its live backend.\n\n${formatApprovalInput(cachedPayload)}`,
+  };
+}
+
 export function titleForApproval(operationName: string, input: unknown): string {
   const record = isApprovalRecord(input) ? input : undefined;
   const ref = typeof record?.ref === "string" ? record.ref : undefined;
