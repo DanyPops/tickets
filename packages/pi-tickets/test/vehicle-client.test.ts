@@ -352,7 +352,7 @@ describe("registerTicketsVehicle", () => {
     });
 
     expect(selectCalls).toHaveLength(1);
-    expect(selectCalls[0]?.options).toEqual(["Approve", "Deny"]);
+    expect(selectCalls[0]?.options).toEqual(["Approve", "Deny", "Deny (add comment)"]);
     expect(client.calls.map((call) => call.name)).toEqual(["issue.create", "vehicle.approval.resolve", "issue.create"]);
     expect(client.calls[1]?.input).toMatchObject({ requestId: "req-1", decision: "granted" });
     expect(client.calls[2]?.options?.approvalCapability).toBe("real-capability");
