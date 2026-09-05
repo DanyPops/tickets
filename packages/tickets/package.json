@@ -1,6 +1,6 @@
 {
   "name": "@danypops/tickets",
-  "version": "0.16.4",
+  "version": "0.16.5",
   "description": "Unified CLI, daemon, and TypeScript library for issue tracking across GitHub, GitLab, and Jira.",
   "type": "module",
   "license": "MIT",
@@ -39,6 +39,7 @@
       "name": "tickets",
       "displayName": "Tickets daemon",
       "binPath": "src/cli/index.ts",
+      "runtime": "bun",
       "args": ["serve"],
       "handleFilename": "handle.json",
       "restartOnFailure": true,
